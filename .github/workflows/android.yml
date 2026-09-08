@@ -1,0 +1,52 @@
+name: Build Android APK From ZIP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Lấy repository.
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Cài Java.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Giải nén source Android.
+      - name: Extract Android source
+        run: |
+          unzip GiaoHangPro_Kotlin_OSMDroid_BubbleMarkers_UI_List.zip -d android_source
+
+      # Tìm thư mục chứa Gradle Wrapper.
+      - name: Find Android project
+        run: |
+          PROJECT_DIR=$(find android_source -name gradlew -type f | head -n 1 | xargs dirname)
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
+      # Cấp quyền chạy Gradle.
+      - name: Make Gradle executable
+        run: |
+          chmod +x "$PROJECT_DIR/gradlew"
+
+      # Build APK Debug.
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleDebug
+
+      # Upload APK.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GiaoHangPro-APK
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error 
