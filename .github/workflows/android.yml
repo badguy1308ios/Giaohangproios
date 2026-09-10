@@ -20,20 +20,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply requested UI update
+      - name: Fix UI compile helpers
         shell: bash
-        run: python3 tools/apply_ui_20260910.py
+        run: python3 tools/fix_ui_compile_20260910.py
 
-      - name: Save app source changes
+      - name: Save source fixes
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "Source already updated"
+            echo "Source helpers already fixed"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Improve map, customer detail and customer editor [skip ci]"
+            git commit -m "Restore UI helpers and coordinate picker [skip ci]"
             git push origin HEAD:main
           fi
 
@@ -91,4 +91,4 @@ jobs:
           echo "- Smooth tab switching" >> "$GITHUB_STEP_SUMMARY"
           echo "- Compact map/order UI + green amount" >> "$GITHUB_STEP_SUMMARY"
           echo "- Reworked customer detail and multi-value editor" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Coordinate picker stays inside safe screen area" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Safe coordinate picker focused on user position" >> "$GITHUB_STEP_SUMMARY"
