@@ -3,8 +3,7 @@ run-name: "GiaoHangPro v1.0.${{ github.run_number }} • ${{ github.event_name }
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -21,116 +20,316 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply compact order and customer UI
+      - name: Apply requested compact UI and QR scanner
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
           s = p.read_text()
 
-          def patch_section(text, start, end, replacements):
+          def section(text, start, end, reps):
               a = text.find(start)
-              if a < 0:
-                  return text
+              if a < 0: return text
               b = text.find(end, a + len(start))
-              if b < 0:
-                  return text
+              if b < 0: return text
               part = text[a:b]
-              for old, new in replacements:
-                  part = part.replace(old, new)
+              for old,new in reps:
+                  part = part.replace(old,new)
               return text[:a] + part + text[b:]
 
-          # Tab Chi tiết đơn: gọn chữ, icon, tag và hàng nút.
-          s = patch_section(s, '@Composable\nfun OrderCard', '@Composable\nfun OrderInfoRow', [
-              ('Column(Modifier.padding(12.dp))', 'Column(Modifier.padding(9.dp))'),
-              ('Spacer(Modifier.width(12.dp))', 'Spacer(Modifier.width(8.dp))'),
-              ('fontSize = 19.sp', 'fontSize = 17.sp'),
-              ('fontSize = 18.sp', 'fontSize = 15.sp'),
-              ('Spacer(Modifier.height(7.dp))', 'Spacer(Modifier.height(4.dp))'),
-              ('Spacer(Modifier.height(9.dp))', 'Spacer(Modifier.height(6.dp))'),
+          # Màu chủ đạo: cam đất + xám trắng, loại bỏ xanh khỏi UI.
+          s = s.replace('private val Orange = Color(0xFFE34B0A)', 'private val Orange = Color(0xFFC65A22)')
+          s = s.replace('private val OrangeDark = Color(0xFFC94209)', 'private val OrangeDark = Color(0xFFA94318)')
+          s = s.replace('private val OrangeLight = Color(0xFFFFEEE7)', 'private val OrangeLight = Color(0xFFFFF3EC)')
+          s = s.replace('private val Blue = Color(0xFF168DE2)', 'private val Blue = Orange')
+          s = s.replace('private val Navy = Color(0xFF09295A)', 'private val Navy = Color(0xFF3E3A37)')
+          s = s.replace('private val TextGray = Color(0xFF657894)', 'private val TextGray = Color(0xFF77716C)')
+          s = s.replace('private val Background = Color(0xFFF4F8FC)', 'private val Background = Color(0xFFF6F4F1)')
+          s = s.replace('private val Border = Color(0xFFD7E2EF)', 'private val Border = Color(0xFFDDD8D2)')
+          s = s.replace('Color(0xFFE1EAF6)', 'Color(0xFFEDE9E4)')
+          s = s.replace('Color(0xFF168DE2)', 'Orange')
+
+          # ZXing QR imports.
+          if 'com.journeyapps.barcodescanner.ScanContract' not in s:
+              s = s.replace('import org.json.JSONObject\n', 'import org.json.JSONObject\nimport com.journeyapps.barcodescanner.ScanContract\nimport com.journeyapps.barcodescanner.ScanOptions\n')
+
+          # TAB CHI TIẾT ĐƠN: QR lồng trong ô tìm kiếm, lọc tức thì, padding sát lề.
+          pat = r'@Composable\nfun OrderListScreen\(orders: List<Order>\) \{.*?\n\}\n\n@Composable\nfun OrderCard'
+          repl = '''@Composable
+fun OrderListScreen(orders: List<Order>) {
+    var keyword by remember { mutableStateOf("") }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it }
+    }
+    val filteredOrders = remember(orders, keyword) {
+        val q = keyword.trim()
+        if (q.isBlank()) orders else orders.filter {
+            it.code.contains(q, true) || it.customer.contains(q, true) ||
+                it.phone.contains(q, true) || it.address.contains(q, true)
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        TopHeader()
+        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
+            Spacer(Modifier.height(6.dp))
+            SearchBox(
+                value = keyword,
+                onValueChange = { keyword = it },
+                onClear = { keyword = "" },
+                onQrClick = {
+                    scanLauncher.launch(ScanOptions().apply {
+                        setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                        setPrompt("Đưa mã QR vào giữa khung")
+                        setBeepEnabled(false)
+                        setOrientationLocked(false)
+                        setBarcodeImageEnabled(false)
+                    })
+                }
+            )
+            Spacer(Modifier.height(6.dp))
+            Text("Tổng số: ${filteredOrders.size} đơn", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                itemsIndexed(filteredOrders) { index, order -> OrderCard(index + 1, order) }
+            }
+        }
+    }
+}
+
+@Composable
+fun OrderCard'''
+          s = re.sub(pat, repl, s, count=1, flags=re.S)
+
+          s = section(s, '@Composable\nfun OrderCard', '@Composable\nfun OrderInfoRow', [
+              ('Column(Modifier.padding(9.dp))', 'Column(Modifier.padding(7.dp))'),
+              ('Column(Modifier.padding(12.dp))', 'Column(Modifier.padding(7.dp))'),
+              ('shape = RoundedCornerShape(20.dp)', 'shape = RoundedCornerShape(14.dp)'),
+              ('Spacer(Modifier.width(8.dp))', 'Spacer(Modifier.width(6.dp))'),
+              ('Icon(Icons.Default.Visibility, null, tint = TextGray)\n                Spacer(Modifier.width(7.dp))\n', ''),
+              ('color = Navy,\n                    fontSize = 15.sp,\n                    fontWeight = FontWeight.Bold', 'color = OrangeDark,\n                    fontSize = 15.sp,\n                    fontWeight = FontWeight.Bold'),
+              ('ActionButton("✓  Giao", Icons.Default.CheckCircle, filled = true)', 'ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true)'),
+              ('Arrangement.spacedBy(8.dp)', 'Arrangement.spacedBy(5.dp)'),
           ])
-          s = patch_section(s, '@Composable\nfun OrderInfoRow', '@Composable\nfun Tag', [
-              ('modifier = Modifier.size(27.dp)', 'modifier = Modifier.size(20.dp)'),
-              ('Spacer(Modifier.width(10.dp))', 'Spacer(Modifier.width(7.dp))'),
-              ('fontSize = 16.sp', 'fontSize = 14.sp'),
-              ('.padding(vertical = 2.dp)', '.padding(vertical = 1.dp)'),
-          ])
-          s = patch_section(s, '@Composable\nfun Tag', '@Composable\nfun RowScope.ActionButton', [
-              ('.padding(horizontal = 14.dp, vertical = 6.dp)', '.padding(horizontal = 10.dp, vertical = 4.dp)'),
-              ('fontSize = 14.sp', 'fontSize = 12.sp'),
-          ])
-          s = patch_section(s, '@Composable\nfun RowScope.ActionButton', '// ================================================================\n// 7. TAB KHÁCH HÀNG', [
-              ('.height(48.dp)', '.height(40.dp)'),
-              ('RoundedCornerShape(14.dp)', 'RoundedCornerShape(12.dp)'),
-              ('modifier = Modifier.size(23.dp)', 'modifier = Modifier.size(18.dp)'),
-              ('Spacer(Modifier.width(6.dp))', 'Spacer(Modifier.width(4.dp))'),
-              ('fontSize = 14.sp', 'fontSize = 12.sp'),
+          s = section(s, '@Composable\nfun RowScope.ActionButton', '// ================================================================\n// 7. TAB KHÁCH HÀNG', [
+              ('.height(40.dp)', '.height(36.dp)'),
+              ('modifier = Modifier.size(18.dp)', 'modifier = Modifier.size(15.dp)'),
+              ('fontSize = 12.sp', 'fontSize = 11.sp'),
+              ('background(if (filled) Blue else Color.White)', 'background(if (filled) Orange else OrangeLight)'),
+              ('.border(1.5.dp, Blue,', '.border(1.dp, Orange,'),
+              ('tint = if (filled) Color.White else Blue', 'tint = if (filled) Color.White else OrangeDark'),
           ])
 
-          # Tab Khách hàng: thu gọn card, avatar, chữ và 4 nút thao tác.
-          s = patch_section(s, '@Composable\nfun CustomerListScreen', '@Composable\nprivate fun CustomerSearchBox', [
-              ('start = 24.dp', 'start = 16.dp'),
-              ('end = 24.dp', 'end = 16.dp'),
-              ('top = 18.dp', 'top = 10.dp'),
-              ('bottom = 92.dp', 'bottom = 68.dp'),
-              ('Arrangement.spacedBy(10.dp)', 'Arrangement.spacedBy(7.dp)'),
-              ('.padding(start = 36.dp, bottom = 18.dp)', '.padding(start = 22.dp, bottom = 10.dp)'),
+          # TAB KHÁCH HÀNG: sát lề, card gần nhau, avatar giảm khoảng 40%, chữ giảm khoảng 10%.
+          s = section(s, '@Composable\nfun CustomerListScreen', '@Composable\nprivate fun CustomerSearchBox', [
+              ('start = 16.dp', 'start = 6.dp'), ('end = 16.dp', 'end = 6.dp'),
+              ('start = 24.dp', 'start = 6.dp'), ('end = 24.dp', 'end = 6.dp'),
+              ('top = 10.dp', 'top = 6.dp'), ('Arrangement.spacedBy(7.dp)', 'Arrangement.spacedBy(4.dp)'),
+              ('bottom = 68.dp', 'bottom = 58.dp'),
+              ('.padding(start = 22.dp, bottom = 10.dp)', '.padding(start = 12.dp, bottom = 6.dp)')
           ])
-          s = patch_section(s, '@Composable\nprivate fun CustomerSearchBox', '@Composable\nfun CustomerCard', [
-              ('.padding(horizontal = 26.dp, vertical = 18.dp)', '.padding(horizontal = 18.dp, vertical = 10.dp)'),
-              ('.heightIn(min = 66.dp)', '.heightIn(min = 52.dp)'),
-              ('fontSize = 18.sp', 'fontSize = 15.sp'),
-              ('modifier = Modifier.size(32.dp)', 'modifier = Modifier.size(24.dp)'),
-              ('modifier = Modifier.size(30.dp)', 'modifier = Modifier.size(22.dp)'),
-              ('RoundedCornerShape(18.dp)', 'RoundedCornerShape(15.dp)'),
+          s = section(s, '@Composable\nprivate fun CustomerSearchBox', '@Composable\nfun CustomerCard', [
+              ('.padding(horizontal = 18.dp, vertical = 10.dp)', '.padding(horizontal = 6.dp, vertical = 6.dp)'),
+              ('.heightIn(min = 52.dp)', '.heightIn(min = 48.dp)'),
           ])
-          s = patch_section(s, '@Composable\nfun CustomerCard', '@Composable\nprivate fun CustomerAvatar', [
-              ('.height(172.dp)', '.height(136.dp)'),
-              ('.padding(horizontal = 18.dp, vertical = 11.dp)', '.padding(horizontal = 12.dp, vertical = 8.dp)'),
-              ('Spacer(Modifier.width(22.dp))', 'Spacer(Modifier.width(12.dp))'),
-              ('fontSize = 21.sp', 'fontSize = 17.sp'),
-              ('Spacer(Modifier.height(7.dp))', 'Spacer(Modifier.height(3.dp))'),
-              ('fontSize = 18.sp', 'fontSize = 15.sp'),
+          s = section(s, '@Composable\nfun CustomerCard', '@Composable\nprivate fun CustomerAvatar', [
+              ('.height(136.dp)', '.height(118.dp)'),
+              ('.padding(horizontal = 12.dp, vertical = 8.dp)', '.padding(horizontal = 7.dp, vertical = 5.dp)'),
+              ('Spacer(Modifier.width(12.dp))', 'Spacer(Modifier.width(8.dp))'),
+              ('fontSize = 17.sp', 'fontSize = 15.sp'),
+              ('fontSize = 15.sp', 'fontSize = 13.sp'),
+              ('modifier = Modifier.size(24.dp)', 'modifier = Modifier.size(20.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun CustomerAvatar', '@Composable\nprivate fun CustomerQuickActions', [
+              ('.size(56.dp)', '.size(34.dp)'),
+              ('modifier = Modifier.size(30.dp)', 'modifier = Modifier.size(20.dp)'),
+              ('fontSize = 20.sp', 'fontSize = 14.sp'),
+          ])
+          s = section(s, '@Composable\nprivate fun CustomerQuickActions', '@Composable\nprivate fun CustomerActionButton', [
+              ('Arrangement.spacedBy(6.dp)', 'Arrangement.spacedBy(4.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun CustomerActionButton', '@Composable\nprivate fun CustomerAddButton', [
+              ('.height(42.dp)', '.height(36.dp)'),
+              ('.size(28.dp)', '.size(24.dp)'),
+              ('fontSize = 12.sp', 'fontSize = 11.sp'),
+              ('.background(Color(0xFFF4F1EE))', '.background(OrangeLight)'),
+          ])
+
+          # CHI TIẾT KHÁCH HÀNG: thu nhỏ toàn bộ, sát lề và gom block.
+          s = section(s, '@Composable\nfun CustomerDetailScreen', '@Composable\nprivate fun CustomerPageHeader', [
+              ('.padding(24.dp)', '.padding(8.dp)'),
+              ('Arrangement.spacedBy(24.dp)', 'Arrangement.spacedBy(8.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun CustomerPageHeader', '@Composable\nprivate fun CustomerSideActions', [
+              ('.height(82.dp)', '.height(54.dp)'),
+              ('.padding(horizontal = 20.dp)', '.padding(horizontal = 8.dp)'),
               ('modifier = Modifier.size(34.dp)', 'modifier = Modifier.size(24.dp)'),
+              ('Spacer(Modifier.width(20.dp))', 'Spacer(Modifier.width(8.dp))'),
+              ('fontSize = 24.sp', 'fontSize = 18.sp'),
           ])
-          s = patch_section(s, '@Composable\nprivate fun CustomerAvatar', '@Composable\nprivate fun CustomerQuickActions', [
-              ('.size(78.dp)', '.size(56.dp)'),
-              ('modifier = Modifier.size(44.dp)', 'modifier = Modifier.size(30.dp)'),
-              ('fontSize = 28.sp', 'fontSize = 20.sp'),
+          s = section(s, '@Composable\nprivate fun CustomerSideActions', '@Composable\nprivate fun DetailActionButton', [
+              ('Modifier.width(156.dp)', 'Modifier.width(86.dp)'),
+              ('Arrangement.spacedBy(14.dp)', 'Arrangement.spacedBy(6.dp)'),
           ])
-          s = patch_section(s, '@Composable\nprivate fun CustomerQuickActions', '@Composable\nprivate fun CustomerActionButton', [
-              ('Arrangement.spacedBy(10.dp)', 'Arrangement.spacedBy(6.dp)'),
+          s = section(s, '@Composable\nprivate fun DetailActionButton', '@Composable\nprivate fun CustomerDetailContent', [
+              ('.height(150.dp)', '.height(72.dp)'),
+              ('RoundedCornerShape(24.dp)', 'RoundedCornerShape(14.dp)'),
+              ('modifier = Modifier.size(48.dp)', 'modifier = Modifier.size(25.dp)'),
+              ('Spacer(Modifier.height(14.dp))', 'Spacer(Modifier.height(4.dp))'),
+              ('fontSize = 22.sp', 'fontSize = 13.sp'),
           ])
-          s = patch_section(s, '@Composable\nprivate fun CustomerActionButton', '@Composable\nprivate fun CustomerAddButton', [
-              ('.height(58.dp)', '.height(42.dp)'),
-              ('RoundedCornerShape(18.dp)', 'RoundedCornerShape(14.dp)'),
-              ('.padding(horizontal = 8.dp)', '.padding(horizontal = 5.dp)'),
-              ('.size(40.dp)', '.size(28.dp)'),
-              ('fontSize = if (iconText == "Zalo") 11.sp else 10.sp', 'fontSize = if (iconText == "Zalo") 9.sp else 8.sp'),
-              ('modifier = Modifier.size(23.dp)', 'modifier = Modifier.size(16.dp)'),
-              ('Spacer(Modifier.width(8.dp))', 'Spacer(Modifier.width(4.dp))'),
-              ('fontSize = if (label == "Dẫn đường") 15.sp else 16.sp', 'fontSize = 12.sp'),
+          s = section(s, '@Composable\nprivate fun CustomerDetailContent', '@Composable\nprivate fun DetailInfoCard', [
+              ('Arrangement.spacedBy(20.dp)', 'Arrangement.spacedBy(7.dp)'),
+              ('.padding(bottom = 24.dp)', '.padding(bottom = 8.dp)'),
+              ('.padding(36.dp)', '.padding(14.dp)'),
+              ('.size(150.dp)', '.size(82.dp)'),
+              ('modifier = Modifier.size(78.dp)', 'modifier = Modifier.size(40.dp)'),
+              ('.padding(28.dp)', '.padding(12.dp)'),
+              ('.size(72.dp)', '.size(42.dp)'),
+              ('modifier = Modifier.size(42.dp)', 'modifier = Modifier.size(24.dp)'),
+              ('Spacer(Modifier.width(24.dp))', 'Spacer(Modifier.width(10.dp))'),
+              ('fontSize = 20.sp', 'fontSize = 15.sp'),
+              ('Spacer(Modifier.height(12.dp))', 'Spacer(Modifier.height(5.dp)'),
+              ('.padding(horizontal = 16.dp, vertical = 10.dp)', '.padding(horizontal = 9.dp, vertical = 5.dp)'),
           ])
-          s = patch_section(s, '@Composable\nprivate fun CustomerAddButton', '// ================================================================\n// 8. CHI TIẾT KHÁCH HÀNG', [
-              ('.size(76.dp)', '.size(56.dp)'),
-              ('modifier = Modifier.size(46.dp)', 'modifier = Modifier.size(34.dp)'),
+          s = section(s, '@Composable\nprivate fun DetailInfoCard', '@Composable\nfun CustomerFormScreen', [
+              ('.padding(28.dp)', '.padding(12.dp)'),
+              ('RoundedCornerShape(24.dp)', 'RoundedCornerShape(14.dp)'),
+              ('.size(72.dp)', '.size(42.dp)'),
+              ('modifier = Modifier.size(42.dp)', 'modifier = Modifier.size(24.dp)'),
+              ('Spacer(Modifier.width(24.dp))', 'Spacer(Modifier.width(10.dp))'),
+              ('fontSize = 20.sp', 'fontSize = 15.sp'),
           ])
+
+          # THÊM/SỬA KHÁCH HÀNG: compact theo ảnh ghép.
+          s = section(s, '@Composable\nfun CustomerFormScreen', '@Composable\nprivate fun CustomerPhotoCard', [
+              ('.padding(24.dp)', '.padding(8.dp)'),
+              ('Arrangement.spacedBy(20.dp)', 'Arrangement.spacedBy(8.dp)'),
+              ('.padding(20.dp)', '.padding(8.dp)'),
+              ('Arrangement.spacedBy(16.dp)', 'Arrangement.spacedBy(8.dp)'),
+              ('.height(58.dp)', '.height(44.dp)'),
+              ('RoundedCornerShape(18.dp)', 'RoundedCornerShape(12.dp)'),
+              ('fontSize = 18.sp', 'fontSize = 14.sp'),
+          ])
+          s = section(s, '@Composable\nprivate fun CustomerPhotoCard', '@Composable\nprivate fun FormSection', [
+              ('.height(280.dp)', '.height(150.dp)'),
+              ('RoundedCornerShape(24.dp)', 'RoundedCornerShape(14.dp)'),
+              ('modifier = Modifier.size(96.dp)', 'modifier = Modifier.size(54.dp)'),
+              ('Spacer(Modifier.height(16.dp))', 'Spacer(Modifier.height(6.dp)'),
+              ('fontSize = 18.sp', 'fontSize = 14.sp'),
+              ('Spacer(Modifier.height(12.dp))', 'Spacer(Modifier.height(5.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun FormSection', '@Composable\nprivate fun LabeledInput', [
+              ('Arrangement.spacedBy(12.dp)', 'Arrangement.spacedBy(6.dp)'),
+              ('fontSize = 20.sp', 'fontSize = 15.sp'),
+              ('RoundedCornerShape(22.dp)', 'RoundedCornerShape(14.dp)'),
+              ('.padding(20.dp)', '.padding(9.dp)'),
+              ('Arrangement.spacedBy(14.dp)', 'Arrangement.spacedBy(7.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun LabeledInput', '@Composable\nprivate fun CoordinateRow', [
+              ('fontSize = 15.sp', 'fontSize = 12.sp'),
+              ('Spacer(Modifier.height(6.dp))', 'Spacer(Modifier.height(3.dp))'),
+              ('RoundedCornerShape(16.dp)', 'RoundedCornerShape(11.dp)'),
+          ])
+          s = section(s, '@Composable\nprivate fun CoordinateRow', '// Tạo chữ viết tắt', [
+              ('Arrangement.spacedBy(12.dp)', 'Arrangement.spacedBy(6.dp)'),
+              ('.size(56.dp)', '.size(42.dp)'),
+              ('RoundedCornerShape(16.dp)', 'RoundedCornerShape(11.dp)'),
+              ('modifier = Modifier.size(28.dp)', 'modifier = Modifier.size(20.dp)'),
+          ])
+
+          # Bottom tabs: item được chọn đảo nền xám-trắng / icon+chữ cam đất trên toàn ô.
+          pat = r'@Composable\nfun BottomTabs\(selected: Tab, onSelected: \(Tab\) -> Unit\) \{.*?\n\}\n\n// ================================================================\n// 10\. Ô TÌM KIẾM'
+          repl = '''@Composable
+fun BottomTabs(selected: Tab, onSelected: (Tab) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(48.dp).background(Orange)) {
+        BottomTabItem(selected == Tab.MAP, "Bản đồ", Icons.Default.Map) { onSelected(Tab.MAP) }
+        BottomTabItem(selected == Tab.ORDERS, "Chi tiết đơn", Icons.Default.ReceiptLong) { onSelected(Tab.ORDERS) }
+        BottomTabItem(selected == Tab.CUSTOMERS, "Khách hàng", Icons.Default.People) { onSelected(Tab.CUSTOMERS) }
+    }
+}
+
+@Composable
+fun RowScope.BottomTabItem(selected: Boolean, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    val bg = if (selected) Color(0xFFF3F0EC) else Orange
+    val fg = if (selected) OrangeDark else Color.White
+    Column(
+        modifier = Modifier.weight(1f).fillMaxHeight().background(bg).clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = fg, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.height(1.dp))
+        Text(label, color = fg, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+    }
+}
+
+// ================================================================
+// 10. Ô TÌM KIẾM'''
+          s = re.sub(pat, repl, s, count=1, flags=re.S)
+
+          # SearchBox cho tab đơn: nút QR nằm lồng phía trái.
+          pat = r'@Composable\nfun SearchBox\(placeholder: String\) \{.*?\n\}\n\n@Composable\nfun NumberCircle'
+          repl = '''@Composable
+fun SearchBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    onQrClick: () -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+        placeholder = { Text("Tìm mã đơn, tên người nhận...", color = TextGray, fontSize = 14.sp, maxLines = 1) },
+        leadingIcon = {
+            Box(
+                Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(Orange).clickable { onQrClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = "Quét mã QR", tint = Color.White, modifier = Modifier.size(23.dp))
+            }
+        },
+        trailingIcon = {
+            if (value.isNotBlank()) IconButton(onClick = onClear) {
+                Icon(Icons.Default.Close, contentDescription = "Xóa tìm kiếm", tint = TextGray, modifier = Modifier.size(20.dp))
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        singleLine = true,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Orange,
+            unfocusedBorderColor = Border,
+            focusedContainerColor = Color(0xFFF7F5F2),
+            unfocusedContainerColor = Color(0xFFF7F5F2),
+            cursorColor = OrangeDark
+        )
+    )
+}
+
+@Composable
+fun NumberCircle'''
+          s = re.sub(pat, repl, s, count=1, flags=re.S)
 
           p.write_text(s)
           PY
 
-      - name: Save UI changes to source
+      - name: Save app source changes
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "UI source already compact"
+            echo "Source already updated"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Compact order and customer tab UI [skip ci]"
+            git commit -m "Compact earth-orange UI and QR scanning [skip ci]"
             git push origin HEAD:main
           fi
 
@@ -182,10 +381,8 @@ jobs:
 
       - name: Build summary
         if: always()
-        shell: bash
         run: |
           echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Build: #${GITHUB_RUN_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- APK: \`${APK_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- UI: compact order tab + compact customer tab" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Signing: persistent debug key for install-over updates" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Earth-orange + off-white compact UI" >> "$GITHUB_STEP_SUMMARY"
+          echo "- QR scanner integrated into order search" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Persistent signing for install-over updates" >> "$GITHUB_STEP_SUMMARY"
