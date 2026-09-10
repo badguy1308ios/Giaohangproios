@@ -1898,7 +1898,7 @@ private fun CustomerCoordinateMapPicker(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 28.dp),
+                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 72.dp),
             shape = RoundedCornerShape(14.dp), color = Background
         ) {
             Column(Modifier.fillMaxSize()) {
@@ -1914,8 +1914,20 @@ private fun CustomerCoordinateMapPicker(
                     selectedPoint = selected,
                     onPointSelected = { selected = it }
                 )
-                Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { onSavePoint(selected) }, modifier = Modifier.height(40.dp)) { Text("LƯU TỌA ĐỘ", fontSize = 12.sp) }
+                Row(
+                    Modifier.fillMaxWidth().height(48.dp).background(Color.White).padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(0.35f).fillMaxHeight(),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) { Text("HỦY", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    Button(
+                        onClick = { onSavePoint(selected) },
+                        modifier = Modifier.weight(0.65f).fillMaxHeight(),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) { Text("LƯU TỌA ĐỘ", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
         }
