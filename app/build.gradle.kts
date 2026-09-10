@@ -18,7 +18,21 @@ android {
         versionName = if (ciBuildNumber != null) "1.0.$ciBuildNumber" else "1.0-dev"
     }
 
+    // Ký mọi APK bằng cùng một key trong repo để các bản GitHub Actions
+    // có thể cài đè/nâng cấp lên nhau mà không bị xung đột chữ ký.
+    signingConfigs {
+        create("persistentDebug") {
+            storeFile = file("keystore/giaohangpro-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("persistentDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
