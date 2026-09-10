@@ -96,6 +96,7 @@ private val TextGray = Color(0xFF77716C)
 private val Background = Color(0xFFF6F4F1)
 private val Border = Color(0xFFDDD8D2)
 private val CardWhite = Color.White
+private val MoneyGreen = Color(0xFF168A45)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -156,20 +157,27 @@ data class Customer(
     val aliases: List<String> = emptyList(), // Các tên phụ/tên cửa hàng khác.
     val extraPhones: List<CustomerPhone> = emptyList(), // Các số điện thoại bổ sung.
     val extraAddresses: List<CustomerAddress> = emptyList(), // Các địa chỉ giao hàng bổ sung.
-    val note: String = "" // Ghi chú về khách hàng.
+    val note: String = "", // Ghi chú về khách hàng.
+    val primaryCanCall: Boolean = true,
+    val primaryCanZalo: Boolean = true,
+    val primaryCanSms: Boolean = true
 )
 
 // Kiểu liên hệ của một số điện thoại, ví dụ Gọi hoặc Zalo.
 data class CustomerPhone(
-    val number: String, // Số điện thoại cần lưu.
-    val action: String = "Gọi" // Nhãn thao tác mặc định của số điện thoại.
+    val number: String,
+    val action: String = "Gọi",
+    val canCall: Boolean = true,
+    val canZalo: Boolean = true,
+    val canSms: Boolean = true
 )
 
 // Một địa chỉ có thể kèm tọa độ để sau này nối Google Maps.
 data class CustomerAddress(
-    val address: String, // Chuỗi địa chỉ người dùng nhập.
-    val latitude: String = "", // Vĩ độ dạng text để dễ demo/chỉnh sửa.
-    val longitude: String = "" // Kinh độ dạng text để dễ demo/chỉnh sửa.
+    val address: String,
+    val latitude: String = "",
+    val longitude: String = "",
+    val isPrimary: Boolean = false
 )
 
 private val sampleOrders = listOf(
@@ -288,90 +296,58 @@ private enum class CoordinateTarget {
 
 @Composable
 fun GiaoHangApp(vm: MainViewModel = viewModel()) {
-    var tab by remember { mutableStateOf(Tab.MAP) } // Ghi nhớ tab đang được chọn.
-    var screen by remember { mutableStateOf(AppScreen.MAIN) } // Ghi nhớ màn hình hiện tại.
-    var selectedCustomerId by remember { mutableStateOf<Long?>(null) } // Lưu id khách đang xem/sửa.
-    var formIsNew by remember { mutableStateOf(false) } // true = thêm mới, false = sửa khách.
+    var tab by remember { mutableStateOf(Tab.MAP) }
+    var screen by remember { mutableStateOf(AppScreen.MAIN) }
+    var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
+    var formIsNew by remember { mutableStateOf(false) }
+    val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)
 
-    // Tìm lại khách từ ViewModel theo id để UI luôn nhận dữ liệu mới nhất sau khi lưu.
-    val selectedCustomer = selectedCustomerId?.let { id -> vm.findCustomer(id) }
-
-    // Chọn giao diện dựa vào trạng thái điều hướng hiện tại.
     when (screen) {
-        AppScreen.MAIN -> {
-            Scaffold(
-                bottomBar = {
-                    BottomTabs(
-                        selected = tab, // Truyền tab hiện tại xuống thanh điều hướng.
-                        onSelected = { tab = it } // Khi bấm tab mới thì cập nhật state.
-                    )
-                }
-            ) { padding ->
-                Box(
-                    Modifier
-                        .fillMaxSize() // Chiếm toàn bộ màn hình.
-                        .padding(padding) // Chừa vùng cho bottom bar.
-                        .background(Background) // Tô màu nền chung.
-                ) {
-                    when (tab) {
-                        Tab.MAP -> MapScreen(vm.orders, vm.customers) // Tab bản đồ dùng Goong Map + OSMDroid, không cần API key.
-                        Tab.ORDERS -> OrderListScreen(vm.orders) // Tab đơn hàng.
+        AppScreen.MAIN -> Scaffold(
+            bottomBar = { BottomTabs(selected = tab, onSelected = { tab = it }) }
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding).background(Background)) {
+                androidx.compose.animation.Crossfade(
+                    targetState = tab,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 170),
+                    label = "main-tabs"
+                ) { activeTab ->
+                    when (activeTab) {
+                        Tab.MAP -> MapScreen(vm.orders, vm.customers)
+                        Tab.ORDERS -> OrderListScreen(vm.orders)
                         Tab.CUSTOMERS -> CustomerListScreen(
-                            customers = vm.customers, // Lấy danh sách có thể cập nhật từ ViewModel.
-                            onCustomerClick = { customer ->
-                                selectedCustomerId = customer.id // Lưu khách được chọn.
-                                screen = AppScreen.CUSTOMER_DETAIL // Mở màn hình chi tiết.
+                            customers = vm.customers,
+                            onCustomerClick = {
+                                selectedCustomerId = it.id
+                                screen = AppScreen.CUSTOMER_DETAIL
                             },
                             onAddCustomer = {
-                                selectedCustomerId = null // Không có khách được chọn khi tạo mới.
-                                formIsNew = true // Đánh dấu form đang ở chế độ thêm mới.
-                                screen = AppScreen.CUSTOMER_FORM // Mở form.
+                                selectedCustomerId = null
+                                formIsNew = true
+                                screen = AppScreen.CUSTOMER_FORM
                             }
                         )
                     }
                 }
             }
         }
-
         AppScreen.CUSTOMER_DETAIL -> {
-            // Nếu khách đã bị xóa, quay lại danh sách để tránh null.
-            if (selectedCustomer == null) {
-                screen = AppScreen.MAIN
-            } else {
-                CustomerDetailScreen(
-                    customer = selectedCustomer, // Hiển thị dữ liệu khách đang chọn.
-                    onBack = { screen = AppScreen.MAIN }, // Quay lại tab khách hàng.
-                    onEdit = {
-                        formIsNew = false // Chuyển sang chế độ sửa.
-                        screen = AppScreen.CUSTOMER_FORM // Mở form sửa.
-                    },
-                    onDelete = {
-                        vm.deleteCustomer(selectedCustomer.id) // Xóa khách khỏi danh sách state.
-                        selectedCustomerId = null // Bỏ khách đang chọn.
-                        screen = AppScreen.MAIN // Quay về danh sách.
-                    }
-                )
-            }
-        }
-
-        AppScreen.CUSTOMER_FORM -> {
-            CustomerFormScreen(
-                customer = if (formIsNew) null else selectedCustomer, // null nghĩa là tạo khách mới.
-                onBack = {
-                    screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL
-                },
-                onSave = { editedCustomer ->
-                    if (formIsNew) {
-                        val newId = vm.addCustomer(editedCustomer) // Thêm khách và lấy id mới.
-                        selectedCustomerId = newId // Chọn ngay khách vừa tạo.
-                    } else {
-                        vm.updateCustomer(editedCustomer) // Cập nhật khách cũ.
-                        selectedCustomerId = editedCustomer.id // Giữ khách vừa sửa là khách đang chọn.
-                    }
-                    screen = AppScreen.CUSTOMER_DETAIL // Sau khi lưu mở lại chi tiết.
-                }
+            val c = selectedCustomer
+            if (c == null) screen = AppScreen.MAIN else CustomerDetailScreen(
+                customer = c,
+                onBack = { screen = AppScreen.MAIN },
+                onEdit = { formIsNew = false; screen = AppScreen.CUSTOMER_FORM },
+                onDelete = { vm.deleteCustomer(c.id); selectedCustomerId = null; screen = AppScreen.MAIN }
             )
         }
+        AppScreen.CUSTOMER_FORM -> CustomerFormScreen(
+            customer = if (formIsNew) null else selectedCustomer,
+            onBack = { screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL },
+            onSave = { edited ->
+                selectedCustomerId = if (formIsNew) vm.addCustomer(edited) else { vm.updateCustomer(edited); edited.id }
+                screen = AppScreen.CUSTOMER_DETAIL
+            }
+        )
     }
 }
 
@@ -668,7 +644,7 @@ private fun MapOrderListRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(68.dp)
+            .height(62.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) OrangeLight else Color.White),
@@ -676,14 +652,14 @@ private fun MapOrderListRow(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             NumberCircle(marker.number, selected = selected)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(if (marker.hasRealCoordinate) Blue else Color(0xFFB6C0CC))
                     .clickable(enabled = marker.hasRealCoordinate) { onNavigate() },
@@ -693,12 +669,12 @@ private fun MapOrderListRow(
                     Icons.Default.Navigation,
                     contentDescription = "Dẫn đường",
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
-                Text(order.code, color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(order.code, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
                 Text(order.customer, color = TextGray, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!marker.hasRealCoordinate) {
@@ -707,7 +683,7 @@ private fun MapOrderListRow(
             }
             Spacer(Modifier.width(5.dp))
             Column(horizontalAlignment = Alignment.End) {
-                Text(order.amount, color = OrangeDark, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(order.amount, color = MoneyGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 Icon(Icons.Default.ChevronRight, contentDescription = "Xem đơn", tint = TextGray, modifier = Modifier.size(20.dp))
             }
@@ -1097,8 +1073,8 @@ fun OrderCard(index: Int, order: Order) {
 
                                 Text(
                     order.amount,
-                    color = OrangeDark,
-                    fontSize = 15.sp,
+                    color = MoneyGreen,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -1155,9 +1131,9 @@ fun Tag(text: String) {
         Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(Color(0xFFEDE9E4))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
-        Text(text, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -1552,262 +1528,152 @@ private fun CustomerAddButton( // Nút thêm khách hàng nổi.
 // ================================================================
 // 8. CHI TIẾT KHÁCH HÀNG
 // ================================================================
-// Màn hình này được mở khi người dùng bấm vào một thẻ khách trong tab Khách hàng.
 @Composable
-fun CustomerDetailScreen(
-    customer: Customer, // Dữ liệu khách đang được xem.
-    onBack: () -> Unit, // Callback quay lại danh sách.
-    onEdit: () -> Unit, // Callback mở form sửa khách hàng.
-    onDelete: () -> Unit // Callback xóa khách sau khi người dùng xác nhận.
-) {
-    val context = LocalContext.current // Lấy Context để hiển thị Toast demo.
-    var showDeleteDialog by remember { mutableStateOf(false) } // Điều khiển hộp thoại xác nhận xóa.
+fun CustomerDetailScreen(customer: Customer, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val context = LocalContext.current
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
-    // Box giúp đặt cột nút thao tác bên trái và nội dung chi tiết bên phải trên màn hình rộng.
-    Box(
-        modifier = Modifier
-            .fillMaxSize() // Chiếm toàn bộ màn hình.
-            .background(Background) // Dùng nền chung của ứng dụng.
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            CustomerPageHeader(
-                title = "CHI TIẾT KHÁCH HÀNG", // Tiêu đề giống hình tham chiếu.
-                onBack = onBack // Bấm mũi tên để quay lại.
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxSize() // Dùng toàn bộ vùng dưới header.
-                    .padding(8.dp), // Tạo lề ngoài cho giao diện.
-                horizontalArrangement = Arrangement.spacedBy(8.dp) // Cách cột nút và nội dung.
-            ) {
-                CustomerSideActions(
-                    onCall = { Toast.makeText(context, "Gọi: ${customer.phone}", Toast.LENGTH_SHORT).show() }, // Demo gọi.
-                    onZalo = { Toast.makeText(context, "Mở Zalo: ${customer.name}", Toast.LENGTH_SHORT).show() }, // Demo Zalo.
-                    onSms = { Toast.makeText(context, "Nhắn tin: ${customer.phone}", Toast.LENGTH_SHORT).show() }, // Demo SMS.
-                    onEdit = onEdit, // Mở màn hình sửa.
-                    onDelete = { showDeleteDialog = true } // Mở hộp thoại xác nhận xóa.
-                )
-
-                CustomerDetailContent(
-                    customer = customer, // Truyền toàn bộ dữ liệu vào phần nội dung.
-                    modifier = Modifier.weight(1f) // Nội dung chiếm toàn bộ chiều ngang còn lại.
-                )
-            }
+    fun phoneFor(kind: String): String? {
+        val primaryOk = when (kind) {
+            "call" -> customer.primaryCanCall
+            "zalo" -> customer.primaryCanZalo
+            else -> customer.primaryCanSms
         }
+        if (primaryOk && customer.phone.isNotBlank()) return customer.phone
+        return customer.extraPhones.firstOrNull {
+            when (kind) { "call" -> it.canCall; "zalo" -> it.canZalo; else -> it.canSms }
+        }?.number
+    }
+    fun launchPhone(kind: String) {
+        val raw = phoneFor(kind) ?: return
+        val number = raw.filter(Char::isDigit)
+        val uri = when (kind) {
+            "call" -> android.net.Uri.parse("tel:$number")
+            "zalo" -> android.net.Uri.parse("https://zalo.me/$number")
+            else -> android.net.Uri.parse("smsto:$number")
+        }
+        val action = if (kind == "call") android.content.Intent.ACTION_DIAL else android.content.Intent.ACTION_VIEW
+        runCatching { context.startActivity(android.content.Intent(action, uri)) }
+    }
 
-        if (showDeleteDialog) {
-            AlertDialog(
-                onDismissRequest = { showDeleteDialog = false }, // Chạm ngoài hộp thoại thì đóng.
-                title = { Text("Xóa khách hàng") }, // Tiêu đề xác nhận.
-                text = { Text("Bạn có chắc muốn xóa ${customer.name} không?") }, // Nội dung cảnh báo.
-                confirmButton = {
-                    TextButton(onClick = {
-                        showDeleteDialog = false // Đóng dialog trước.
-                        onDelete() // Thực hiện xóa.
-                    }) { Text("Xóa", color = Color(0xFFE21B1B)) }
+    Column(Modifier.fillMaxSize().background(Background)) {
+        CustomerPageHeader("CHI TIẾT KHÁCH HÀNG", onBack)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            CustomerDetailContent(customer, Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp))
+            CustomerSideActions(
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 3.dp, bottom = 3.dp),
+                onCall = { launchPhone("call") },
+                onZalo = { launchPhone("zalo") },
+                onSms = { launchPhone("sms") },
+                onNavigate = {
+                    pointFromStrings(customer.latitude, customer.longitude)?.let { openGoogleNavigation(context, it) }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = false }) { Text("Hủy") }
-                }
+                onEdit = onEdit,
+                onDelete = { showDeleteDialog = true }
             )
         }
     }
+
+    if (showDeleteDialog) AlertDialog(
+        onDismissRequest = { showDeleteDialog = false },
+        title = { Text("Xóa khách hàng") },
+        text = { Text("Bạn có chắc muốn xóa ${customer.name} không?") },
+        confirmButton = { TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Xóa", color = Color(0xFFE21B1B)) } },
+        dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Hủy") } }
+    )
 }
 
 @Composable
-private fun CustomerPageHeader(
-    title: String, // Nội dung tiêu đề cần hiển thị.
-    onBack: () -> Unit // Callback quay lại màn hình trước.
-) {
+private fun CustomerPageHeader(title: String, onBack: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth() // Header rộng toàn màn hình.
-            .height(54.dp) // Chiều cao gần giống ảnh mẫu.
-            .background(Brush.horizontalGradient(listOf(OrangeDark, Orange))) // Gradient cam/đỏ.
-            .padding(horizontal = 8.dp), // Tạo khoảng cách hai bên.
-        verticalAlignment = Alignment.CenterVertically // Căn giữa icon và chữ.
+        Modifier.fillMaxWidth().height(48.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) { // Nút mũi tên quay lại.
-            Icon(
-                imageVector = Icons.Default.ArrowBack, // Icon quay lại.
-                contentDescription = "Quay lại", // Mô tả accessibility.
-                tint = Color.White, // Icon trắng.
-                modifier = Modifier.size(24.dp) // Kích thước dễ chạm.
-            )
-        }
-        Spacer(Modifier.width(8.dp)) // Khoảng cách giữa mũi tên và tiêu đề.
-        Text(
-            text = title, // Hiển thị tiêu đề truyền vào.
-            color = Color.White, // Chữ trắng.
-            fontSize = 18.sp, // Cỡ chữ lớn.
-            fontWeight = FontWeight.ExtraBold // Làm tiêu đề nổi bật.
-        )
+        IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(21.dp)) }
+        Spacer(Modifier.width(3.dp))
+        Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
 @Composable
 private fun CustomerSideActions(
-    onCall: () -> Unit, // Hành động Gọi.
-    onZalo: () -> Unit, // Hành động Zalo.
-    onSms: () -> Unit, // Hành động Nhắn tin.
-    onEdit: () -> Unit, // Hành động Sửa.
-    onDelete: () -> Unit // Hành động Xóa.
+    modifier: Modifier = Modifier,
+    onCall: () -> Unit, onZalo: () -> Unit, onSms: () -> Unit, onNavigate: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.width(86.dp), // Cố định độ rộng cột nút giống bố cục ảnh.
-        verticalArrangement = Arrangement.spacedBy(6.dp) // Khoảng cách giữa các nút.
-    ) {
-        DetailActionButton("Gọi", Icons.Default.Call, Blue, onCall) // Nút gọi.
-        DetailActionButton("Zalo", Icons.Default.Chat, Blue, onZalo) // Nút Zalo.
-        DetailActionButton("Nhắn tin", Icons.Default.ChatBubbleOutline, Blue, onSms) // Nút nhắn tin.
-        DetailActionButton("Sửa", Icons.Default.Edit, Blue, onEdit) // Nút sửa.
-        DetailActionButton("Xóa", Icons.Default.DeleteOutline, Color(0xFFE21B1B), onDelete) // Nút xóa màu đỏ.
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        DetailActionButton("Gọi", Icons.Default.Call, Orange, onCall)
+        DetailActionButton("Zalo", Icons.Default.Chat, Orange, onZalo)
+        DetailActionButton("SMS", Icons.Default.ChatBubbleOutline, Orange, onSms)
+        DetailActionButton("Đường", Icons.Default.Navigation, Orange, onNavigate)
+        DetailActionButton("Sửa", Icons.Default.Edit, Orange, onEdit)
+        DetailActionButton("Xóa", Icons.Default.DeleteOutline, Color(0xFFE21B1B), onDelete)
     }
 }
 
 @Composable
-private fun DetailActionButton(
-    label: String, // Chữ trên nút.
-    icon: androidx.compose.ui.graphics.vector.ImageVector, // Icon minh họa.
-    color: Color, // Màu nền nút.
-    onClick: () -> Unit // Callback khi bấm.
-) {
+private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth() // Nút rộng theo cột.
-            .height(72.dp) // Nút lớn, phù hợp thao tác cảm ứng.
-            .clickable { onClick() }, // Nhận sự kiện bấm.
-        shape = RoundedCornerShape(14.dp), // Bo góc mềm.
-        colors = CardDefaults.cardColors(containerColor = color) // Tô màu theo tham số.
+        modifier = Modifier.size(width = 43.dp, height = 36.dp).clickable { onClick() },
+        shape = RoundedCornerShape(9.dp), colors = CardDefaults.cardColors(containerColor = color)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(), // Chiếm toàn bộ nút.
-            horizontalAlignment = Alignment.CenterHorizontally, // Căn giữa ngang.
-            verticalArrangement = Arrangement.Center // Căn giữa dọc.
-        ) {
-            Icon(icon, label, tint = Color.White, modifier = Modifier.size(25.dp)) // Icon trắng.
-            Spacer(Modifier.height(4.dp)) // Khoảng cách icon/chữ.
-            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) // Nhãn nút.
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(2.dp))
+            Text(label, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun CustomerDetailContent(
-    customer: Customer, // Dữ liệu khách cần hiển thị.
-    modifier: Modifier = Modifier // Cho phép màn hình cha truyền modifier.
-) {
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState()) // Cho phép cuộn khi màn hình thấp.
-            .padding(bottom = 8.dp), // Chừa khoảng cuối nội dung.
-        verticalArrangement = Arrangement.spacedBy(7.dp) // Cách đều các card.
-    ) {
+private fun CustomerDetailContent(customer: Customer, modifier: Modifier = Modifier) {
+    Column(modifier.verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Card(
-            modifier = Modifier.fillMaxWidth(), // Card rộng toàn bộ phần nội dung.
-            shape = RoundedCornerShape(24.dp), // Bo góc giống mẫu.
-            colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
+            Modifier.fillMaxWidth().height(180.dp), RoundedCornerShape(14.dp),
+            CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth() // Rộng toàn bộ card.
-                    .padding(14.dp), // Tạo khoảng thở bên trong.
-            ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally) // Căn avatar vào giữa.
-                        .size(82.dp) // Avatar lớn như ảnh tham chiếu.
-                        .clip(CircleShape) // Tạo hình tròn.
-                        .background(Orange), // Nền cam thương hiệu.
-                    contentAlignment = Alignment.Center // Căn icon vào giữa.
-                ) {
-                    Icon(Icons.Default.Storefront, "Biểu tượng cửa hàng", tint = Color.White, modifier = Modifier.size(40.dp))
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Storefront, "Cổng nhà khách", tint = Orange, modifier = Modifier.size(72.dp))
+                    Text("Hình cổng nhà khách", color = TextGray, fontSize = 13.sp)
                 }
             }
         }
-
-        DetailInfoCard(Icons.Default.Person, customer.name) // Card hiển thị tên.
-        DetailInfoCard(Icons.Default.Phone, customer.phone) // Card hiển thị số điện thoại.
-
+        DetailInfoCard(Icons.Default.Person, customer.name)
+        DetailInfoCard(Icons.Default.Phone, customer.phone)
         Card(
-            modifier = Modifier.fillMaxWidth(), // Card địa chỉ rộng toàn phần.
-            shape = RoundedCornerShape(24.dp), // Bo góc.
-            colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
+            Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp), // Khoảng cách trong card.
-                verticalAlignment = Alignment.CenterVertically // Căn giữa icon và nội dung.
-            ) {
-                Box(
-                    Modifier.size(42.dp).clip(CircleShape).background(Orange), // Avatar tròn cho địa chỉ.
-                    contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
-                Spacer(Modifier.width(10.dp)) // Khoảng cách icon/nội dung.
+            Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(19.dp))
+                }
+                Spacer(Modifier.width(6.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(customer.address, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Địa chỉ chính.
-                    Spacer(Modifier.height(12.dp)) // Cách dòng trạng thái.
-                    Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFFF1F4F8)).padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        // Nếu đã có tọa độ đã lưu thì hiển thị trực tiếp để kiểm tra nhanh.
-                        Text(
-                            if (customer.latitude.isBlank() || customer.longitude.isBlank()) "• Chưa có tọa độ" else "• ${customer.latitude}, ${customer.longitude}",
-                            color = TextGray,
-                            fontSize = 15.sp
-                        )
-                    } // Trạng thái tọa độ thật của khách hàng.
+                    Text(customer.address, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(if (customer.latitude.isBlank() || customer.longitude.isBlank()) "Chưa có tọa độ" else "${customer.latitude}, ${customer.longitude}", color = TextGray, fontSize = 11.sp)
                 }
-                Icon(Icons.Default.NearMe, "Dẫn đường", tint = Blue, modifier = Modifier.size(40.dp)) // Icon dẫn đường.
             }
         }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(), // Card ghi chú rộng toàn phần.
-            shape = RoundedCornerShape(24.dp), // Bo góc.
-            colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Description, null, tint = TextGray) // Icon ghi chú.
-                    Spacer(Modifier.width(14.dp)) // Khoảng cách icon/chữ.
-                    Text("GHI CHÚ", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Tiêu đề ghi chú.
-                }
-                Spacer(Modifier.height(18.dp)) // Cách phần nội dung.
-                Text(
-                    text = customer.note.ifBlank { "Thêm ghi chú..." }, // Nếu chưa có note thì hiển thị placeholder.
-                    color = if (customer.note.isBlank()) TextGray else Navy, // Đổi màu placeholder.
-                    fontSize = 17.sp // Cỡ chữ dễ đọc.
-                )
-            }
-        }
+        if (customer.note.isNotBlank()) Card(
+            Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+        ) { Text(customer.note, Modifier.padding(7.dp), color = Navy, fontSize = 13.sp) }
     }
 }
 
 @Composable
-private fun DetailInfoCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector, // Icon ở bên trái.
-    value: String // Nội dung thông tin cần hiển thị.
-) {
+private fun DetailInfoCard(icon: androidx.compose.ui.graphics.vector.ImageVector, value: String) {
     Card(
-        modifier = Modifier.fillMaxWidth(), // Card rộng toàn phần.
-        shape = RoundedCornerShape(24.dp), // Bo góc.
-        colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
-        border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
+        Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border)
     ) {
-        Row(
-            modifier = Modifier.padding(28.dp), // Khoảng cách trong card.
-            verticalAlignment = Alignment.CenterVertically // Căn giữa.
-        ) {
-            Box(
-                Modifier.size(72.dp).clip(CircleShape).background(Orange), // Vòng tròn icon màu cam.
-                contentAlignment = Alignment.Center
-            ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(40.dp)) }
-            Spacer(Modifier.width(24.dp)) // Khoảng cách icon/chữ.
-            Text(value, color = Navy, fontSize = 22.sp, fontWeight = FontWeight.Bold) // Giá trị thông tin.
+        Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(46.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(value, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1815,402 +1681,234 @@ private fun DetailInfoCard(
 // ================================================================
 // 9. THÊM / SỬA KHÁCH HÀNG
 // ================================================================
-// Một form dùng chung cho cả hai trường hợp: customer = null thì thêm mới, ngược lại là sửa.
+private data class PhoneDraft(val number: String, val canCall: Boolean, val canZalo: Boolean, val canSms: Boolean)
+private data class AddressDraft(val address: String, val latitude: String, val longitude: String, val isPrimary: Boolean)
+
 @Composable
-fun CustomerFormScreen(
-    customer: Customer?, // Khách cần sửa, null nếu đang tạo khách mới.
-    onBack: () -> Unit, // Callback quay lại.
-    onSave: (Customer) -> Unit // Callback trả dữ liệu đã lưu về GiaoHangApp/ViewModel.
-) {
-    var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) } // State tên chính.
-    var aliasText by remember(customer?.id) { mutableStateOf(customer?.aliases?.joinToString("\n").orEmpty()) } // Tên phụ, mỗi dòng một tên.
-    var phone by remember(customer?.id) { mutableStateOf(customer?.phone.orEmpty()) } // Số điện thoại chính.
-    var extraPhone by remember(customer?.id) { mutableStateOf(customer?.extraPhones?.firstOrNull()?.number.orEmpty()) } // Số phụ đầu tiên.
-    var extraPhoneAction by remember(customer?.id) { mutableStateOf(customer?.extraPhones?.firstOrNull()?.action ?: "Zalo") } // Nhãn số phụ.
-    var address by remember(customer?.id) { mutableStateOf(customer?.address.orEmpty()) } // Địa chỉ chính.
-    var latitude by remember(customer?.id) { mutableStateOf(customer?.latitude.orEmpty()) } // Vĩ độ chính đã lưu hoặc người dùng chọn trên Goong Map.
-    var longitude by remember(customer?.id) { mutableStateOf(customer?.longitude.orEmpty()) } // Kinh độ chính đã lưu hoặc người dùng chọn trên Goong Map.
-    var extraAddress by remember(customer?.id) { mutableStateOf(customer?.extraAddresses?.firstOrNull()?.address.orEmpty()) } // Địa chỉ phụ.
-    var extraLatitude by remember(customer?.id) { mutableStateOf(customer?.extraAddresses?.firstOrNull()?.latitude.orEmpty()) } // Vĩ độ địa chỉ phụ.
-    var extraLongitude by remember(customer?.id) { mutableStateOf(customer?.extraAddresses?.firstOrNull()?.longitude.orEmpty()) } // Kinh độ địa chỉ phụ.
-    var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) } // Ghi chú.
-    var showValidationError by remember { mutableStateOf(false) } // Điều khiển thông báo bắt buộc.
-    // State mở/đóng bản đồ chọn tọa độ bằng thao tác ghim vị trí.
-    var showCoordinatePicker by remember { mutableStateOf(false) }
-    // Ghi nhớ người dùng đang chọn tọa độ cho địa chỉ chính hay địa chỉ phụ.
-    var coordinateTarget by remember { mutableStateOf(CoordinateTarget.PRIMARY_ADDRESS) }
-    var geocodeRequest by remember { mutableStateOf<Pair<CoordinateTarget, String>?>(null) }
-    var geocodeMessage by remember { mutableStateOf("") }
-    var geocodeLoading by remember { mutableStateOf(false) }
+fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Customer) -> Unit) {
+    var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
+    var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) }
+    var expandedPhone by remember { mutableStateOf<Int?>(null) }
+    var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
+    var validation by remember { mutableStateOf(false) }
 
-    val isEdit = customer != null // Xác định chế độ hiện tại.
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize() // Chiếm toàn màn hình.
-            .background(Background) // Màu nền chung.
-    ) {
-        CustomerPageHeader(
-            title = if (isEdit) "SỬA THÔNG TIN KHÁCH HÀNG" else "THÊM KHÁCH HÀNG", // Đổi tiêu đề theo chế độ.
-            onBack = onBack // Quay lại màn hình trước.
-        )
-
-        Column(
-            modifier = Modifier
-                .weight(1f) // Chiếm vùng có thể cuộn.
-                .verticalScroll(rememberScrollState()) // Cho phép cuộn form dài.
-                .padding(8.dp), // Lề ngoài form.
-            verticalArrangement = Arrangement.spacedBy(8.dp) // Cách đều các khối.
-        ) {
-            CustomerPhotoCard() // Khung ảnh đại diện theo bố cục ảnh tham chiếu.
-
-            FormSection(title = "THÔNG TIN KHÁCH HÀNG") {
-                LabeledInput("Tên khách hàng", name, { name = it }, "Nhập tên khách hàng") // Nhập tên chính.
-                LabeledInput("Tên phụ / tên cửa hàng", aliasText, { aliasText = it }, "Mỗi dòng là một tên") // Nhập tên phụ.
-            }
-
-            FormSection(title = "SỐ ĐIỆN THOẠI") {
-                LabeledInput(
-                    label = "Số điện thoại chính", // Nhãn số chính.
-                    value = phone, // State số chính.
-                    onValueChange = { phone = it }, // Cập nhật state.
-                    placeholder = "Nhập số điện thoại", // Gợi ý nhập.
-                    keyboardType = KeyboardType.Phone // Bàn phím số điện thoại.
-                )
-                LabeledInput(
-                    label = "Số điện thoại phụ (${extraPhoneAction})", // Hiển thị loại thao tác.
-                    value = extraPhone, // State số phụ.
-                    onValueChange = { extraPhone = it }, // Cập nhật state.
-                    placeholder = "Nhập số điện thoại phụ", // Gợi ý.
-                    keyboardType = KeyboardType.Phone // Bàn phím số.
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AssistChip(onClick = { extraPhoneAction = "Gọi" }, label = { Text("Gọi") }) // Chọn loại gọi.
-                    AssistChip(onClick = { extraPhoneAction = "Zalo" }, label = { Text("Zalo") }) // Chọn loại Zalo.
-                }
-            }
-
-            FormSection(title = "ĐỊA CHỈ GIAO HÀNG") {
-                LabeledInput("Địa chỉ", address, { address = it }, "Nhập địa chỉ giao hàng") // Địa chỉ chính.
-                CoordinateRow(
-                    latitude = latitude,
-                    onLatitudeChange = { latitude = it },
-                    longitude = longitude,
-                    onLongitudeChange = { longitude = it },
-                    onPickOnMap = {
-                        coordinateTarget = CoordinateTarget.PRIMARY_ADDRESS
-                        showCoordinatePicker = true
-                    }
-                )
-                TextButton(
-                    onClick = {
-                        if (address.isBlank()) {
-                            geocodeMessage = "Vui lòng nhập địa chỉ trước."
-                        } else {
-                            geocodeRequest = CoordinateTarget.PRIMARY_ADDRESS to address
-                            geocodeMessage = "Đang lấy tọa độ từ Goong..."
-                        }
-                    },
-                    enabled = !geocodeLoading,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.MyLocation, null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("LẤY TỌA ĐỘ TỪ ĐỊA CHỈ", fontWeight = FontWeight.Bold)
-                }
-                LabeledInput("Địa chỉ phụ", extraAddress, { extraAddress = it }, "Nhập địa chỉ phụ")
-                CoordinateRow(
-                    latitude = extraLatitude,
-                    onLatitudeChange = { extraLatitude = it },
-                    longitude = extraLongitude,
-                    onLongitudeChange = { extraLongitude = it },
-                    onPickOnMap = {
-                        coordinateTarget = CoordinateTarget.EXTRA_ADDRESS
-                        showCoordinatePicker = true
-                    }
-                )
-                TextButton(
-                    onClick = {
-                        if (extraAddress.isBlank()) {
-                            geocodeMessage = "Vui lòng nhập địa chỉ phụ trước."
-                        } else {
-                            geocodeRequest = CoordinateTarget.EXTRA_ADDRESS to extraAddress
-                            geocodeMessage = "Đang lấy tọa độ địa chỉ phụ từ Goong..."
-                        }
-                    },
-                    enabled = !geocodeLoading,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.MyLocation, null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("LẤY TỌA ĐỘ ĐỊA CHỈ PHỤ", fontWeight = FontWeight.Bold)
-                }
-                if (geocodeMessage.isNotBlank()) {
-                    Text(
-                        geocodeMessage,
-                        color = if (geocodeMessage.startsWith("Đang")) Blue else Navy,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
-            FormSection(title = "GHI CHÚ") {
-                LabeledInput(
-                    label = "Ghi chú", // Nhãn ghi chú.
-                    value = note, // State ghi chú.
-                    onValueChange = { note = it }, // Cập nhật state.
-                    placeholder = "Ví dụ: Giao giờ hành chính, gọi trước 15 phút", // Gợi ý.
-                    singleLine = false, // Cho phép nhiều dòng.
-                    minLines = 4 // Tạo vùng nhập lớn.
-                )
-            }
-
-            if (showValidationError) {
-                Text("Vui lòng nhập tối thiểu tên, số điện thoại và địa chỉ.", color = Color(0xFFE21B1B), fontWeight = FontWeight.SemiBold) // Báo lỗi dữ liệu bắt buộc.
+    val phones = remember(customer?.id) {
+        mutableStateListOf<PhoneDraft>().apply {
+            if (customer == null) add(PhoneDraft("", true, true, true)) else {
+                add(PhoneDraft(customer.phone, customer.primaryCanCall, customer.primaryCanZalo, customer.primaryCanSms))
+                addAll(customer.extraPhones.map { PhoneDraft(it.number, it.canCall, it.canZalo, it.canSms) })
             }
         }
+    }
+    val addresses = remember(customer?.id) {
+        mutableStateListOf<AddressDraft>().apply {
+            if (customer == null) add(AddressDraft("", "", "", true)) else {
+                add(AddressDraft(customer.address, customer.latitude, customer.longitude, true))
+                addAll(customer.extraAddresses.map { AddressDraft(it.address, it.latitude, it.longitude, false) })
+            }
+        }
+    }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth() // Hàng nút rộng toàn màn hình.
-                .background(Color.White) // Nền trắng cho thanh thao tác.
-                .padding(8.dp), // Lề trong thanh nút.
-            horizontalArrangement = Arrangement.spacedBy(8.dp) // Cách hai nút.
+    Column(Modifier.fillMaxSize().background(Background)) {
+        CustomerPageHeader(if (customer == null) "THÊM KHÁCH HÀNG" else "SỬA KHÁCH HÀNG", onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            CustomerPhotoCard()
+            CompactInput("Tên khách hàng", name, { name = it }, "Nhập tên khách hàng")
+
+            Text("SỐ ĐIỆN THOẠI", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            phones.forEachIndexed { index, item ->
+                Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+                    Column(Modifier.padding(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = item.number,
+                                onValueChange = { phones[index] = item.copy(number = it) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                placeholder = { Text(if (index == 0) "SĐT chính" else "SĐT phụ", fontSize = 12.sp) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                            )
+                            IconButton(onClick = { expandedPhone = if (expandedPhone == index) null else index }, modifier = Modifier.size(38.dp)) {
+                                Icon(if (expandedPhone == index) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, "Chọn chức năng")
+                            }
+                            SmallPlusMinus(plus = true) { phones.add(index + 1, PhoneDraft("", false, false, false)) }
+                            if (phones.size > 1) SmallPlusMinus(plus = false) { phones.removeAt(index); expandedPhone = null }
+                        }
+                        if (expandedPhone == index) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ActionCheck("Gọi", item.canCall) { phones[index] = phones[index].copy(canCall = it) }
+                            ActionCheck("Zalo", item.canZalo) { phones[index] = phones[index].copy(canZalo = it) }
+                            ActionCheck("SMS", item.canSms) { phones[index] = phones[index].copy(canSms = it) }
+                        }
+                    }
+                }
+            }
+
+            Text("ĐỊA CHỈ + ĐỊNH VỊ", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            addresses.forEachIndexed { index, item ->
+                Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+                    Column(Modifier.padding(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = item.isPrimary,
+                                onCheckedChange = { checked -> if (checked) addresses.indices.forEach { i -> addresses[i] = addresses[i].copy(isPrimary = i == index) } },
+                                modifier = Modifier.size(34.dp)
+                            )
+                            Text("Chính", fontSize = 11.sp)
+                            Spacer(Modifier.width(3.dp))
+                            OutlinedTextField(
+                                value = item.address,
+                                onValueChange = { addresses[index] = item.copy(address = it) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                placeholder = { Text("Địa chỉ", fontSize = 12.sp) }
+                            )
+                            SmallPlusMinus(plus = true) { addresses.add(index + 1, AddressDraft("", "", "", false)) }
+                            if (addresses.size > 1) SmallPlusMinus(plus = false) {
+                                val wasPrimary = addresses[index].isPrimary
+                                addresses.removeAt(index)
+                                if (wasPrimary && addresses.isNotEmpty()) addresses[0] = addresses[0].copy(isPrimary = true)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (item.latitude.isBlank() || item.longitude.isBlank()) "Chưa chọn tọa độ" else "${item.latitude}, ${item.longitude}",
+                                color = TextGray, fontSize = 11.sp, modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { pickAddressIndex = index }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                                Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(2.dp)); Text("Chọn trên bản đồ", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            CompactInput("Ghi chú", note, { note = it }, "Ghi chú", singleLine = false, minLines = 2)
+            if (validation) Text("Cần nhập tên, ít nhất 1 SĐT và 1 địa chỉ.", color = Color(0xFFE21B1B), fontSize = 12.sp)
+        }
+        Row(Modifier.fillMaxWidth().background(Color.White).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(
                 onClick = {
-                    if (name.isBlank() || phone.isBlank() || address.isBlank()) {
-                        showValidationError = true // Thiếu dữ liệu thì hiển thị lỗi.
-                    } else {
-                        val aliases = aliasText.lines().map { it.trim() }.filter { it.isNotBlank() } // Tách tên phụ theo dòng.
-                        val extraPhones = if (extraPhone.isBlank()) emptyList() else listOf(CustomerPhone(extraPhone.trim(), extraPhoneAction)) // Chỉ tạo số phụ khi có dữ liệu.
-                        val extraAddresses = if (extraAddress.isBlank()) emptyList() else listOf(CustomerAddress(extraAddress.trim(), extraLatitude.trim(), extraLongitude.trim())) // Chỉ tạo địa chỉ phụ khi có dữ liệu.
-                        onSave(
-                            Customer(
-                                id = customer?.id ?: 0L, // Khách mới dùng id 0 để ViewModel cấp id thật.
-                                name = name.trim(), // Loại bỏ khoảng trắng thừa.
-                                phone = phone.trim(), // Loại bỏ khoảng trắng thừa.
-                                address = address.trim(), // Loại bỏ khoảng trắng thừa.
-                                latitude = latitude.trim(), // Lưu vĩ độ chính do người dùng chọn hoặc nhập.
-                                longitude = longitude.trim(), // Lưu kinh độ chính do người dùng chọn hoặc nhập.
-                                initials = createInitials(name), // Tự tạo chữ viết tắt cho avatar.
-                                aliases = aliases, // Lưu tên phụ.
-                                extraPhones = extraPhones, // Lưu số phụ.
-                                extraAddresses = extraAddresses, // Lưu địa chỉ phụ.
-                                note = note.trim() // Lưu ghi chú.
-                            )
-                        )
+                    val validPhones = phones.filter { it.number.isNotBlank() }
+                    val validAddresses = addresses.filter { it.address.isNotBlank() }
+                    if (name.isBlank() || validPhones.isEmpty() || validAddresses.isEmpty()) validation = true else {
+                        val primaryAddress = validAddresses.firstOrNull { it.isPrimary } ?: validAddresses.first()
+                        val primaryPhone = validPhones.first()
+                        onSave(Customer(
+                            id = customer?.id ?: 0L,
+                            name = name.trim(),
+                            phone = primaryPhone.number.trim(),
+                            address = primaryAddress.address.trim(),
+                            latitude = primaryAddress.latitude.trim(),
+                            longitude = primaryAddress.longitude.trim(),
+                            initials = createInitials(name),
+                            aliases = customer?.aliases ?: emptyList(),
+                            extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) },
+                            extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false) },
+                            note = note.trim(),
+                            primaryCanCall = primaryPhone.canCall,
+                            primaryCanZalo = primaryPhone.canZalo,
+                            primaryCanSms = primaryPhone.canSms
+                        ))
                     }
                 },
-                modifier = Modifier.weight(1f).height(44.dp), // Nút Lưu chiếm phần lớn chiều ngang.
-                shape = RoundedCornerShape(18.dp), // Bo góc.
-                colors = ButtonDefaults.buttonColors(containerColor = Blue) // Nền xanh giống ảnh.
-            ) { Text("LƯU THAY ĐỔI", fontSize = 14.sp, fontWeight = FontWeight.Bold) } // Nhãn nút lưu.
-
-            OutlinedButton(
-                onClick = onBack, // Hủy và quay lại không lưu.
-                modifier = Modifier.height(44.dp), // Đồng bộ chiều cao với nút lưu.
-                shape = RoundedCornerShape(18.dp) // Bo góc.
-            ) { Text("Hủy", fontSize = 14.sp, fontWeight = FontWeight.Bold) } // Nhãn nút hủy.
+                modifier = Modifier.weight(1f).height(42.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("LƯU", fontWeight = FontWeight.Bold) }
+            OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
         }
     }
 
-    LaunchedEffect(geocodeRequest) {
-        val request = geocodeRequest ?: return@LaunchedEffect
-        geocodeLoading = true
-        geocodeMessage = "Đang lấy tọa độ từ Goong..."
-        val point = geocodeAddressWithGoong(request.second)
-        geocodeLoading = false
-        if (point != null) {
-            val latText = "%.6f".format(java.util.Locale.US, point.latitude)
-            val lngText = "%.6f".format(java.util.Locale.US, point.longitude)
-            when (request.first) {
-                CoordinateTarget.PRIMARY_ADDRESS -> {
-                    latitude = latText
-                    longitude = lngText
-                    geocodeMessage = "Đã lấy tọa độ khách hàng từ Goong."
-                }
-                CoordinateTarget.EXTRA_ADDRESS -> {
-                    extraLatitude = latText
-                    extraLongitude = lngText
-                    geocodeMessage = "Đã lấy tọa độ địa chỉ phụ từ Goong."
-                }
-            }
-        } else {
-            geocodeMessage = "Goong không tìm thấy tọa độ cho địa chỉ này."
-        }
-        geocodeRequest = null
-    }
-
-    // Dialog bản đồ chỉ xuất hiện khi người dùng bấm nút ghim bên cạnh hai textbox tọa độ.
-    if (showCoordinatePicker) {
+    pickAddressIndex?.let { index ->
         CustomerCoordinateMapPicker(
-            // Ưu tiên mở đúng tọa độ đang có trong textbox của địa chỉ đang chỉnh sửa.
-            initialPoint = when (coordinateTarget) {
-                CoordinateTarget.PRIMARY_ADDRESS -> pointFromStrings(latitude, longitude)
-                CoordinateTarget.EXTRA_ADDRESS -> pointFromStrings(extraLatitude, extraLongitude)
-            },
-            // Đóng bản đồ mà không thay đổi vĩ độ/kinh độ.
-            onDismiss = { showCoordinatePicker = false },
-            // Khi nhấn LƯU TỌA ĐỘ trong dialog, ghi điểm đã chọn vào đúng cặp textbox.
+            initialPoint = pointFromStrings(addresses[index].latitude, addresses[index].longitude),
+            focusUserLocation = true,
+            onDismiss = { pickAddressIndex = null },
             onSavePoint = { point ->
-                val latText = "%.6f".format(java.util.Locale.US, point.latitude) // Chuẩn hóa vĩ độ thành 6 chữ số thập phân.
-                val lngText = "%.6f".format(java.util.Locale.US, point.longitude) // Chuẩn hóa kinh độ thành 6 chữ số thập phân.
-                when (coordinateTarget) {
-                    CoordinateTarget.PRIMARY_ADDRESS -> {
-                        latitude = latText // Ghi vào textbox vĩ độ chính.
-                        longitude = lngText // Ghi vào textbox kinh độ chính.
-                    }
-                    CoordinateTarget.EXTRA_ADDRESS -> {
-                        extraLatitude = latText // Ghi vào textbox vĩ độ phụ.
-                        extraLongitude = lngText // Ghi vào textbox kinh độ phụ.
-                    }
-                }
-                showCoordinatePicker = false // Đóng dialog và quay lại form.
+                addresses[index] = addresses[index].copy(
+                    latitude = "%.6f".format(java.util.Locale.US, point.latitude),
+                    longitude = "%.6f".format(java.util.Locale.US, point.longitude)
+                )
+                pickAddressIndex = null
             }
         )
+    }
+}
+
+@Composable
+private fun ActionCheck(label: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onChecked(!checked) }) {
+        Checkbox(checked, onChecked, modifier = Modifier.size(32.dp)); Text(label, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun SmallPlusMinus(plus: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
+        Icon(if (plus) Icons.Default.AddCircle else Icons.Default.RemoveCircle, if (plus) "Thêm" else "Xóa", tint = if (plus) Orange else Color(0xFFE21B1B), modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun CompactInput(label: String, value: String, onValueChange: (String) -> Unit, placeholder: String, singleLine: Boolean = true, minLines: Int = 1) {
+    Column {
+        Text(label, color = TextGray, fontSize = 11.sp)
+        OutlinedTextField(value, onValueChange, Modifier.fillMaxWidth(), placeholder = { Text(placeholder, fontSize = 12.sp) }, singleLine = singleLine, minLines = minLines, shape = RoundedCornerShape(12.dp))
     }
 }
 
 @Composable
 private fun CustomerPhotoCard() {
     Card(
-        modifier = Modifier.fillMaxWidth().height(150.dp), // Khung ảnh lớn.
-        shape = RoundedCornerShape(14.dp), // Bo góc.
-        colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng khi chưa có ảnh thật.
-        border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
+        modifier = Modifier.fillMaxWidth().height(150.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border)
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(54.dp)) // Placeholder cửa hàng.
-                Spacer(Modifier.height(6.dp)) // Cách icon/chữ.
-                Text("Ảnh khách hàng", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold) // Nhãn ảnh.
-                Spacer(Modifier.height(12.dp)) // Cách nút.
-                OutlinedButton(onClick = { /* TODO: nối Photo Picker Android */ }) {
-                    Icon(Icons.Default.Image, null) // Icon đổi ảnh.
-                    Spacer(Modifier.width(8.dp)) // Khoảng cách icon/chữ.
-                    Text("Đổi ảnh") // Nhãn nút.
+                Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(54.dp))
+                Spacer(Modifier.height(4.dp)); Text("Hình cổng nhà khách", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomerCoordinateMapPicker(
+    initialPoint: MapPoint?,
+    focusUserLocation: Boolean = true,
+    onDismiss: () -> Unit,
+    onSavePoint: (MapPoint) -> Unit
+) {
+    val driverLocation by rememberDriverLocation()
+    var selected by remember { mutableStateOf(initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT) }
+    val start = if (focusUserLocation) (driverLocation ?: initialPoint ?: DEFAULT_MAP_POINT) else (initialPoint ?: DEFAULT_MAP_POINT)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        Surface(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(4.dp),
+            shape = RoundedCornerShape(14.dp), color = Background
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Close, "Đóng") }
+                    Text("CHỌN TỌA ĐỘ", fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    driverLocation?.let { TextButton(onClick = { selected = it }) { Text("Vị trí tôi", fontSize = 11.sp) } }
+                }
+                CoordinatePickerMap(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    initialPoint = start,
+                    driverLocation = driverLocation,
+                    selectedPoint = selected,
+                    onPointSelected = { selected = it }
+                )
+                Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = { onSavePoint(selected) }, modifier = Modifier.height(40.dp)) { Text("LƯU TỌA ĐỘ", fontSize = 12.sp) }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FormSection(
-    title: String, // Tiêu đề nhóm thông tin.
-    content: @Composable ColumnScope.() -> Unit // Nội dung tùy biến bên trong nhóm.
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Tiêu đề nhóm.
-        Card(
-            modifier = Modifier.fillMaxWidth(), // Card rộng toàn phần.
-            shape = RoundedCornerShape(14.dp), // Bo góc.
-            colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
-        ) {
-            Column(
-                modifier = Modifier.padding(9.dp), // Lề trong card.
-                verticalArrangement = Arrangement.spacedBy(7.dp), // Cách các ô nhập.
-                content = content // Chèn các composable do nơi gọi truyền vào.
-            )
-        }
-    }
-}
-
-@Composable
-private fun LabeledInput(
-    label: String, // Nhãn phía trên ô nhập.
-    value: String, // Giá trị hiện tại.
-    onValueChange: (String) -> Unit, // Callback cập nhật giá trị.
-    placeholder: String, // Gợi ý nhập.
-    keyboardType: KeyboardType = KeyboardType.Text, // Kiểu bàn phím mặc định.
-    singleLine: Boolean = true, // Mặc định một dòng.
-    minLines: Int = 1 // Số dòng tối thiểu.
-) {
-    Column {
-        Text(label, color = TextGray, fontSize = 12.sp, fontWeight = FontWeight.Medium) // Hiển thị nhãn.
-        Spacer(Modifier.height(3.dp)) // Cách nhãn và input.
-        OutlinedTextField(
-            value = value, // Hiển thị state.
-            onValueChange = onValueChange, // Cập nhật state khi gõ.
-            modifier = Modifier.fillMaxWidth(), // Input rộng toàn phần.
-            placeholder = { Text(placeholder) }, // Chữ gợi ý.
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType), // Thiết lập bàn phím.
-            singleLine = singleLine, // Cho phép/chặn xuống dòng.
-            minLines = minLines, // Số dòng tối thiểu.
-            shape = RoundedCornerShape(16.dp), // Bo góc input.
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Blue, // Viền khi focus.
-                unfocusedBorderColor = Border, // Viền khi chưa focus.
-                focusedContainerColor = Color.White, // Nền khi focus.
-                unfocusedContainerColor = Color.White // Nền khi không focus.
-            )
-        )
-    }
-}
-
-@Composable
-private fun CoordinateRow(
-    latitude: String, // Giá trị vĩ độ.
-    onLatitudeChange: (String) -> Unit, // Callback vĩ độ.
-    longitude: String, // Giá trị kinh độ.
-    onLongitudeChange: (String) -> Unit, // Callback kinh độ.
-    onPickOnMap: (() -> Unit)? = null // Callback mở bản đồ chọn điểm; null nếu không cần nút ghim.
-) {
-    // Ba cột: textbox vĩ độ, textbox kinh độ và nút ghim bản đồ ở bên phải.
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
-        Box(Modifier.weight(1f)) {
-            LabeledInput("Vĩ độ", latitude, onLatitudeChange, "10.775255", KeyboardType.Decimal) // Ô vĩ độ.
-        }
-        Box(Modifier.weight(1f)) {
-            LabeledInput("Kinh độ", longitude, onLongitudeChange, "106.701479", KeyboardType.Decimal) // Ô kinh độ.
-        }
-        // Chỉ hiện nút ghim khi nơi gọi truyền callback chọn bản đồ.
-        if (onPickOnMap != null) {
-            IconButton(
-                onClick = onPickOnMap, // Mở bản đồ chọn tọa độ.
-                modifier = Modifier
-                    .size(56.dp) // Kích thước đủ lớn để dễ bấm trên điện thoại.
-                    .clip(RoundedCornerShape(16.dp)) // Bo góc đồng bộ với textbox.
-                    .background(OrangeLight) // Nền cam nhạt để nổi bật chức năng định vị.
-                    .border(1.dp, Orange, RoundedCornerShape(16.dp)) // Viền cam.
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn, // Biểu tượng ghim định vị.
-                    contentDescription = "Chọn tọa độ trên bản đồ",
-                    tint = Orange, // Màu icon thương hiệu.
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-        }
-    }
-}
-
-// Tạo chữ viết tắt từ tên để hiển thị trong avatar, ví dụ "Cửa hàng Minh Tâm" -> "CT".
-private fun createInitials(name: String): String {
-    return name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }
-}
-
-// ================================================================
-// 9. THANH 3 TAB DƯỚI CÙNG
-// ================================================================
-@Composable
-fun BottomTabs(selected: Tab, onSelected: (Tab) -> Unit) {
-    Row(Modifier.fillMaxWidth().height(48.dp).background(Orange)) {
-        BottomTabItem(selected==Tab.MAP,"Bản đồ",Icons.Default.Map){onSelected(Tab.MAP)}
-        BottomTabItem(selected==Tab.ORDERS,"Chi tiết đơn",Icons.Default.ReceiptLong){onSelected(Tab.ORDERS)}
-        BottomTabItem(selected==Tab.CUSTOMERS,"Khách hàng",Icons.Default.People){onSelected(Tab.CUSTOMERS)}
-    }
-}
-@Composable
-fun RowScope.BottomTabItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){
-    val bg=if(selected) Color(0xFFF3F0EC) else Orange
-    val fg=if(selected) OrangeDark else Color.White
-    Column(Modifier.weight(1f).fillMaxHeight().background(bg).clickable{onClick()},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
-        Icon(icon,label,tint=fg,modifier=Modifier.size(19.dp))
-        Text(label,color=fg,fontSize=10.sp,fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium)
     }
 }
 
