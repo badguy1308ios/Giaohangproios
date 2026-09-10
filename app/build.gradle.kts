@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val ciBuildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+
 android {
     namespace = "com.example.giaohangpro"
     compileSdk = 35
@@ -12,8 +14,8 @@ android {
         applicationId = "com.example.giaohangpro"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = ciBuildNumber ?: 1
+        versionName = if (ciBuildNumber != null) "1.0.$ciBuildNumber" else "1.0-dev"
     }
 
     buildTypes {
