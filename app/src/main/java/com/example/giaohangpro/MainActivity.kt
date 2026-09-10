@@ -63,6 +63,7 @@ import java.net.URL
 // MapLibre hiển thị Goong vector style trong MapView.
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -374,18 +375,18 @@ fun TopHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
+            .height(40.dp)
             .background(
                 Brush.horizontalGradient(listOf(OrangeDark, Orange))
             )
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             Icons.Default.Settings,
             contentDescription = "Cài đặt",
             tint = Color.White,
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier.size(19.dp)
         )
 
         Spacer(Modifier.weight(1f))
@@ -394,15 +395,15 @@ fun TopHeader() {
             Icons.Default.LocalShipping,
             contentDescription = "Giao Hàng Pro",
             tint = Color.White,
-            modifier = Modifier.size(42.dp)
+            modifier = Modifier.size(23.dp)
         )
 
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(6.dp))
 
         Text(
             "Giao Hàng Pro",
             color = Color.White,
-            fontSize = 27.sp,
+            fontSize = 17.sp,
             fontWeight = FontWeight.Medium
         )
     }
@@ -595,15 +596,15 @@ private fun BoxScope.MapOrderBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 220.dp, max = 430.dp)
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .heightIn(min = 185.dp, max = 300.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             // Tay nắm nhỏ giúp giao diện có cảm giác bottom sheet giống hình mẫu.
             Box(
                 Modifier
                     .align(Alignment.CenterHorizontally)
-                    .width(56.dp)
-                    .height(4.dp)
+                    .width(42.dp)
+                    .height(3.dp)
                     .clip(RoundedCornerShape(50))
                     .background(Color(0xFF9BA8B8))
             )
@@ -630,7 +631,7 @@ private fun BoxScope.MapOrderBottomSheet(
 
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
                 items(orders, key = { it.order.code + it.number }) { marker ->
@@ -658,7 +659,7 @@ private fun MapOrderListRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(86.dp)
+            .height(68.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) OrangeLight else Color.White),
@@ -668,7 +669,7 @@ private fun MapOrderListRow(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             NumberCircle(marker.number, selected = selected) // Được chọn = cam; chưa chọn = xám.
@@ -680,7 +681,7 @@ private fun MapOrderListRow(
                 onClick = onNavigate,
                 enabled = marker.hasRealCoordinate,
                 modifier = Modifier
-                    .size(28.dp) // Nút dẫn đường nhỏ gọn.
+                    .size(24.dp) // Nút dẫn đường nhỏ gọn.
                     .clip(CircleShape)
                     .background(if (marker.hasRealCoordinate) Blue else Color(0xFFB6C0CC))
             ) {
@@ -688,7 +689,7 @@ private fun MapOrderListRow(
                     Icons.Default.Navigation,
                     contentDescription = "Dẫn đường",
                     tint = Color.White,
-                    modifier = Modifier.size(14.dp) // Mũi tên dẫn đường.
+                    modifier = Modifier.size(12.dp) // Mũi tên dẫn đường.
                 )
             }
 
@@ -741,29 +742,29 @@ private fun createNumberBubbleDrawable(
     isPending: Boolean // true = đơn chưa có tọa độ thật, dùng màu xám để phân biệt với điểm giao thật.
 ): android.graphics.drawable.Drawable {
     val density = context.resources.displayMetrics.density // Quy đổi dp sang pixel.
-    val width = (52 * density).toInt() // Chiều rộng bong bóng.
-    val height = (64 * density).toInt() // Chiều cao gồm thân và mũi nhọn.
+    val width = (34 * density).toInt() // Chiều rộng bong bóng.
+    val height = (42 * density).toInt() // Chiều cao gồm thân và mũi nhọn.
     val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888) // Tạo vùng ảnh trong suốt.
     val canvas = android.graphics.Canvas(bitmap) // Canvas Android để tự vẽ marker.
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG) // Bật khử răng cưa cho hình tròn/chữ.
     val bubbleColor = if (isPending) android.graphics.Color.rgb(117, 132, 153) else android.graphics.Color.rgb(227, 75, 10) // Xám = chờ tọa độ, cam = tọa độ thật.
     paint.color = bubbleColor // Áp dụng màu nền bong bóng.
 
-    val bodyBottom = (48 * density) // Đáy phần thân trước mũi nhọn.
-    val radius = (18 * density) // Bán kính bo góc.
+    val bodyBottom = (32 * density) // Đáy phần thân trước mũi nhọn.
+    val radius = (12 * density) // Bán kính bo góc.
     val rect = android.graphics.RectF(0f, 0f, width.toFloat(), bodyBottom) // Khung phần thân bong bóng.
     canvas.drawRoundRect(rect, radius, radius, paint) // Vẽ thân bo tròn.
 
     val pointer = android.graphics.Path().apply { // Tạo mũi nhọn chỉ xuống vị trí tọa độ.
-        moveTo(width / 2f - 9 * density, bodyBottom)
+        moveTo(width / 2f - 6 * density, bodyBottom)
         lineTo(width / 2f, height.toFloat())
-        lineTo(width / 2f + 9 * density, bodyBottom)
+        lineTo(width / 2f + 6 * density, bodyBottom)
         close()
     }
     canvas.drawPath(pointer, paint) // Vẽ mũi nhọn cùng màu thân.
 
     paint.color = android.graphics.Color.WHITE // Số thứ tự màu trắng để dễ đọc.
-    paint.textSize = 22 * density // Kích thước chữ.
+    paint.textSize = 14 * density // Kích thước chữ.
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD // Chữ đậm.
     paint.textAlign = android.graphics.Paint.Align.CENTER // Căn giữa theo chiều ngang.
     val textY = bodyBottom / 2f - (paint.ascent() + paint.descent()) / 2f // Căn giữa theo chiều dọc.
@@ -2149,6 +2150,7 @@ private fun createInitials(name: String): String {
 @Composable
 fun BottomTabs(selected: Tab, onSelected: (Tab) -> Unit) {
     NavigationBar(
+        modifier = Modifier.height(48.dp),
         containerColor = Orange,
         tonalElevation = 0.dp
     ) {
@@ -2187,11 +2189,11 @@ fun RowScope.BottomTabItem(
             Icon(
                 icon,
                 contentDescription = label,
-                modifier = Modifier.size(30.dp)
+                modifier = Modifier.size(20.dp)
             )
         },
         label = {
-            Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+            Text(label, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
         },
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = Orange,
@@ -2237,7 +2239,7 @@ fun SearchBox(placeholder: String) {
 fun NumberCircle(number: Int, selected: Boolean) {
     Box(
         Modifier
-            .size(30.dp) // Bong bóng STT 30dp.
+            .size(24.dp) // Bong bóng STT nhỏ gọn 24dp.
             .clip(CircleShape)
             .background(if (selected) Orange else Color(0xFF4E5B6B)),
         contentAlignment = Alignment.Center
@@ -2245,7 +2247,7 @@ fun NumberCircle(number: Int, selected: Boolean) {
         Text(
             "$number",
             color = Color.White,
-            fontSize = 15.sp, // Số STT 15sp.
+            fontSize = 12.sp, // Số STT 12sp.
             fontWeight = FontWeight.ExtraBold
         )
     }
