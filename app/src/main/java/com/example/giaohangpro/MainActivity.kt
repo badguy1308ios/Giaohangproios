@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
@@ -85,14 +87,14 @@ import org.maplibre.android.maps.Style
 // theo package/SHA-1 và API/quota trong trang quản trị Goong.
 private const val GOONG_API_KEY = "dF8oDtuFE9Vj7R2eYbFv0edCC34U6wwip8wYrcAP"
 
-private val Orange = Color(0xFFE34B0A)
-private val OrangeDark = Color(0xFFC94209)
-private val OrangeLight = Color(0xFFFFEEE7)
-private val Blue = Color(0xFF168DE2)
-private val Navy = Color(0xFF09295A)
-private val TextGray = Color(0xFF657894)
-private val Background = Color(0xFFF4F8FC)
-private val Border = Color(0xFFD7E2EF)
+private val Orange = Color(0xFFC65A22)
+private val OrangeDark = Color(0xFFA94318)
+private val OrangeLight = Color(0xFFFFF3EC)
+private val Blue = Orange
+private val Navy = Color(0xFF3E3A37)
+private val TextGray = Color(0xFF77716C)
+private val Background = Color(0xFFF6F4F1)
+private val Border = Color(0xFFDDD8D2)
 private val CardWhite = Color.White
 
 class MainActivity : ComponentActivity() {
@@ -1026,36 +1028,35 @@ private fun CustomerCoordinateMapPicker(
 // ================================================================
 @Composable
 fun OrderListScreen(orders: List<Order>) {
+    var keyword by remember { mutableStateOf("") }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it }
+    }
+    val filteredOrders = remember(orders, keyword) {
+        val q = keyword.trim()
+        if (q.isBlank()) orders else orders.filter {
+            it.code.contains(q, true) || it.customer.contains(q, true) ||
+                it.phone.contains(q, true) || it.address.contains(q, true)
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         TopHeader()
-
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 22.dp)
-        ) {
-            Spacer(Modifier.height(14.dp))
-
-            SearchBox("Tìm mã đơn, tên người nhận...")
-
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                "Tổng số: 48 đơn",
-                color = Navy,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 18.dp)
-            ) {
-                itemsIndexed(orders) { index, order ->
-                    OrderCard(index + 1, order)
-                }
+        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
+            Spacer(Modifier.height(6.dp))
+            SearchBox(keyword, { keyword = it }, { keyword = "" }) {
+                scanLauncher.launch(ScanOptions().apply {
+                    setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    setPrompt("Đưa mã QR vào giữa khung")
+                    setBeepEnabled(false)
+                    setOrientationLocked(false)
+                    setBarcodeImageEnabled(false)
+                })
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("Tổng số: ${filteredOrders.size} đơn", color=Navy, fontSize=20.sp, fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=8.dp)) {
+                itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1, order) }
             }
         }
     }
@@ -1065,12 +1066,12 @@ fun OrderListScreen(orders: List<Order>) {
 fun OrderCard(index: Int, order: Order) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(9.dp)) {
+        Column(Modifier.padding(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 NumberCircle(index, selected = true)
 
@@ -1094,11 +1095,9 @@ fun OrderCard(index: Int, order: Order) {
 
                 Spacer(Modifier.weight(1f))
 
-                Icon(Icons.Default.Visibility, null, tint = TextGray)
-                Spacer(Modifier.width(7.dp))
-                Text(
+                                Text(
                     order.amount,
-                    color = Navy,
+                    color = OrangeDark,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -1113,14 +1112,14 @@ fun OrderCard(index: Int, order: Order) {
 
             Spacer(Modifier.height(5.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 order.tags.forEach { Tag(it) }
             }
 
             Spacer(Modifier.height(6.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton("✓  Giao", Icons.Default.CheckCircle, filled = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true)
                 ActionButton("Bank", Icons.Default.AccountBalance)
                 ActionButton("Zalo", Icons.Default.Chat)
                 ActionButton("SMS", Icons.Default.Sms)
@@ -1155,7 +1154,7 @@ fun Tag(text: String) {
     Box(
         Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFFE1EAF6))
+            .background(Color(0xFFEDE9E4))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(text, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -1170,25 +1169,25 @@ fun RowScope.ActionButton(
 ) {
     Box(
         Modifier
-            .height(40.dp)
+            .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (filled) Blue else Color.White)
-            .border(1.5.dp, Blue, RoundedCornerShape(12.dp)),
+            .background(if (filled) Orange else OrangeLight)
+            .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 icon,
                 null,
-                tint = if (filled) Color.White else Blue,
-                modifier = Modifier.size(18.dp)
+                tint = if (filled) Color.White else OrangeDark,
+                modifier = Modifier.size(15.dp)
             )
             Spacer(Modifier.width(4.dp))
             Text(
                 text,
                 color = if (filled) Color.White else Navy,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -1239,12 +1238,12 @@ fun CustomerListScreen(
                 modifier = Modifier
                     .fillMaxWidth() // Danh sách rộng bằng vùng màn hình.
                     .weight(1f), // Chiếm toàn bộ chiều cao còn lại dưới ô tìm kiếm.
-                verticalArrangement = Arrangement.spacedBy(7.dp), // Tạo khoảng cách đều giữa các thẻ.
+                verticalArrangement = Arrangement.spacedBy(4.dp), // Tạo khoảng cách đều giữa các thẻ.
                 contentPadding = PaddingValues( // Thêm khoảng trống quanh danh sách.
-                    start = 16.dp, // Căn lề trái theo ảnh mẫu.
-                    end = 16.dp, // Căn lề phải theo ảnh mẫu.
-                    top = 10.dp, // Tạo khoảng cách từ ô tìm kiếm xuống thẻ đầu tiên.
-                    bottom = 68.dp // Chừa chỗ để nút + không che thẻ cuối.
+                    start = 6.dp, // Căn lề trái theo ảnh mẫu.
+                    end = 6.dp, // Căn lề phải theo ảnh mẫu.
+                    top = 6.dp, // Tạo khoảng cách từ ô tìm kiếm xuống thẻ đầu tiên.
+                    bottom = 58.dp // Chừa chỗ để nút + không che thẻ cuối.
                 )
             ) {
                 itemsIndexed(filteredCustomers) { index, customer -> // Vẽ lần lượt từng khách sau khi đã lọc.
@@ -1260,7 +1259,7 @@ fun CustomerListScreen(
         CustomerAddButton( // Nút + nổi phía dưới bên trái.
             modifier = Modifier
                 .align(Alignment.BottomStart) // Ghim nút vào góc dưới bên trái của Box.
-                .padding(start = 22.dp, bottom = 10.dp), // Đặt khoảng cách giống bố cục ảnh mẫu.
+                .padding(start = 12.dp, bottom = 6.dp), // Đặt khoảng cách giống bố cục ảnh mẫu.
             onClick = onAddCustomer // Bấm dấu + sẽ mở màn hình thêm khách hàng mới.
         )
     }
@@ -1277,7 +1276,7 @@ private fun CustomerSearchBox( // Ô tìm kiếm có giao diện giống ảnh t
         onValueChange = onValueChange, // Gửi dữ liệu mới ngược về CustomerListScreen.
         modifier = Modifier
             .fillMaxWidth() // Ô tìm kiếm rộng hết chiều ngang.
-            .padding(horizontal = 18.dp, vertical = 10.dp) // Tạo lề giống ảnh mẫu.
+            .padding(horizontal = 6.dp, vertical = 6.dp) // Tạo lề giống ảnh mẫu.
             .heightIn(min = 52.dp), // Đặt chiều cao tối thiểu để ô trông lớn, dễ chạm.
         placeholder = { // Nội dung gợi ý khi chưa nhập.
             Text(
@@ -1327,7 +1326,7 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
     Card( // Dùng Material Card để tạo thẻ nền trắng bo góc.
         modifier = Modifier
             .fillMaxWidth() // Thẻ rộng hết vùng danh sách.
-            .height(136.dp) // Chiều cao đủ cho phần thông tin và 4 nút thao tác.
+            .height(118.dp) // Chiều cao đủ cho phần thông tin và 4 nút thao tác.
             .clickable { onClick() }, // Bấm vào vùng trống/thông tin để mở chi tiết khách.
         shape = RoundedCornerShape(20.dp), // Bo góc lớn giống ảnh tham chiếu.
         colors = CardDefaults.cardColors( // Cấu hình màu nền thẻ.
@@ -1342,7 +1341,7 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
         Column( // Xếp hàng thông tin ở trên và hàng nút thao tác ở dưới.
             modifier = Modifier
                 .fillMaxSize() // Cột chiếm toàn bộ không gian của Card.
-                .padding(horizontal = 12.dp, vertical = 8.dp) // Tạo khoảng cách với viền thẻ.
+                .padding(horizontal = 7.dp, vertical = 5.dp) // Tạo khoảng cách với viền thẻ.
         ) {
             Row( // Hàng trên chứa avatar, tên, số điện thoại và mũi tên.
                 modifier = Modifier
@@ -1355,13 +1354,13 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
                     selected = selected // Truyền trạng thái để đổi màu avatar.
                 )
 
-                Spacer(Modifier.width(12.dp)) // Tạo khoảng cách giữa avatar và phần chữ.
+                Spacer(Modifier.width(8.dp)) // Tạo khoảng cách giữa avatar và phần chữ.
 
                 Column(Modifier.weight(1f)) { // Cột tên + số điện thoại chiếm phần ngang còn lại.
                     Text(
                         text = customer.name, // Hiển thị tên khách.
                         color = Color(0xFF1E2C40), // Dùng màu chữ đậm gần ảnh mẫu.
-                        fontSize = 17.sp, // Cỡ chữ lớn cho tên.
+                        fontSize = 13.sp, // Cỡ chữ lớn cho tên.
                         fontWeight = FontWeight.Bold, // Làm tên nổi bật.
                         maxLines = 1, // Không cho tên xuống dòng.
                         overflow = TextOverflow.Ellipsis // Tên dài sẽ hiện dấu ... giống ảnh.
@@ -1370,7 +1369,7 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
                     Text(
                         text = customer.phone, // Hiển thị số điện thoại.
                         color = TextGray, // Dùng màu xám xanh nhạt hơn tên.
-                        fontSize = 15.sp, // Cỡ chữ phù hợp phần phụ.
+                        fontSize = 13.sp, // Cỡ chữ phù hợp phần phụ.
                         fontWeight = FontWeight.SemiBold // Tăng độ rõ của số điện thoại.
                     )
                 }
@@ -1408,7 +1407,7 @@ private fun CustomerAvatar( // Tạo avatar tròn ở bên trái thẻ khách.
 ) {
     Box( // Khung hình tròn chứa icon hoặc chữ cái.
         modifier = Modifier
-            .size(56.dp) // Kích thước avatar lớn giống ảnh mẫu.
+            .size(34.dp) // Kích thước avatar lớn giống ảnh mẫu.
             .clip(CircleShape) // Cắt khung thành hình tròn.
             .background(if (selected) Orange else Color(0xFF35475B)), // Khách đầu màu cam, các khách khác màu xanh xám.
         contentAlignment = Alignment.Center // Căn giữa nội dung avatar.
@@ -1418,13 +1417,13 @@ private fun CustomerAvatar( // Tạo avatar tròn ở bên trái thẻ khách.
                 imageVector = Icons.Default.Person, // Icon đại diện khách hàng.
                 contentDescription = "Ảnh đại diện ${customer.name}", // Mô tả accessibility.
                 tint = Color.White, // Icon màu trắng.
-                modifier = Modifier.size(30.dp) // Kích thước icon rõ ràng.
+                modifier = Modifier.size(20.dp) // Kích thước icon rõ ràng.
             )
         } else { // Nếu có chữ viết tắt thì hiển thị các ký tự đó.
             Text(
                 text = customer.initials, // Ví dụ CL, TQ, BH.
                 color = Color.White, // Chữ màu trắng.
-                fontSize = 20.sp, // Cỡ chữ lớn.
+                fontSize = 14.sp, // Cỡ chữ lớn.
                 fontWeight = FontWeight.Medium // Độ đậm vừa giống ảnh mẫu.
             )
         }
@@ -1440,7 +1439,7 @@ private fun CustomerQuickActions( // Tạo hàng 4 nút: Zalo, SMS, Gọi, Dẫn
 ) {
     Row( // Xếp bốn nút nằm ngang.
         modifier = Modifier.fillMaxWidth(), // Hàng rộng toàn bộ phần dưới thẻ.
-        horizontalArrangement = Arrangement.spacedBy(6.dp) // Tạo khoảng cách giữa các nút.
+        horizontalArrangement = Arrangement.spacedBy(4.dp) // Tạo khoảng cách giữa các nút.
     ) {
         CustomerActionButton( // Nút thao tác Zalo.
             modifier = Modifier.weight(1.18f), // Rộng hơn nhẹ để đủ chỗ cho icon + chữ.
@@ -1481,9 +1480,9 @@ private fun CustomerActionButton( // Nút thao tác nhỏ dùng chung cho bốn 
 ) {
     Box( // Dùng Box để dễ bo góc và căn giữa nội dung.
         modifier = modifier
-            .height(42.dp) // Chiều cao nút giống hàng thao tác trong ảnh.
+            .height(36.dp) // Chiều cao nút giống hàng thao tác trong ảnh.
             .clip(RoundedCornerShape(14.dp)) // Bo góc mềm.
-            .background(Color(0xFFF4F1EE)) // Nền xám kem rất nhạt.
+            .background(OrangeLight) // Nền xám kem rất nhạt.
             .clickable { onClick() }, // Nhận thao tác chạm.
         contentAlignment = Alignment.Center // Căn giữa hàng icon + chữ.
     ) {
@@ -1493,7 +1492,7 @@ private fun CustomerActionButton( // Nút thao tác nhỏ dùng chung cho bốn 
         ) {
             Box( // Vùng icon hình tròn dùng cho cả bốn nút.
                 modifier = Modifier
-                    .size(28.dp) // Kích thước vùng icon.
+                    .size(24.dp) // Kích thước vùng icon.
                     .clip(CircleShape) // Tạo hình tròn.
                     .background(Orange), // Dùng màu cam thương hiệu.
                 contentAlignment = Alignment.Center // Căn giữa icon/chữ.
@@ -1518,7 +1517,7 @@ private fun CustomerActionButton( // Nút thao tác nhỏ dùng chung cho bốn 
             Text(
                 text = label, // Hiển thị tên thao tác.
                 color = if (label == "Dẫn đường") OrangeDark else TextGray, // Làm Dẫn đường nổi bật bằng màu cam.
-                fontSize = 12.sp, // Thu nhỏ nhẹ nhãn dài để không tràn.
+                fontSize = 11.sp, // Thu nhỏ nhẹ nhãn dài để không tràn.
                 fontWeight = FontWeight.SemiBold, // Chữ rõ và dễ đọc.
                 maxLines = 1, // Không cho nhãn xuống dòng.
                 overflow = TextOverflow.Clip // Không thêm ... trong các nút ngắn.
@@ -1579,8 +1578,8 @@ fun CustomerDetailScreen(
             Row(
                 modifier = Modifier
                     .fillMaxSize() // Dùng toàn bộ vùng dưới header.
-                    .padding(24.dp), // Tạo lề ngoài cho giao diện.
-                horizontalArrangement = Arrangement.spacedBy(24.dp) // Cách cột nút và nội dung.
+                    .padding(8.dp), // Tạo lề ngoài cho giao diện.
+                horizontalArrangement = Arrangement.spacedBy(8.dp) // Cách cột nút và nội dung.
             ) {
                 CustomerSideActions(
                     onCall = { Toast.makeText(context, "Gọi: ${customer.phone}", Toast.LENGTH_SHORT).show() }, // Demo gọi.
@@ -1624,9 +1623,9 @@ private fun CustomerPageHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth() // Header rộng toàn màn hình.
-            .height(82.dp) // Chiều cao gần giống ảnh mẫu.
+            .height(54.dp) // Chiều cao gần giống ảnh mẫu.
             .background(Brush.horizontalGradient(listOf(OrangeDark, Orange))) // Gradient cam/đỏ.
-            .padding(horizontal = 20.dp), // Tạo khoảng cách hai bên.
+            .padding(horizontal = 8.dp), // Tạo khoảng cách hai bên.
         verticalAlignment = Alignment.CenterVertically // Căn giữa icon và chữ.
     ) {
         IconButton(onClick = onBack) { // Nút mũi tên quay lại.
@@ -1634,14 +1633,14 @@ private fun CustomerPageHeader(
                 imageVector = Icons.Default.ArrowBack, // Icon quay lại.
                 contentDescription = "Quay lại", // Mô tả accessibility.
                 tint = Color.White, // Icon trắng.
-                modifier = Modifier.size(34.dp) // Kích thước dễ chạm.
+                modifier = Modifier.size(24.dp) // Kích thước dễ chạm.
             )
         }
-        Spacer(Modifier.width(20.dp)) // Khoảng cách giữa mũi tên và tiêu đề.
+        Spacer(Modifier.width(8.dp) // Khoảng cách giữa mũi tên và tiêu đề.
         Text(
             text = title, // Hiển thị tiêu đề truyền vào.
             color = Color.White, // Chữ trắng.
-            fontSize = 24.sp, // Cỡ chữ lớn.
+            fontSize = 18.sp, // Cỡ chữ lớn.
             fontWeight = FontWeight.ExtraBold // Làm tiêu đề nổi bật.
         )
     }
@@ -1656,8 +1655,8 @@ private fun CustomerSideActions(
     onDelete: () -> Unit // Hành động Xóa.
 ) {
     Column(
-        modifier = Modifier.width(156.dp), // Cố định độ rộng cột nút giống bố cục ảnh.
-        verticalArrangement = Arrangement.spacedBy(14.dp) // Khoảng cách giữa các nút.
+        modifier = Modifier.width(86.dp), // Cố định độ rộng cột nút giống bố cục ảnh.
+        verticalArrangement = Arrangement.spacedBy(6.dp) // Khoảng cách giữa các nút.
     ) {
         DetailActionButton("Gọi", Icons.Default.Call, Blue, onCall) // Nút gọi.
         DetailActionButton("Zalo", Icons.Default.Chat, Blue, onZalo) // Nút Zalo.
@@ -1677,9 +1676,9 @@ private fun DetailActionButton(
     Card(
         modifier = Modifier
             .fillMaxWidth() // Nút rộng theo cột.
-            .height(150.dp) // Nút lớn, phù hợp thao tác cảm ứng.
+            .height(72.dp) // Nút lớn, phù hợp thao tác cảm ứng.
             .clickable { onClick() }, // Nhận sự kiện bấm.
-        shape = RoundedCornerShape(24.dp), // Bo góc mềm.
+        shape = RoundedCornerShape(14.dp), // Bo góc mềm.
         colors = CardDefaults.cardColors(containerColor = color) // Tô màu theo tham số.
     ) {
         Column(
@@ -1687,9 +1686,9 @@ private fun DetailActionButton(
             horizontalAlignment = Alignment.CenterHorizontally, // Căn giữa ngang.
             verticalArrangement = Arrangement.Center // Căn giữa dọc.
         ) {
-            Icon(icon, label, tint = Color.White, modifier = Modifier.size(48.dp)) // Icon trắng.
-            Spacer(Modifier.height(14.dp)) // Khoảng cách icon/chữ.
-            Text(label, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) // Nhãn nút.
+            Icon(icon, label, tint = Color.White, modifier = Modifier.size(25.dp)) // Icon trắng.
+            Spacer(Modifier.height(4.dp) // Khoảng cách icon/chữ.
+            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) // Nhãn nút.
         }
     }
 }
@@ -1702,8 +1701,8 @@ private fun CustomerDetailContent(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState()) // Cho phép cuộn khi màn hình thấp.
-            .padding(bottom = 24.dp), // Chừa khoảng cuối nội dung.
-        verticalArrangement = Arrangement.spacedBy(20.dp) // Cách đều các card.
+            .padding(bottom = 8.dp), // Chừa khoảng cuối nội dung.
+        verticalArrangement = Arrangement.spacedBy(7.dp) // Cách đều các card.
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(), // Card rộng toàn bộ phần nội dung.
@@ -1714,17 +1713,17 @@ private fun CustomerDetailContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth() // Rộng toàn bộ card.
-                    .padding(36.dp), // Tạo khoảng thở bên trong.
+                    .padding(14.dp), // Tạo khoảng thở bên trong.
             ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally) // Căn avatar vào giữa.
-                        .size(150.dp) // Avatar lớn như ảnh tham chiếu.
+                        .size(82.dp) // Avatar lớn như ảnh tham chiếu.
                         .clip(CircleShape) // Tạo hình tròn.
                         .background(Orange), // Nền cam thương hiệu.
                     contentAlignment = Alignment.Center // Căn icon vào giữa.
                 ) {
-                    Icon(Icons.Default.Storefront, "Biểu tượng cửa hàng", tint = Color.White, modifier = Modifier.size(78.dp))
+                    Icon(Icons.Default.Storefront, "Biểu tượng cửa hàng", tint = Color.White, modifier = Modifier.size(40.dp))
                 }
             }
         }
@@ -1739,16 +1738,16 @@ private fun CustomerDetailContent(
             border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
         ) {
             Row(
-                modifier = Modifier.padding(28.dp), // Khoảng cách trong card.
+                modifier = Modifier.padding(12.dp), // Khoảng cách trong card.
                 verticalAlignment = Alignment.CenterVertically // Căn giữa icon và nội dung.
             ) {
                 Box(
-                    Modifier.size(72.dp).clip(CircleShape).background(Orange), // Avatar tròn cho địa chỉ.
+                    Modifier.size(42.dp).clip(CircleShape).background(Orange), // Avatar tròn cho địa chỉ.
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(42.dp)) }
-                Spacer(Modifier.width(24.dp)) // Khoảng cách icon/nội dung.
+                ) { Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
+                Spacer(Modifier.width(10.dp) // Khoảng cách icon/nội dung.
                 Column(Modifier.weight(1f)) {
-                    Text(customer.address, color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold) // Địa chỉ chính.
+                    Text(customer.address, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Địa chỉ chính.
                     Spacer(Modifier.height(12.dp)) // Cách dòng trạng thái.
                     Box(
                         Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFFF1F4F8)).padding(horizontal = 16.dp, vertical = 10.dp)
@@ -1771,11 +1770,11 @@ private fun CustomerDetailContent(
             colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
             border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
         ) {
-            Column(Modifier.padding(28.dp)) {
+            Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Description, null, tint = TextGray) // Icon ghi chú.
                     Spacer(Modifier.width(14.dp)) // Khoảng cách icon/chữ.
-                    Text("GHI CHÚ", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold) // Tiêu đề ghi chú.
+                    Text("GHI CHÚ", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Tiêu đề ghi chú.
                 }
                 Spacer(Modifier.height(18.dp)) // Cách phần nội dung.
                 Text(
@@ -1860,8 +1859,8 @@ fun CustomerFormScreen(
             modifier = Modifier
                 .weight(1f) // Chiếm vùng có thể cuộn.
                 .verticalScroll(rememberScrollState()) // Cho phép cuộn form dài.
-                .padding(24.dp), // Lề ngoài form.
-            verticalArrangement = Arrangement.spacedBy(20.dp) // Cách đều các khối.
+                .padding(8.dp), // Lề ngoài form.
+            verticalArrangement = Arrangement.spacedBy(8.dp) // Cách đều các khối.
         ) {
             CustomerPhotoCard() // Khung ảnh đại diện theo bố cục ảnh tham chiếu.
 
@@ -1976,8 +1975,8 @@ fun CustomerFormScreen(
             modifier = Modifier
                 .fillMaxWidth() // Hàng nút rộng toàn màn hình.
                 .background(Color.White) // Nền trắng cho thanh thao tác.
-                .padding(20.dp), // Lề trong thanh nút.
-            horizontalArrangement = Arrangement.spacedBy(16.dp) // Cách hai nút.
+                .padding(8.dp), // Lề trong thanh nút.
+            horizontalArrangement = Arrangement.spacedBy(8.dp) // Cách hai nút.
         ) {
             Button(
                 onClick = {
@@ -2004,16 +2003,16 @@ fun CustomerFormScreen(
                         )
                     }
                 },
-                modifier = Modifier.weight(1f).height(58.dp), // Nút Lưu chiếm phần lớn chiều ngang.
+                modifier = Modifier.weight(1f).height(44.dp), // Nút Lưu chiếm phần lớn chiều ngang.
                 shape = RoundedCornerShape(18.dp), // Bo góc.
                 colors = ButtonDefaults.buttonColors(containerColor = Blue) // Nền xanh giống ảnh.
-            ) { Text("LƯU THAY ĐỔI", fontSize = 18.sp, fontWeight = FontWeight.Bold) } // Nhãn nút lưu.
+            ) { Text("LƯU THAY ĐỔI", fontSize = 14.sp, fontWeight = FontWeight.Bold) } // Nhãn nút lưu.
 
             OutlinedButton(
                 onClick = onBack, // Hủy và quay lại không lưu.
-                modifier = Modifier.height(58.dp), // Đồng bộ chiều cao với nút lưu.
+                modifier = Modifier.height(44.dp), // Đồng bộ chiều cao với nút lưu.
                 shape = RoundedCornerShape(18.dp) // Bo góc.
-            ) { Text("Hủy", fontSize = 18.sp, fontWeight = FontWeight.Bold) } // Nhãn nút hủy.
+            ) { Text("Hủy", fontSize = 14.sp, fontWeight = FontWeight.Bold) } // Nhãn nút hủy.
         }
     }
 
@@ -2077,16 +2076,16 @@ fun CustomerFormScreen(
 @Composable
 private fun CustomerPhotoCard() {
     Card(
-        modifier = Modifier.fillMaxWidth().height(280.dp), // Khung ảnh lớn.
-        shape = RoundedCornerShape(24.dp), // Bo góc.
+        modifier = Modifier.fillMaxWidth().height(150.dp), // Khung ảnh lớn.
+        shape = RoundedCornerShape(14.dp), // Bo góc.
         colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng khi chưa có ảnh thật.
         border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(96.dp)) // Placeholder cửa hàng.
-                Spacer(Modifier.height(16.dp)) // Cách icon/chữ.
-                Text("Ảnh khách hàng", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold) // Nhãn ảnh.
+                Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(54.dp)) // Placeholder cửa hàng.
+                Spacer(Modifier.height(6.dp) // Cách icon/chữ.
+                Text("Ảnh khách hàng", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold) // Nhãn ảnh.
                 Spacer(Modifier.height(12.dp)) // Cách nút.
                 OutlinedButton(onClick = { /* TODO: nối Photo Picker Android */ }) {
                     Icon(Icons.Default.Image, null) // Icon đổi ảnh.
@@ -2103,17 +2102,17 @@ private fun FormSection(
     title: String, // Tiêu đề nhóm thông tin.
     content: @Composable ColumnScope.() -> Unit // Nội dung tùy biến bên trong nhóm.
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold) // Tiêu đề nhóm.
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Tiêu đề nhóm.
         Card(
             modifier = Modifier.fillMaxWidth(), // Card rộng toàn phần.
-            shape = RoundedCornerShape(22.dp), // Bo góc.
+            shape = RoundedCornerShape(14.dp), // Bo góc.
             colors = CardDefaults.cardColors(containerColor = Color.White), // Nền trắng.
             border = androidx.compose.foundation.BorderStroke(1.dp, Border) // Viền mảnh.
         ) {
             Column(
-                modifier = Modifier.padding(20.dp), // Lề trong card.
-                verticalArrangement = Arrangement.spacedBy(14.dp), // Cách các ô nhập.
+                modifier = Modifier.padding(9.dp), // Lề trong card.
+                verticalArrangement = Arrangement.spacedBy(7.dp), // Cách các ô nhập.
                 content = content // Chèn các composable do nơi gọi truyền vào.
             )
         }
@@ -2131,8 +2130,8 @@ private fun LabeledInput(
     minLines: Int = 1 // Số dòng tối thiểu.
 ) {
     Column {
-        Text(label, color = TextGray, fontSize = 15.sp, fontWeight = FontWeight.Medium) // Hiển thị nhãn.
-        Spacer(Modifier.height(6.dp)) // Cách nhãn và input.
+        Text(label, color = TextGray, fontSize = 12.sp, fontWeight = FontWeight.Medium) // Hiển thị nhãn.
+        Spacer(Modifier.height(3.dp) // Cách nhãn và input.
         OutlinedTextField(
             value = value, // Hiển thị state.
             onValueChange = onValueChange, // Cập nhật state khi gõ.
@@ -2199,90 +2198,34 @@ private fun createInitials(name: String): String {
 // ================================================================
 @Composable
 fun BottomTabs(selected: Tab, onSelected: (Tab) -> Unit) {
-    NavigationBar(
-        modifier = Modifier.height(48.dp),
-        containerColor = Orange,
-        tonalElevation = 0.dp
-    ) {
-        BottomTabItem(
-            selected == Tab.MAP,
-            "Bản đồ",
-            Icons.Default.Map,
-            { onSelected(Tab.MAP) }
-        )
-        BottomTabItem(
-            selected == Tab.ORDERS,
-            "Chi tiết đơn",
-            Icons.Default.ReceiptLong,
-            { onSelected(Tab.ORDERS) }
-        )
-        BottomTabItem(
-            selected == Tab.CUSTOMERS,
-            "Khách hàng",
-            Icons.Default.People,
-            { onSelected(Tab.CUSTOMERS) }
-        )
+    Row(Modifier.fillMaxWidth().height(48.dp).background(Orange)) {
+        BottomTabItem(selected==Tab.MAP,"Bản đồ",Icons.Default.Map){onSelected(Tab.MAP)}
+        BottomTabItem(selected==Tab.ORDERS,"Chi tiết đơn",Icons.Default.ReceiptLong){onSelected(Tab.ORDERS)}
+        BottomTabItem(selected==Tab.CUSTOMERS,"Khách hàng",Icons.Default.People){onSelected(Tab.CUSTOMERS)}
     }
 }
-
 @Composable
-fun RowScope.BottomTabItem(
-    selected: Boolean,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
-) {
-    NavigationBarItem(
-        selected = selected,
-        onClick = onClick,
-        icon = {
-            Icon(
-                icon,
-                contentDescription = label,
-                modifier = Modifier.size(20.dp)
-            )
-        },
-        label = {
-            Text(label, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        },
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = Orange,
-            selectedTextColor = Orange,
-            indicatorColor = Color.White,
-            unselectedIconColor = Color.White,
-            unselectedTextColor = Color.White
-        )
-    )
+fun RowScope.BottomTabItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){
+    val bg=if(selected) Color(0xFFF3F0EC) else Orange
+    val fg=if(selected) OrangeDark else Color.White
+    Column(Modifier.weight(1f).fillMaxHeight().background(bg).clickable{onClick()},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+        Icon(icon,label,tint=fg,modifier=Modifier.size(19.dp))
+        Text(label,color=fg,fontSize=10.sp,fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium)
+    }
 }
 
 // ================================================================
 // 10. Ô TÌM KIẾM + SỐ THỨ TỰ
 // ================================================================
 @Composable
-fun SearchBox(placeholder: String) {
+fun SearchBox(value:String,onValueChange:(String)->Unit,onClear:()->Unit,onQrClick:()->Unit){
     OutlinedTextField(
-        value = "",
-        onValueChange = { /* TODO: nối vào state tìm kiếm */ },
-        modifier = Modifier.fillMaxWidth(),
-        placeholder = {
-            Text(placeholder, color = TextGray, fontSize = 17.sp)
-        },
-        leadingIcon = {
-            Icon(Icons.Default.Search, null, tint = TextGray, modifier = Modifier.size(30.dp))
-        },
-        trailingIcon = {
-            Icon(Icons.Default.Close, null, tint = TextGray)
-        },
-        shape = RoundedCornerShape(18.dp),
-        singleLine = false,
-        minLines = 1,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Blue,
-            unfocusedBorderColor = Border,
-            focusedContainerColor = Color.White,
-            unfocusedContainerColor = Color.White
-        )
-    )
+        value=value,onValueChange=onValueChange,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),
+        placeholder={Text("Tìm mã đơn, tên người nhận...",color=TextGray,fontSize=14.sp,maxLines=1)},
+        leadingIcon={Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(Orange).clickable{onQrClick()},contentAlignment=Alignment.Center){Icon(Icons.Default.QrCodeScanner,"Quét QR",tint=Color.White,modifier=Modifier.size(23.dp))}},
+        trailingIcon={if(value.isNotBlank()) IconButton(onClick=onClear){Icon(Icons.Default.Close,"Xóa",tint=TextGray,modifier=Modifier.size(20.dp))}},
+        shape=RoundedCornerShape(14.dp),singleLine=true,
+        colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=Orange,unfocusedBorderColor=Border,focusedContainerColor=Color(0xFFF7F5F2),unfocusedContainerColor=Color(0xFFF7F5F2),cursorColor=OrangeDark))
 }
 
 @Composable
