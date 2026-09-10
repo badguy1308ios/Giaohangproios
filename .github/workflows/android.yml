@@ -21,11 +21,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply compact map UI update
+      - name: Apply requested map UI update
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
           s = p.read_text()
 
@@ -34,71 +36,330 @@ jobs:
               if old in s:
                   s = s.replace(old, new, count)
 
-          rep('import org.maplibre.android.annotations.MarkerOptions\n', 'import org.maplibre.android.annotations.MarkerOptions\nimport org.maplibre.android.annotations.IconFactory\n')
+          # 1) Giữ toàn bộ app trong vùng an toàn, không đè status/navigation bar.
+          rep('''            GiaoHangProTheme {
+                GiaoHangApp()
+            }''', '''            GiaoHangProTheme {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                ) {
+                    GiaoHangApp()
+                }
+            }''')
 
-          rep('.height(76.dp)', '.height(40.dp)')
-          rep('.padding(horizontal = 24.dp)', '.padding(horizontal = 14.dp)')
-          rep('modifier = Modifier.size(34.dp)', 'modifier = Modifier.size(19.dp)')
-          rep('modifier = Modifier.size(42.dp)', 'modifier = Modifier.size(23.dp)')
-          rep('Spacer(Modifier.width(10.dp))', 'Spacer(Modifier.width(6.dp))')
-          rep('fontSize = 27.sp,', 'fontSize = 17.sp,')
+          # 2) MapScreen: có chế độ mở rộng bản đồ và ẩn bottom sheet khi mở rộng.
+          map_screen = r'''@Composable
+fun MapScreen\(orders: List<Order>, customers: List<Customer>\) \{.*?\n\}\n\n// Bottom sheet dạng danh sách đơn hàng'''
+          map_screen_new = '''@Composable
+fun MapScreen(orders: List<Order>, customers: List<Customer>) {
+    val context = LocalContext.current
+    val driverLocation by rememberDriverLocation()
+    var selectedMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
+    var mapExpanded by remember { mutableStateOf(false) }
 
-          rep('.heightIn(min = 220.dp, max = 430.dp)', '.heightIn(min = 185.dp, max = 300.dp)')
-          rep('.padding(horizontal = 14.dp, vertical = 8.dp)', '.padding(horizontal = 10.dp, vertical = 6.dp)')
-          rep('.width(56.dp)\n                    .height(4.dp)', '.width(42.dp)\n                    .height(3.dp)')
-          rep('verticalArrangement = Arrangement.spacedBy(7.dp)', 'verticalArrangement = Arrangement.spacedBy(5.dp)')
+    val mappedOrders = remember(orders, customers, driverLocation) {
+        orders.mapIndexed { index, order ->
+            val orderPoint = pointFromStrings(order.latitude, order.longitude)
+            val customerPoint = customers.firstOrNull {
+                it.phone.filter(Char::isDigit) == order.phone.filter(Char::isDigit) ||
+                    it.name.equals(order.customer, ignoreCase = true) ||
+                    it.address.equals(order.address, ignoreCase = true)
+            }?.let { pointFromStrings(it.latitude, it.longitude) }
+            val realPoint = orderPoint ?: customerPoint
+            val displayPoint = realPoint ?: driverLocation ?: DEFAULT_MAP_POINT
+            MapOrderMarker(order, displayPoint, index + 1, realPoint != null)
+        }
+    }
 
-          rep('.height(86.dp)', '.height(68.dp)')
-          rep('.padding(horizontal = 12.dp, vertical = 8.dp)', '.padding(horizontal = 9.dp, vertical = 6.dp)')
-          rep('.size(28.dp) // Nút dẫn đường nhỏ gọn.', '.size(24.dp) // Nút dẫn đường nhỏ gọn.')
-          rep('modifier = Modifier.size(14.dp) // Mũi tên dẫn đường.', 'modifier = Modifier.size(12.dp) // Mũi tên dẫn đường.')
+    Column(Modifier.fillMaxSize().background(Background)) {
+        TopHeader()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            GoongOrderMap(
+                modifier = Modifier.fillMaxSize(),
+                orders = mappedOrders,
+                driverLocation = driverLocation,
+                selectedOrderNumber = selectedMarker?.number,
+                expanded = mapExpanded,
+                onToggleExpand = { mapExpanded = !mapExpanded },
+                onOrderSelected = { selectedMarker = it }
+            )
 
-          rep('val width = (52 * density).toInt()', 'val width = (34 * density).toInt()')
-          rep('val height = (64 * density).toInt()', 'val height = (42 * density).toInt()')
-          rep('val bodyBottom = (48 * density)', 'val bodyBottom = (32 * density)')
-          rep('val radius = (18 * density)', 'val radius = (12 * density)')
-          rep('width / 2f - 9 * density', 'width / 2f - 6 * density')
-          rep('width / 2f + 9 * density', 'width / 2f + 6 * density')
-          rep('paint.textSize = 22 * density', 'paint.textSize = 14 * density')
-
-          old = '''readyMap.addMarker(
-                    MarkerOptions().position(LatLng(markerData.point.latitude, markerData.point.longitude))
-                        .title("Đơn #${markerData.number} • ${order.code}")
-                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                )'''
-          new = '''val numberDrawable = createNumberBubbleDrawable(
-                    context = context,
-                    number = markerData.number,
-                    isPending = !markerData.hasRealCoordinate
+            if (!mapExpanded) {
+                MapOrderBottomSheet(
+                    orders = mappedOrders,
+                    selectedNumber = selectedMarker?.number,
+                    onOrderClick = { selectedMarker = it },
+                    onNavigate = { marker ->
+                        if (marker.hasRealCoordinate) {
+                            openGoogleNavigation(context, marker.point)
+                        } else {
+                            Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
-                val numberBitmap = (numberDrawable as android.graphics.drawable.BitmapDrawable).bitmap
-                val numberIcon = IconFactory.getInstance(context).fromBitmap(numberBitmap)
+            }
+        }
+    }
+}
+
+// Bottom sheet dạng danh sách đơn hàng'''
+          s = re.sub(map_screen, map_screen_new, s, count=1, flags=re.S)
+
+          # 3) Giới hạn bottom sheet khoảng 3 đơn, nhiều hơn thì cuộn.
+          rep('.heightIn(min = 185.dp, max = 300.dp)', '.heightIn(min = 185.dp, max = 250.dp)')
+
+          # 4) Nút dẫn đường đúng 24dp như bong bóng STT, tránh IconButton ép tối thiểu 48dp.
+          row_pattern = r'''// Một dòng đơn hàng trong danh sách tab Bản đồ\.\n@Composable\nprivate fun MapOrderListRow\(.*?\n\}\n\n// Tạo Drawable marker kiểu bong bóng'''
+          row_new = '''// Một dòng đơn hàng trong danh sách tab Bản đồ.
+@Composable
+private fun MapOrderListRow(
+    marker: MapOrderMarker,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onNavigate: () -> Unit
+) {
+    val order = marker.order
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(68.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = if (selected) OrangeLight else Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Orange else Border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NumberCircle(marker.number, selected = selected)
+            Spacer(Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (marker.hasRealCoordinate) Blue else Color(0xFFB6C0CC))
+                    .clickable(enabled = marker.hasRealCoordinate) { onNavigate() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Navigation,
+                    contentDescription = "Dẫn đường",
+                    tint = Color.White,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(order.code, color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(2.dp))
+                Text(order.customer, color = TextGray, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!marker.hasRealCoordinate) {
+                    Text("Chưa có tọa độ", color = OrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            Spacer(Modifier.width(5.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(order.amount, color = OrangeDark, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Spacer(Modifier.height(2.dp))
+                Icon(Icons.Default.ChevronRight, contentDescription = "Xem đơn", tint = TextGray, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+// Tạo Drawable marker kiểu bong bóng'''
+          s = re.sub(row_pattern, row_new, s, count=1, flags=re.S)
+
+          # 5) Icon tài xế dạng xe máy.
+          if 'createDriverMotorbikeBitmap' not in s:
+              anchor = 'return android.graphics.drawable.BitmapDrawable(context.resources, bitmap) // Trả về Drawable cho OSMDroid Marker.icon.\n}\n\n\n// ================================================================\n// 5. TAB BẢN ĐỒ'
+              helper = '''return android.graphics.drawable.BitmapDrawable(context.resources, bitmap) // Trả về Drawable cho OSMDroid Marker.icon.
+}
+
+private fun createDriverMotorbikeBitmap(context: android.content.Context): android.graphics.Bitmap {
+    val density = context.resources.displayMetrics.density
+    val size = (34 * density).toInt()
+    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    paint.color = android.graphics.Color.rgb(22, 141, 226)
+    canvas.drawCircle(size / 2f, size / 2f, size * 0.48f, paint)
+    paint.color = android.graphics.Color.WHITE
+    paint.textSize = 19 * density
+    paint.textAlign = android.graphics.Paint.Align.CENTER
+    val y = size / 2f - (paint.ascent() + paint.descent()) / 2f
+    canvas.drawText("🛵", size / 2f, y, paint)
+    return bitmap
+}
+
+
+// ================================================================
+// 5. TAB BẢN ĐỒ'''
+              rep(anchor, helper)
+
+          # 6) Thay GoongOrderMap: marker có STT, icon xe máy và cụm nút trái.
+          goong_pattern = r'''@Composable\nprivate fun GoongOrderMap\(.*?\n\}\n\n@Composable\nprivate fun CustomerCoordinateMapPicker'''
+          goong_new = '''@Composable
+private fun GoongOrderMap(
+    modifier: Modifier,
+    orders: List<MapOrderMarker>,
+    driverLocation: MapPoint?,
+    selectedOrderNumber: Int?,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onOrderSelected: (MapOrderMarker) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val mapView = remember(context) {
+        MapLibre.getInstance(context)
+        MapView(context).also { it.onCreate(null) }
+    }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+
+    DisposableEffect(mapView, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            mapView.onDestroy()
+        }
+    }
+
+    Box(modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                mapView.apply {
+                    getMapAsync { readyMap ->
+                        readyMap.setTileCacheEnabled(true)
+                        readyMap.setStyle(Style.Builder().fromJson(goongStyle(context))) {
+                            map = readyMap
+                            readyMap.cameraPosition = CameraPosition.Builder()
+                                .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
+                                .zoom(14.0).build()
+                            readyMap.setOnMarkerClickListener { clicked ->
+                                val match = orders.firstOrNull { it.number.toString() == clicked.title?.substringAfter("Đơn #")?.substringBefore(" ") }
+                                if (match != null) onOrderSelected(match)
+                                false
+                            }
+                        }
+                    }
+                }
+            },
+            update = { view -> view.getMapAsync { readyMap -> if (readyMap.style != null) map = readyMap } }
+        )
+
+        Column(
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            MapControlButton(Icons.Default.MyLocation, "Vị trí của tôi") {
+                driverLocation?.let { point ->
+                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
+                }
+            }
+            MapControlButton(Icons.Default.Add, "Phóng to") {
+                map?.animateCamera(CameraUpdateFactory.zoomBy(1.0))
+            }
+            MapControlButton(Icons.Default.Remove, "Thu nhỏ") {
+                map?.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
+            }
+            MapControlButton(if (expanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Mở rộng bản đồ") {
+                onToggleExpand()
+            }
+        }
+    }
+
+    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {
+        map?.let { readyMap ->
+            readyMap.clear()
+            driverLocation?.let { point ->
+                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
+                    .fromBitmap(createDriverMotorbikeBitmap(context))
                 readyMap.addMarker(
-                    MarkerOptions().position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                    MarkerOptions()
+                        .position(LatLng(point.latitude, point.longitude))
+                        .icon(driverIcon)
+                        .title("🛵 Vị trí hiện tại của tài xế")
+                        .snippet("GPS đang cập nhật")
+                )
+            }
+            orders.forEach { markerData ->
+                val order = markerData.order
+                val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate) as android.graphics.drawable.BitmapDrawable).bitmap
+                val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
+                readyMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
                         .icon(numberIcon)
                         .title("Đơn #${markerData.number} • ${order.code}")
                         .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                )'''
-          rep(old, new)
+                )
+            }
+            selectedOrderNumber?.let { number ->
+                orders.firstOrNull { it.number == number }?.let { selected ->
+                    readyMap.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(selected.point.latitude, selected.point.longitude),
+                            if (selected.hasRealCoordinate) 16.0 else 15.0
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
 
-          rep('NavigationBar(\n        containerColor = Orange,', 'NavigationBar(\n        modifier = Modifier.height(48.dp),\n        containerColor = Orange,')
-          rep('modifier = Modifier.size(30.dp)\n            )\n        },\n        label = {\n            Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)', 'modifier = Modifier.size(20.dp)\n            )\n        },\n        label = {\n            Text(label, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)')
-          rep('.size(30.dp) // Bong bóng STT 30dp.', '.size(24.dp) // Bong bóng STT nhỏ gọn 24dp.')
-          rep('fontSize = 15.sp, // Số STT 15sp.', 'fontSize = 12.sp, // Số STT 12sp.')
+@Composable
+private fun MapControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.size(34.dp).clickable { onClick() },
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.96f),
+        shadowElevation = 4.dp
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = Navy, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun CustomerCoordinateMapPicker'''
+          s = re.sub(goong_pattern, goong_new, s, count=1, flags=re.S)
 
           p.write_text(s)
           PY
 
-      - name: Commit UI source update
+      - name: Commit app source update
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "UI source already up to date"
+            echo "App source already up to date"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Compact map UI and number order markers"
+            git commit -m "Improve map controls, markers and safe insets"
             git push origin HEAD:main
           fi
 
@@ -148,4 +409,4 @@ jobs:
           echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Build: #${GITHUB_RUN_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
           echo "- APK: \`${APK_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- UI: compact header + compact bottom tabs + 3-order scroll + numbered map markers" >> "$GITHUB_STEP_SUMMARY"
+          echo "- UI: safe insets + numbered map markers + map controls + motorbike driver marker" >> "$GITHUB_STEP_SUMMARY"
