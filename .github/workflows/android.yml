@@ -20,35 +20,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Repair Kotlin syntax
+      - name: Apply requested UI update
         shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+        run: python3 tools/apply_ui_20260910.py
 
-          p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
-          s = p.read_text()
-
-          # A previous UI compaction pass removed the outer ')' from a few
-          # Spacer(Modifier.width/height(...)) calls that have trailing comments.
-          # Repair only that exact malformed shape; already-valid lines are untouched.
-          pattern = re.compile(r'^(\s*Spacer\(Modifier\.(?:width|height)\([^\n]*?\.dp\))(\s*//.*)$', re.MULTILINE)
-          s2, count = pattern.subn(r'\1)\2', s)
-          print(f'Repaired {count} malformed Spacer call(s)')
-          p.write_text(s2)
-          PY
-
-      - name: Save syntax repair
+      - name: Save app source changes
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "No syntax repair needed"
+            echo "Source already updated"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Repair Kotlin Spacer syntax [skip ci]"
+            git commit -m "Improve map, customer detail and customer editor [skip ci]"
             git push origin HEAD:main
           fi
 
@@ -103,6 +88,7 @@ jobs:
         shell: bash
         run: |
           echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- APK: \`${APK_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Stable signing: enabled" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Workflow no longer rewrites UI code on every build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Smooth tab switching" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Compact map/order UI + green amount" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Reworked customer detail and multi-value editor" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Coordinate picker stays inside safe screen area" >> "$GITHUB_STEP_SUMMARY"
