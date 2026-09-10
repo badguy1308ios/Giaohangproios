@@ -51,8 +51,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
-    // OSMDroid hiển thị OpenStreetMap trực tiếp trong ứng dụng, không cần API Key.
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
 
