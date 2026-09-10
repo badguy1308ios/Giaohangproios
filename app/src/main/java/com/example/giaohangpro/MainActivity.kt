@@ -1636,7 +1636,7 @@ private fun CustomerPageHeader(
                 modifier = Modifier.size(24.dp) // Kích thước dễ chạm.
             )
         }
-        Spacer(Modifier.width(8.dp) // Khoảng cách giữa mũi tên và tiêu đề.
+        Spacer(Modifier.width(8.dp)) // Khoảng cách giữa mũi tên và tiêu đề.
         Text(
             text = title, // Hiển thị tiêu đề truyền vào.
             color = Color.White, // Chữ trắng.
@@ -1687,7 +1687,7 @@ private fun DetailActionButton(
             verticalArrangement = Arrangement.Center // Căn giữa dọc.
         ) {
             Icon(icon, label, tint = Color.White, modifier = Modifier.size(25.dp)) // Icon trắng.
-            Spacer(Modifier.height(4.dp) // Khoảng cách icon/chữ.
+            Spacer(Modifier.height(4.dp)) // Khoảng cách icon/chữ.
             Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) // Nhãn nút.
         }
     }
@@ -1745,7 +1745,7 @@ private fun CustomerDetailContent(
                     Modifier.size(42.dp).clip(CircleShape).background(Orange), // Avatar tròn cho địa chỉ.
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
-                Spacer(Modifier.width(10.dp) // Khoảng cách icon/nội dung.
+                Spacer(Modifier.width(10.dp)) // Khoảng cách icon/nội dung.
                 Column(Modifier.weight(1f)) {
                     Text(customer.address, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold) // Địa chỉ chính.
                     Spacer(Modifier.height(12.dp)) // Cách dòng trạng thái.
@@ -2084,7 +2084,7 @@ private fun CustomerPhotoCard() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(54.dp)) // Placeholder cửa hàng.
-                Spacer(Modifier.height(6.dp) // Cách icon/chữ.
+                Spacer(Modifier.height(6.dp)) // Cách icon/chữ.
                 Text("Ảnh khách hàng", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold) // Nhãn ảnh.
                 Spacer(Modifier.height(12.dp)) // Cách nút.
                 OutlinedButton(onClick = { /* TODO: nối Photo Picker Android */ }) {
@@ -2131,7 +2131,7 @@ private fun LabeledInput(
 ) {
     Column {
         Text(label, color = TextGray, fontSize = 12.sp, fontWeight = FontWeight.Medium) // Hiển thị nhãn.
-        Spacer(Modifier.height(3.dp) // Cách nhãn và input.
+        Spacer(Modifier.height(3.dp)) // Cách nhãn và input.
         OutlinedTextField(
             value = value, // Hiển thị state.
             onValueChange = onValueChange, // Cập nhật state khi gõ.
