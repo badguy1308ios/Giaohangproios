@@ -1056,7 +1056,7 @@ fun OrderCard(index: Int, order: Order) {
                 Text(
                     order.code,
                     color = Navy,
-                    fontSize = 17.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
 
@@ -1886,9 +1886,19 @@ private fun CustomerCoordinateMapPicker(
     val driverLocation by rememberDriverLocation()
     var selected by remember { mutableStateOf(initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT) }
     val start = if (focusUserLocation) (driverLocation ?: initialPoint ?: DEFAULT_MAP_POINT) else (initialPoint ?: DEFAULT_MAP_POINT)
+
+    // GPS thường trả về sau khi dialog đã mở. Khi có vị trí thật, chọn và focus ngay vào người dùng.
+    LaunchedEffect(driverLocation, focusUserLocation) {
+        if (focusUserLocation) driverLocation?.let { selected = it }
+    }
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         Surface(
-            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(4.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 28.dp),
             shape = RoundedCornerShape(14.dp), color = Background
         ) {
             Column(Modifier.fillMaxSize()) {
@@ -2005,6 +2015,16 @@ private fun CoordinatePickerMap(
             }
         }
     )
+
+    // Mỗi khi GPS người dùng xuất hiện/cập nhật, camera focus ngay vào vị trí đó.
+    LaunchedEffect(readyMap, driverLocation) {
+        val map = readyMap ?: return@LaunchedEffect
+        driverLocation?.let { point ->
+            map.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0)
+            )
+        }
+    }
 
     LaunchedEffect(readyMap, selectedPoint, driverLocation) {
         val map = readyMap ?: return@LaunchedEffect
