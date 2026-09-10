@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -17,6 +17,25 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply latest UI fix
+        shell: bash
+        run: python3 tools/fix_picker_order_20260911.py
+
+      - name: Save app source fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Latest UI fix already applied"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
+            git commit -m "Fix coordinate picker safe area and focus [skip ci]"
+            git push origin HEAD:main
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -69,7 +88,6 @@ jobs:
         shell: bash
         run: |
           echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Smooth tab switching" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Compact map/order UI + green amount" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Reworked customer detail and multi-value editor" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Safe coordinate picker focused on user position" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Coordinate picker stays above Android navigation bar" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Coordinate picker focuses on live user location" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Order code text reduced by 2sp" >> "$GITHUB_STEP_SUMMARY"
