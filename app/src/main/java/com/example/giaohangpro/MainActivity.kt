@@ -100,7 +100,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             GiaoHangProTheme {
-                GiaoHangApp()
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                ) {
+                    GiaoHangApp()
+                }
             }
         }
     }
@@ -527,51 +533,52 @@ private fun openGoogleNavigation(context: android.content.Context, point: MapPoi
 // Nếu đơn hàng/khách chưa có tọa độ, marker vẫn xuất hiện tạm tại vị trí GPS tài xế để người dùng biết đơn đó đang chờ bổ sung tọa độ.
 @Composable
 fun MapScreen(orders: List<Order>, customers: List<Customer>) {
-    val context = LocalContext.current // Context dùng để mở Google Maps khi tài xế cần dẫn đường.
-    val driverLocation by rememberDriverLocation() // Theo dõi vị trí tài xế khi tab Bản đồ đang mở.
-    var selectedMarker by remember { mutableStateOf<MapOrderMarker?>(null) } // Lưu đơn đang được chọn từ marker hoặc danh sách.
+    val context = LocalContext.current
+    val driverLocation by rememberDriverLocation()
+    var selectedMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
+    var mapExpanded by remember { mutableStateOf(false) }
 
-    // Tạo danh sách marker theo đúng thứ tự đơn hàng để số trên bong bóng và số trong danh sách luôn trùng nhau.
     val mappedOrders = remember(orders, customers, driverLocation) {
         orders.mapIndexed { index, order ->
-            val orderPoint = pointFromStrings(order.latitude, order.longitude) // Ưu tiên tọa độ lưu trực tiếp trong đơn hàng.
+            val orderPoint = pointFromStrings(order.latitude, order.longitude)
             val customerPoint = customers.firstOrNull {
                 it.phone.filter(Char::isDigit) == order.phone.filter(Char::isDigit) ||
                     it.name.equals(order.customer, ignoreCase = true) ||
                     it.address.equals(order.address, ignoreCase = true)
-            }?.let { pointFromStrings(it.latitude, it.longitude) } // Nếu đơn chưa có tọa độ thì tìm tọa độ khách liên quan.
-            val realPoint = orderPoint ?: customerPoint // Điểm giao thật có thể đến từ đơn hoặc khách hàng.
-            val displayPoint = realPoint ?: driverLocation ?: DEFAULT_MAP_POINT // Chưa có tọa độ thật thì hiển thị tạm tại GPS tài xế.
-            MapOrderMarker(order, displayPoint, index + 1, realPoint != null) // Gói dữ liệu cho marker và danh sách phía dưới.
+            }?.let { pointFromStrings(it.latitude, it.longitude) }
+            val realPoint = orderPoint ?: customerPoint
+            val displayPoint = realPoint ?: driverLocation ?: DEFAULT_MAP_POINT
+            MapOrderMarker(order, displayPoint, index + 1, realPoint != null)
         }
     }
 
     Column(Modifier.fillMaxSize().background(Background)) {
-        TopHeader() // Giữ nguyên thanh tiêu đề chung của ứng dụng.
-
-        // Box cho phép bản đồ nằm phía sau và danh sách đơn hàng dạng bottom sheet nổi lên phía dưới giống hình mẫu.
+        TopHeader()
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GoongOrderMap(
                 modifier = Modifier.fillMaxSize(),
                 orders = mappedOrders,
                 driverLocation = driverLocation,
-                selectedOrderNumber = selectedMarker?.number, // Khi bấm dòng trong danh sách, bản đồ sẽ focus đúng marker.
+                selectedOrderNumber = selectedMarker?.number,
+                expanded = mapExpanded,
+                onToggleExpand = { mapExpanded = !mapExpanded },
                 onOrderSelected = { selectedMarker = it }
             )
 
-            // Danh sách đơn hàng nằm trên phần dưới của bản đồ, có thể nhìn thấy cả map và danh sách cùng lúc.
-            MapOrderBottomSheet(
-                orders = mappedOrders,
-                selectedNumber = selectedMarker?.number,
-                onOrderClick = { selectedMarker = it },
-                onNavigate = { marker ->
-                    if (marker.hasRealCoordinate) {
-                        openGoogleNavigation(context, marker.point) // Chỉ dẫn đường tới tọa độ giao hàng thật.
-                    } else {
-                        Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
+            if (!mapExpanded) {
+                MapOrderBottomSheet(
+                    orders = mappedOrders,
+                    selectedNumber = selectedMarker?.number,
+                    onOrderClick = { selectedMarker = it },
+                    onNavigate = { marker ->
+                        if (marker.hasRealCoordinate) {
+                            openGoogleNavigation(context, marker.point)
+                        } else {
+                            Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -596,7 +603,7 @@ private fun BoxScope.MapOrderBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 185.dp, max = 300.dp)
+                .heightIn(min = 185.dp, max = 250.dp)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             // Tay nắm nhỏ giúp giao diện có cảm giác bottom sheet giống hình mẫu.
@@ -650,12 +657,12 @@ private fun BoxScope.MapOrderBottomSheet(
 // Một dòng đơn hàng trong danh sách tab Bản đồ.
 @Composable
 private fun MapOrderListRow(
-    marker: MapOrderMarker, // Dữ liệu marker liên kết với đơn hàng.
-    selected: Boolean, // Tô viền nhẹ cho dòng đang được chọn.
-    onClick: () -> Unit, // Focus marker tương ứng.
-    onNavigate: () -> Unit // Mở Google Maps nếu có tọa độ thật.
+    marker: MapOrderMarker,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onNavigate: () -> Unit
 ) {
-    val order = marker.order // Rút gọn tên biến để đọc UI dễ hơn.
+    val order = marker.order
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -663,71 +670,42 @@ private fun MapOrderListRow(
             .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) OrangeLight else Color.White),
-        border = androidx.compose.foundation.BorderStroke(if (selected) 1.dp else 1.dp, if (selected) Orange else Border),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Orange else Border),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 9.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NumberCircle(marker.number, selected = selected) // Được chọn = cam; chưa chọn = xám.
-
-            Spacer(Modifier.width(8.dp)) // Khoảng cách gọn giữa STT và dẫn đường.
-
-            // Nút mũi tên xanh là thao tác dẫn đường nhanh giống bố cục hình mẫu.
-            IconButton(
-                onClick = onNavigate,
-                enabled = marker.hasRealCoordinate,
+            NumberCircle(marker.number, selected = selected)
+            Spacer(Modifier.width(8.dp))
+            Box(
                 modifier = Modifier
-                    .size(24.dp) // Nút dẫn đường nhỏ gọn.
+                    .size(24.dp)
                     .clip(CircleShape)
                     .background(if (marker.hasRealCoordinate) Blue else Color(0xFFB6C0CC))
+                    .clickable(enabled = marker.hasRealCoordinate) { onNavigate() },
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Navigation,
                     contentDescription = "Dẫn đường",
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp) // Mũi tên dẫn đường.
+                    modifier = Modifier.size(12.dp)
                 )
             }
-
-            Spacer(Modifier.width(8.dp)) // Khoảng cách gọn giữa dẫn đường và mã vận đơn.
-
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = order.code,
-                    color = Navy,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Text(order.code, color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    text = order.customer,
-                    color = TextGray,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Text(order.customer, color = TextGray, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!marker.hasRealCoordinate) {
                     Text("Chưa có tọa độ", color = OrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                 }
             }
-
             Spacer(Modifier.width(5.dp))
-
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = order.amount,
-                    color = OrangeDark,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
+                Text(order.amount, color = OrangeDark, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 Icon(Icons.Default.ChevronRight, contentDescription = "Xem đơn", tint = TextGray, modifier = Modifier.size(20.dp))
             }
@@ -773,6 +751,22 @@ private fun createNumberBubbleDrawable(
     return android.graphics.drawable.BitmapDrawable(context.resources, bitmap) // Trả về Drawable cho OSMDroid Marker.icon.
 }
 
+private fun createDriverMotorbikeBitmap(context: android.content.Context): android.graphics.Bitmap {
+    val density = context.resources.displayMetrics.density
+    val size = (34 * density).toInt()
+    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    paint.color = android.graphics.Color.rgb(22, 141, 226)
+    canvas.drawCircle(size / 2f, size / 2f, size * 0.48f, paint)
+    paint.color = android.graphics.Color.WHITE
+    paint.textSize = 19 * density
+    paint.textAlign = android.graphics.Paint.Align.CENTER
+    val y = size / 2f - (paint.ascent() + paint.descent()) / 2f
+    canvas.drawText("🛵", size / 2f, y, paint)
+    return bitmap
+}
+
 
 // ================================================================
 // 5. TAB BẢN ĐỒ - GOONG VECTOR STYLE + MAPLIBRE
@@ -802,6 +796,8 @@ private fun GoongOrderMap(
     orders: List<MapOrderMarker>,
     driverLocation: MapPoint?,
     selectedOrderNumber: Int?,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
     onOrderSelected: (MapOrderMarker) -> Unit
 ) {
     val context = LocalContext.current
@@ -829,37 +825,73 @@ private fun GoongOrderMap(
         }
     }
 
-    AndroidView(
-        modifier = modifier,
-        factory = {
-            mapView.apply {
-                getMapAsync { readyMap ->
-                    readyMap.setTileCacheEnabled(true)
-                    readyMap.setStyle(Style.Builder().fromJson(goongStyle(context))) {
-                        map = readyMap
-                        readyMap.cameraPosition = CameraPosition.Builder()
-                            .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
-                            .zoom(14.0).build()
+    Box(modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                mapView.apply {
+                    getMapAsync { readyMap ->
+                        readyMap.setTileCacheEnabled(true)
+                        readyMap.setStyle(Style.Builder().fromJson(goongStyle(context))) {
+                            map = readyMap
+                            readyMap.cameraPosition = CameraPosition.Builder()
+                                .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
+                                .zoom(14.0).build()
+                            readyMap.setOnMarkerClickListener { clicked ->
+                                val number = clicked.title?.substringAfter("Đơn #")?.substringBefore(" ")?.toIntOrNull()
+                                orders.firstOrNull { it.number == number }?.let(onOrderSelected)
+                                false
+                            }
+                        }
                     }
                 }
+            },
+            update = { view -> view.getMapAsync { readyMap -> if (readyMap.style != null) map = readyMap } }
+        )
+
+        Column(
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            MapControlButton(Icons.Default.MyLocation, "Vị trí của tôi") {
+                driverLocation?.let { point ->
+                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
+                }
             }
-        },
-        update = { view -> view.getMapAsync { readyMap -> if (readyMap.style != null) map = readyMap } }
-    )
+            MapControlButton(Icons.Default.Add, "Phóng to") {
+                map?.animateCamera(CameraUpdateFactory.zoomBy(1.0))
+            }
+            MapControlButton(Icons.Default.Remove, "Thu nhỏ") {
+                map?.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
+            }
+            MapControlButton(if (expanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Mở rộng bản đồ") {
+                onToggleExpand()
+            }
+        }
+    }
 
     LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {
         map?.let { readyMap ->
             readyMap.clear()
             driverLocation?.let { point ->
+                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
+                    .fromBitmap(createDriverMotorbikeBitmap(context))
                 readyMap.addMarker(
-                    MarkerOptions().position(LatLng(point.latitude, point.longitude))
-                        .title("Vị trí hiện tại của tài xế").snippet("GPS đang cập nhật")
+                    MarkerOptions()
+                        .position(LatLng(point.latitude, point.longitude))
+                        .icon(driverIcon)
+                        .title("🛵 Vị trí hiện tại của tài xế")
+                        .snippet("GPS đang cập nhật")
                 )
             }
             orders.forEach { markerData ->
                 val order = markerData.order
+                val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate) as android.graphics.drawable.BitmapDrawable).bitmap
+                val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
                 readyMap.addMarker(
-                    MarkerOptions().position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                    MarkerOptions()
+                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                        .icon(numberIcon)
                         .title("Đơn #${markerData.number} • ${order.code}")
                         .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
                 )
@@ -874,6 +906,24 @@ private fun GoongOrderMap(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MapControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.size(34.dp).clickable { onClick() },
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.96f),
+        shadowElevation = 4.dp
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = Navy, modifier = Modifier.size(18.dp))
         }
     }
 }
