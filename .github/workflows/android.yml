@@ -22,13 +22,15 @@ jobs:
         run: python3 tools/fix_customer_list_actions_20260911.py
       - name: Fix QR and barcode scanner
         run: python3 tools/fix_qr_barcode_scanner_20260911.py
+      - name: Add compact settings screen
+        run: python3 tools/add_settings_screen_20260911.py
       - name: Save app fixes
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Enable QR and barcode scanning in portrait [skip ci]"
+            git commit -m "Add compact settings screen [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
