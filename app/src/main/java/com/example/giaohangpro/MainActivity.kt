@@ -287,7 +287,7 @@ private val sampleCustomers = listOf(
 enum class Tab { MAP, ORDERS, CUSTOMERS } // Ba tab chính của ứng dụng.
 
 // Điều hướng nội bộ đơn giản cho demo: danh sách chính, chi tiết khách và form thêm/sửa.
-enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS }
+enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER }
 
 // Xác định cặp textbox nào trong form sẽ nhận tọa độ sau khi người dùng chọn trên bản đồ.
 private enum class CoordinateTarget {
@@ -351,9 +351,14 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                 screen = AppScreen.CUSTOMER_DETAIL
             }
         )
-        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN })
-        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN })
-        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN })
+        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER })
+        AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER })
+        AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER })
+        AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER })
+        AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -398,7 +403,7 @@ fun TopHeader(onSettingsClick: () -> Unit = {}) {
 
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) {
+private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
     val context = LocalContext.current
     Scaffold(
         topBar = {
@@ -420,11 +425,108 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { Toast.makeText(context,"Tuyến giao hàng",Toast.LENGTH_SHORT).show() }
             }
             SettingsSection("TÀI CHÍNH") {
-                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN") { Toast.makeText(context,"Bảng kê tiền",Toast.LENGTH_SHORT).show() }
+                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
                 SettingsDivider()
                 SettingsItem(Icons.Default.AccountBalance, "CHECK CHUYỂN KHOẢN") { Toast.makeText(context,"Check chuyển khoản",Toast.LENGTH_SHORT).show() }
             }
         }
+    }
+}
+
+
+private fun fmtMoney(v: Long): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(v)
+private fun parseMoney(v: String): Long = v.filter(Char::isDigit).toLongOrNull() ?: 0L
+
+@Composable
+private fun MoneyLedgerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("money_ledger_session", android.content.Context.MODE_PRIVATE) }
+    val denoms = listOf(500000L, 200000L, 100000L, 50000L)
+    val counts = remember { mutableStateListOf<Int>().apply { denoms.indices.forEach { add(prefs.getInt("count_$it", 0)) } } }
+    var bank by remember { mutableStateOf(prefs.getLong("bank", 0L)) }
+    var fee by remember { mutableStateOf(prefs.getLong("fee", 0L)) }
+    var cod by remember { mutableStateOf(prefs.getLong("cod", 0L)) }
+    val cash = denoms.indices.sumOf { denoms[it] * counts[it].toLong() }
+    val result = cash + bank - fee - cod
+    val resultBg = if (result == 0L) Color(0xFFE6F4EA) else if (result < 0L) Color(0xFFFDE8E7) else Color(0xFFFFECDD)
+    val resultColor = if (result == 0L) Color(0xFF2E7D32) else if (result < 0L) Color(0xFFB3261E) else OrangeDark
+
+    LaunchedEffect(counts.toList(), bank, fee, cod) {
+        prefs.edit().apply {
+            counts.forEachIndexed { i, v -> putInt("count_$i", v) }
+            putLong("bank", bank); putLong("fee", fee); putLong("cod", cod)
+        }.apply()
+    }
+
+    fun resetAll() {
+        counts.indices.forEach { counts[it] = 0 }
+        bank = 0L; fee = 0L; cod = 0L
+        prefs.edit().clear().apply()
+    }
+
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Text("BẢNG KÊ TIỀN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        bottomBar = {
+            Button(onClick = onBack, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(6.dp).height(42.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Đóng bảng kê", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = resultBg)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("KẾT QUẢ BẢNG TÍNH", color = resultColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text((if (result > 0) "+" else "") + fmtMoney(result) + "đ", color = resultColor, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("(Tiền mặt + Bank) - (Cước + COD)", color = TextGray, fontSize = 11.sp)
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ĐẾM TIỀN MẶT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { resetAll() }, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 10.dp), shape = RoundedCornerShape(16.dp)) { Text("Reset 0", fontSize = 12.sp) }
+            }
+
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    denoms.forEachIndexed { i, d ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(fmtMoney(d) + "đ", modifier = Modifier.width(84.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            IconButton(onClick = { if (counts[i] > 0) counts[i]-- }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Remove, "Bớt", tint = Orange, modifier = Modifier.size(19.dp)) }
+                            OutlinedTextField(value = if (counts[i] == 0) "" else counts[i].toString(), onValueChange = { counts[i] = it.filter(Char::isDigit).toIntOrNull()?.coerceAtMost(9999) ?: 0 }, modifier = Modifier.width(62.dp).height(48.dp), singleLine = true, placeholder = { Text("0") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                            IconButton(onClick = { counts[i] = (counts[i] + 1).coerceAtMost(9999) }, modifier = Modifier.size(38.dp)) { Box(Modifier.fillMaxSize().clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, "Thêm", tint = Color.White, modifier = Modifier.size(21.dp)) } }
+                            Text(fmtMoney(d * counts[i].toLong()) + "đ", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(color = Border)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("TỔNG TIỀN MẶT", modifier = Modifier.weight(1f), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(fmtMoney(cash) + "đ", color = OrangeDark, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Text("ĐỐI SOÁT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 2.dp))
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MoneyEntryRow("Bank", bank) { bank = it }
+                    MoneyEntryRow("Cước", fee) { fee = it }
+                    MoneyEntryRow("COD", cod) { cod = it }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.width(58.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = if (value == 0L) "" else fmtMoney(value), onValueChange = { onValueChange(parseMoney(it)) }, modifier = Modifier.weight(1f).height(50.dp), singleLine = true, placeholder = { Text("0", fontSize = 13.sp) }, suffix = { Text("đ", fontSize = 12.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
     }
 }
 
@@ -456,7 +558,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) {
+private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
     val context = LocalContext.current
     Scaffold(
         topBar = {
@@ -478,11 +580,108 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { Toast.makeText(context,"Tuyến giao hàng",Toast.LENGTH_SHORT).show() }
             }
             SettingsSection("TÀI CHÍNH") {
-                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN") { Toast.makeText(context,"Bảng kê tiền",Toast.LENGTH_SHORT).show() }
+                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
                 SettingsDivider()
                 SettingsItem(Icons.Default.AccountBalance, "CHECK CHUYỂN KHOẢN") { Toast.makeText(context,"Check chuyển khoản",Toast.LENGTH_SHORT).show() }
             }
         }
+    }
+}
+
+
+private fun fmtMoney(v: Long): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(v)
+private fun parseMoney(v: String): Long = v.filter(Char::isDigit).toLongOrNull() ?: 0L
+
+@Composable
+private fun MoneyLedgerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("money_ledger_session", android.content.Context.MODE_PRIVATE) }
+    val denoms = listOf(500000L, 200000L, 100000L, 50000L)
+    val counts = remember { mutableStateListOf<Int>().apply { denoms.indices.forEach { add(prefs.getInt("count_$it", 0)) } } }
+    var bank by remember { mutableStateOf(prefs.getLong("bank", 0L)) }
+    var fee by remember { mutableStateOf(prefs.getLong("fee", 0L)) }
+    var cod by remember { mutableStateOf(prefs.getLong("cod", 0L)) }
+    val cash = denoms.indices.sumOf { denoms[it] * counts[it].toLong() }
+    val result = cash + bank - fee - cod
+    val resultBg = if (result == 0L) Color(0xFFE6F4EA) else if (result < 0L) Color(0xFFFDE8E7) else Color(0xFFFFECDD)
+    val resultColor = if (result == 0L) Color(0xFF2E7D32) else if (result < 0L) Color(0xFFB3261E) else OrangeDark
+
+    LaunchedEffect(counts.toList(), bank, fee, cod) {
+        prefs.edit().apply {
+            counts.forEachIndexed { i, v -> putInt("count_$i", v) }
+            putLong("bank", bank); putLong("fee", fee); putLong("cod", cod)
+        }.apply()
+    }
+
+    fun resetAll() {
+        counts.indices.forEach { counts[it] = 0 }
+        bank = 0L; fee = 0L; cod = 0L
+        prefs.edit().clear().apply()
+    }
+
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Text("BẢNG KÊ TIỀN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        bottomBar = {
+            Button(onClick = onBack, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(6.dp).height(42.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Đóng bảng kê", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = resultBg)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("KẾT QUẢ BẢNG TÍNH", color = resultColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text((if (result > 0) "+" else "") + fmtMoney(result) + "đ", color = resultColor, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("(Tiền mặt + Bank) - (Cước + COD)", color = TextGray, fontSize = 11.sp)
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ĐẾM TIỀN MẶT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { resetAll() }, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 10.dp), shape = RoundedCornerShape(16.dp)) { Text("Reset 0", fontSize = 12.sp) }
+            }
+
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    denoms.forEachIndexed { i, d ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(fmtMoney(d) + "đ", modifier = Modifier.width(84.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            IconButton(onClick = { if (counts[i] > 0) counts[i]-- }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Remove, "Bớt", tint = Orange, modifier = Modifier.size(19.dp)) }
+                            OutlinedTextField(value = if (counts[i] == 0) "" else counts[i].toString(), onValueChange = { counts[i] = it.filter(Char::isDigit).toIntOrNull()?.coerceAtMost(9999) ?: 0 }, modifier = Modifier.width(62.dp).height(48.dp), singleLine = true, placeholder = { Text("0") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                            IconButton(onClick = { counts[i] = (counts[i] + 1).coerceAtMost(9999) }, modifier = Modifier.size(38.dp)) { Box(Modifier.fillMaxSize().clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, "Thêm", tint = Color.White, modifier = Modifier.size(21.dp)) } }
+                            Text(fmtMoney(d * counts[i].toLong()) + "đ", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(color = Border)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("TỔNG TIỀN MẶT", modifier = Modifier.weight(1f), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(fmtMoney(cash) + "đ", color = OrangeDark, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Text("ĐỐI SOÁT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 2.dp))
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MoneyEntryRow("Bank", bank) { bank = it }
+                    MoneyEntryRow("Cước", fee) { fee = it }
+                    MoneyEntryRow("COD", cod) { cod = it }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.width(58.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = if (value == 0L) "" else fmtMoney(value), onValueChange = { onValueChange(parseMoney(it)) }, modifier = Modifier.weight(1f).height(50.dp), singleLine = true, placeholder = { Text("0", fontSize = 13.sp) }, suffix = { Text("đ", fontSize = 12.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
     }
 }
 
@@ -514,7 +713,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) {
+private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
     val context = LocalContext.current
     Scaffold(
         topBar = {
@@ -536,11 +735,263 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { Toast.makeText(context,"Tuyến giao hàng",Toast.LENGTH_SHORT).show() }
             }
             SettingsSection("TÀI CHÍNH") {
-                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN") { Toast.makeText(context,"Bảng kê tiền",Toast.LENGTH_SHORT).show() }
+                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
                 SettingsDivider()
                 SettingsItem(Icons.Default.AccountBalance, "CHECK CHUYỂN KHOẢN") { Toast.makeText(context,"Check chuyển khoản",Toast.LENGTH_SHORT).show() }
             }
         }
+    }
+}
+
+
+private fun fmtMoney(v: Long): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(v)
+private fun parseMoney(v: String): Long = v.filter(Char::isDigit).toLongOrNull() ?: 0L
+
+@Composable
+private fun MoneyLedgerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("money_ledger_session", android.content.Context.MODE_PRIVATE) }
+    val denoms = listOf(500000L, 200000L, 100000L, 50000L)
+    val counts = remember { mutableStateListOf<Int>().apply { denoms.indices.forEach { add(prefs.getInt("count_$it", 0)) } } }
+    var bank by remember { mutableStateOf(prefs.getLong("bank", 0L)) }
+    var fee by remember { mutableStateOf(prefs.getLong("fee", 0L)) }
+    var cod by remember { mutableStateOf(prefs.getLong("cod", 0L)) }
+    val cash = denoms.indices.sumOf { denoms[it] * counts[it].toLong() }
+    val result = cash + bank - fee - cod
+    val resultBg = if (result == 0L) Color(0xFFE6F4EA) else if (result < 0L) Color(0xFFFDE8E7) else Color(0xFFFFECDD)
+    val resultColor = if (result == 0L) Color(0xFF2E7D32) else if (result < 0L) Color(0xFFB3261E) else OrangeDark
+
+    LaunchedEffect(counts.toList(), bank, fee, cod) {
+        prefs.edit().apply {
+            counts.forEachIndexed { i, v -> putInt("count_$i", v) }
+            putLong("bank", bank); putLong("fee", fee); putLong("cod", cod)
+        }.apply()
+    }
+
+    fun resetAll() {
+        counts.indices.forEach { counts[it] = 0 }
+        bank = 0L; fee = 0L; cod = 0L
+        prefs.edit().clear().apply()
+    }
+
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Text("BẢNG KÊ TIỀN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        bottomBar = {
+            Button(onClick = onBack, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(6.dp).height(42.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Đóng bảng kê", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = resultBg)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("KẾT QUẢ BẢNG TÍNH", color = resultColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text((if (result > 0) "+" else "") + fmtMoney(result) + "đ", color = resultColor, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("(Tiền mặt + Bank) - (Cước + COD)", color = TextGray, fontSize = 11.sp)
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ĐẾM TIỀN MẶT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { resetAll() }, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 10.dp), shape = RoundedCornerShape(16.dp)) { Text("Reset 0", fontSize = 12.sp) }
+            }
+
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    denoms.forEachIndexed { i, d ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(fmtMoney(d) + "đ", modifier = Modifier.width(84.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            IconButton(onClick = { if (counts[i] > 0) counts[i]-- }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Remove, "Bớt", tint = Orange, modifier = Modifier.size(19.dp)) }
+                            OutlinedTextField(value = if (counts[i] == 0) "" else counts[i].toString(), onValueChange = { counts[i] = it.filter(Char::isDigit).toIntOrNull()?.coerceAtMost(9999) ?: 0 }, modifier = Modifier.width(62.dp).height(48.dp), singleLine = true, placeholder = { Text("0") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                            IconButton(onClick = { counts[i] = (counts[i] + 1).coerceAtMost(9999) }, modifier = Modifier.size(38.dp)) { Box(Modifier.fillMaxSize().clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, "Thêm", tint = Color.White, modifier = Modifier.size(21.dp)) } }
+                            Text(fmtMoney(d * counts[i].toLong()) + "đ", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(color = Border)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("TỔNG TIỀN MẶT", modifier = Modifier.weight(1f), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(fmtMoney(cash) + "đ", color = OrangeDark, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Text("ĐỐI SOÁT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 2.dp))
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MoneyEntryRow("Bank", bank) { bank = it }
+                    MoneyEntryRow("Cước", fee) { fee = it }
+                    MoneyEntryRow("COD", cod) { cod = it }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.width(58.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = if (value == 0L) "" else fmtMoney(value), onValueChange = { onValueChange(parseMoney(it)) }, modifier = Modifier.weight(1f).height(50.dp), singleLine = true, placeholder = { Text("0", fontSize = 13.sp) }, suffix = { Text("đ", fontSize = 12.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
+    }
+}
+
+@Composable
+private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, modifier = Modifier.padding(start = 4.dp, top = 2.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextGray)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp)) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
+private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String? = null, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = if (subtitle == null) 48.dp else 56.dp).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(OrangeLight), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Orange, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Navy, maxLines = 1)
+            if (subtitle != null) Text(subtitle, fontSize = 11.sp, color = TextGray, maxLines = 2, lineHeight = 14.sp)
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = TextGray, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
+
+@Composable
+private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
+    val context = LocalContext.current
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Text("CÀI ĐẶT", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            SettingsSection("DỮ LIỆU & ĐỒNG BỘ") {
+                SettingsItem(Icons.Default.SwapHoriz, "IMPORT / EXPORT DỮ LIỆU", "Sao lưu khách hàng hoặc quản lý đơn hàng") { Toast.makeText(context,"Import / Export dữ liệu",Toast.LENGTH_SHORT).show() }
+                SettingsDivider()
+                SettingsItem(Icons.Default.FileDownload, "VTMAN EXPORT", "Nạp MVĐ, lấy SĐT và xuất CSV từ VTMan") { Toast.makeText(context,"VTMan Export",Toast.LENGTH_SHORT).show() }
+            }
+            SettingsSection("VẬN HÀNH") {
+                SettingsItem(Icons.Default.Inventory2, "XỬ LÝ ĐƠN") { Toast.makeText(context,"Xử lý đơn",Toast.LENGTH_SHORT).show() }
+                SettingsDivider()
+                SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { Toast.makeText(context,"Tuyến giao hàng",Toast.LENGTH_SHORT).show() }
+            }
+            SettingsSection("TÀI CHÍNH") {
+                SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
+                SettingsDivider()
+                SettingsItem(Icons.Default.AccountBalance, "CHECK CHUYỂN KHOẢN") { Toast.makeText(context,"Check chuyển khoản",Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+}
+
+
+private fun fmtMoney(v: Long): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(v)
+private fun parseMoney(v: String): Long = v.filter(Char::isDigit).toLongOrNull() ?: 0L
+
+@Composable
+private fun MoneyLedgerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("money_ledger_session", android.content.Context.MODE_PRIVATE) }
+    val denoms = listOf(500000L, 200000L, 100000L, 50000L)
+    val counts = remember { mutableStateListOf<Int>().apply { denoms.indices.forEach { add(prefs.getInt("count_$it", 0)) } } }
+    var bank by remember { mutableStateOf(prefs.getLong("bank", 0L)) }
+    var fee by remember { mutableStateOf(prefs.getLong("fee", 0L)) }
+    var cod by remember { mutableStateOf(prefs.getLong("cod", 0L)) }
+    val cash = denoms.indices.sumOf { denoms[it] * counts[it].toLong() }
+    val result = cash + bank - fee - cod
+    val resultBg = if (result == 0L) Color(0xFFE6F4EA) else if (result < 0L) Color(0xFFFDE8E7) else Color(0xFFFFECDD)
+    val resultColor = if (result == 0L) Color(0xFF2E7D32) else if (result < 0L) Color(0xFFB3261E) else OrangeDark
+
+    LaunchedEffect(counts.toList(), bank, fee, cod) {
+        prefs.edit().apply {
+            counts.forEachIndexed { i, v -> putInt("count_$i", v) }
+            putLong("bank", bank); putLong("fee", fee); putLong("cod", cod)
+        }.apply()
+    }
+
+    fun resetAll() {
+        counts.indices.forEach { counts[it] = 0 }
+        bank = 0L; fee = 0L; cod = 0L
+        prefs.edit().clear().apply()
+    }
+
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                Text("BẢNG KÊ TIỀN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        bottomBar = {
+            Button(onClick = onBack, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(6.dp).height(42.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.Save, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Đóng bảng kê", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = resultBg)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("KẾT QUẢ BẢNG TÍNH", color = resultColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text((if (result > 0) "+" else "") + fmtMoney(result) + "đ", color = resultColor, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("(Tiền mặt + Bank) - (Cước + COD)", color = TextGray, fontSize = 11.sp)
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ĐẾM TIỀN MẶT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { resetAll() }, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 10.dp), shape = RoundedCornerShape(16.dp)) { Text("Reset 0", fontSize = 12.sp) }
+            }
+
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    denoms.forEachIndexed { i, d ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(fmtMoney(d) + "đ", modifier = Modifier.width(84.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            IconButton(onClick = { if (counts[i] > 0) counts[i]-- }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Remove, "Bớt", tint = Orange, modifier = Modifier.size(19.dp)) }
+                            OutlinedTextField(value = if (counts[i] == 0) "" else counts[i].toString(), onValueChange = { counts[i] = it.filter(Char::isDigit).toIntOrNull()?.coerceAtMost(9999) ?: 0 }, modifier = Modifier.width(62.dp).height(48.dp), singleLine = true, placeholder = { Text("0") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                            IconButton(onClick = { counts[i] = (counts[i] + 1).coerceAtMost(9999) }, modifier = Modifier.size(38.dp)) { Box(Modifier.fillMaxSize().clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, "Thêm", tint = Color.White, modifier = Modifier.size(21.dp)) } }
+                            Text(fmtMoney(d * counts[i].toLong()) + "đ", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(color = Border)
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("TỔNG TIỀN MẶT", modifier = Modifier.weight(1f), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(fmtMoney(cash) + "đ", color = OrangeDark, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Text("ĐỐI SOÁT", color = OrangeDark, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 2.dp))
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MoneyEntryRow("Bank", bank) { bank = it }
+                    MoneyEntryRow("Cước", fee) { fee = it }
+                    MoneyEntryRow("COD", cod) { cod = it }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.width(58.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = if (value == 0L) "" else fmtMoney(value), onValueChange = { onValueChange(parseMoney(it)) }, modifier = Modifier.weight(1f).height(50.dp), singleLine = true, placeholder = { Text("0", fontSize = 13.sp) }, suffix = { Text("đ", fontSize = 12.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
     }
 }
 
