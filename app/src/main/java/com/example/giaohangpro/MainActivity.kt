@@ -587,6 +587,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1397,7 +1398,6 @@ fun CustomerListScreen(
             .background(Background) // Đặt màu nền xám xanh nhạt cho toàn màn hình.
     ) {
         Column(Modifier.fillMaxSize()) { // Xếp header, ô tìm kiếm và danh sách theo chiều dọc.
-            TopHeader() // Hiển thị thanh tiêu đề màu cam giống ảnh mẫu.
 
             CustomerSearchBox( // Hiển thị ô tìm kiếm riêng cho tab khách hàng.
                 value = keyword, // Truyền nội dung tìm kiếm hiện tại vào ô nhập.
