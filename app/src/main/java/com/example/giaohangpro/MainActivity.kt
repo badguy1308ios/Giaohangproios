@@ -302,6 +302,26 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
     var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
     var formIsNew by remember { mutableStateOf(false) }
     val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)
+    val context = LocalContext.current
+    var lastBackPressAt by remember { mutableLongStateOf(0L) }
+
+    androidx.activity.compose.BackHandler(enabled = true) {
+        when (screen) {
+            AppScreen.CUSTOMER_DETAIL -> screen = AppScreen.MAIN
+            AppScreen.CUSTOMER_FORM -> screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL
+            AppScreen.SETTINGS -> screen = AppScreen.MAIN
+            AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
+            AppScreen.MAIN -> {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastBackPressAt <= 2000L) {
+                    (context as? android.app.Activity)?.finish()
+                } else {
+                    lastBackPressAt = now
+                    Toast.makeText(context, "Bấm Back lần nữa để thoát", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     when (screen) {
         AppScreen.MAIN -> Scaffold(
@@ -316,7 +336,30 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                 ) { activeTab ->
                     when (activeTab) {
                         Tab.MAP -> MapScreen(vm.orders, vm.customers)
-                        Tab.ORDERS -> OrderListScreen(vm.orders)
+                        Tab.ORDERS -> OrderListScreen(
+                            orders = vm.orders,
+                            onCustomerClick = { order ->
+                                fun normalizedPhone(raw: String): String {
+                                    val digits = raw.filter(Char::isDigit)
+                                    return when {
+                                        digits.startsWith("0084") -> "0" + digits.drop(4)
+                                        digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
+                                        else -> digits
+                                    }
+                                }
+                                val wanted = normalizedPhone(order.phone)
+                                val customer = vm.customers.firstOrNull { c ->
+                                    normalizedPhone(c.phone) == wanted ||
+                                        c.extraPhones.any { normalizedPhone(it.number) == wanted }
+                                }
+                                if (customer != null) {
+                                    selectedCustomerId = customer.id
+                                    screen = AppScreen.CUSTOMER_DETAIL
+                                } else {
+                                    Toast.makeText(context, "Không tìm thấy khách theo SĐT ${order.phone}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                         Tab.CUSTOMERS -> CustomerListScreen(
                             customers = vm.customers,
                             onCustomerClick = {
@@ -544,6 +587,26 @@ private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.V
     }
 }
 
+private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val raw = text.text
+        val formatted = raw.reversed().chunked(3).joinToString(",").reversed()
+        val mapping = object : androidx.compose.ui.text.input.OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int {
+                val o = offset.coerceIn(0, raw.length)
+                if (raw.isEmpty()) return 0
+                val commasBefore = if (o == 0) 0 else ((raw.length - 1) / 3 - (raw.length - o - 1).coerceAtLeast(0) / 3).coerceAtLeast(0)
+                return (o + commasBefore).coerceAtMost(formatted.length)
+            }
+            override fun transformedToOriginal(offset: Int): Int {
+                val t = offset.coerceIn(0, formatted.length)
+                return formatted.take(t).count { it != ',' }.coerceAtMost(raw.length)
+            }
+        }
+        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(formatted), mapping)
+    }
+}
+
 @Composable
 private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
     var text by remember(label) { mutableStateOf(if (value == 0L) "" else value.toString()) }
@@ -601,6 +664,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1220,7 +1284,7 @@ private fun CustomerCoordinateMapPicker(
 // 6. TAB CHI TIẾT ĐƠN
 // ================================================================
 @Composable
-fun OrderListScreen(orders: List<Order>) {
+fun OrderListScreen(orders: List<Order>, onCustomerClick: (Order) -> Unit) {
     var keyword by remember { mutableStateOf("") }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it }
@@ -1251,14 +1315,14 @@ fun OrderListScreen(orders: List<Order>) {
             Text("Tổng số: ${filteredOrders.size} đơn", color=Navy, fontSize=20.sp, fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=8.dp)) {
-                itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1, order) }
+                itemsIndexed(filteredOrders) { index, order -> OrderCard(index + 1, order, onCustomerClick) }
             }
         }
     }
 }
 
 @Composable
-fun OrderCard(index: Int, order: Order) {
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -1301,7 +1365,7 @@ fun OrderCard(index: Int, order: Order) {
             Spacer(Modifier.height(4.dp))
 
             OrderInfoRow(Icons.Default.Store, order.customer)
-            OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}")
+            OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}", onClick = { onCustomerClick(order) })
             OrderInfoRow(Icons.Default.LocationOn, order.address)
             OrderInfoRow(Icons.Default.Inventory2, order.item)
 
@@ -1325,11 +1389,17 @@ fun OrderCard(index: Int, order: Order) {
 }
 
 @Composable
-fun OrderInfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+fun OrderInfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    onClick: (() -> Unit)? = null
+) {
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+        .padding(vertical = 1.dp)
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp),
+        rowModifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, null, tint = Navy, modifier = Modifier.size(20.dp))
