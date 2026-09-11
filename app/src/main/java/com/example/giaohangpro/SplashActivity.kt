@@ -23,7 +23,6 @@ class SplashActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -32,106 +31,78 @@ class SplashActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(198, 90, 34))
-        }
-
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(198, 90, 34)) }
         textureView = TextureView(this).apply {
             surfaceTextureListener = this@SplashActivity
             isOpaque = true
         }
-        root.addView(
-            textureView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
+        root.addView(textureView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
     }
 
-    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-        startVideo(surfaceTexture)
-    }
+    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) = startVideo(surfaceTexture)
 
     private fun startVideo(surfaceTexture: SurfaceTexture) {
         try {
             val mp = MediaPlayer()
             player = mp
-            val afd = resources.openRawResourceFd(R.raw.loading_screen)
-            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            afd.close()
+            resources.openRawResourceFd(R.raw.loading_screen).use { afd ->
+                mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            }
             mp.setSurface(Surface(surfaceTexture))
             mp.isLooping = false
             mp.setVolume(1f, 1f)
-
             mp.setOnPreparedListener { prepared ->
-                applyCenterCrop(prepared.videoWidth, prepared.videoHeight)
-                prepared.start()
+                textureView.post {
+                    applyFitCenter(prepared.videoWidth, prepared.videoHeight)
+                    prepared.start()
+                }
             }
-            mp.setOnVideoSizeChangedListener { _, videoWidth, videoHeight ->
-                applyCenterCrop(videoWidth, videoHeight)
-            }
+            mp.setOnVideoSizeChangedListener { _, w, h -> textureView.post { applyFitCenter(w, h) } }
             mp.setOnCompletionListener { openMain() }
-            mp.setOnErrorListener { _, _, _ ->
-                openMain()
-                true
-            }
+            mp.setOnErrorListener { _, _, _ -> openMain(); true }
             mp.prepareAsync()
-        } catch (_: Throwable) {
-            openMain()
-        }
+        } catch (_: Throwable) { openMain() }
     }
 
-    private fun applyCenterCrop(videoWidth: Int, videoHeight: Int) {
-        if (videoWidth <= 0 || videoHeight <= 0 || textureView.width <= 0 || textureView.height <= 0) return
-
+    // Fit toàn bộ video vào màn hình, giữ đúng tỉ lệ; không phóng/crop mất chữ hay hình.
+    private fun applyFitCenter(videoWidth: Int, videoHeight: Int) {
         val viewW = textureView.width.toFloat()
         val viewH = textureView.height.toFloat()
-        val videoW = videoWidth.toFloat()
-        val videoH = videoHeight.toFloat()
-        val scale = maxOf(viewW / videoW, viewH / videoH)
-        val scaledW = videoW * scale
-        val scaledH = videoH * scale
-        val dx = (viewW - scaledW) / 2f
-        val dy = (viewH - scaledH) / 2f
+        if (videoWidth <= 0 || videoHeight <= 0 || viewW <= 0f || viewH <= 0f) return
 
+        // TextureView mặc định kéo buffer phủ kín view. Matrix dưới đây bù lại sự kéo giãn đó.
+        val videoAspect = videoWidth.toFloat() / videoHeight.toFloat()
+        val viewAspect = viewW / viewH
         val matrix = Matrix()
-        matrix.setScale(scale, scale)
-        matrix.postTranslate(dx, dy)
+        val cx = viewW / 2f
+        val cy = viewH / 2f
+        if (videoAspect > viewAspect) {
+            // Video rộng hơn màn hình: vừa theo chiều ngang, chừa nền trên/dưới nếu cần.
+            val scaleY = viewAspect / videoAspect
+            matrix.setScale(1f, scaleY, cx, cy)
+        } else {
+            // Video cao hơn màn hình: vừa theo chiều dọc, chừa nền hai bên nếu cần.
+            val scaleX = videoAspect / viewAspect
+            matrix.setScale(scaleX, 1f, cx, cy)
+        }
         textureView.setTransform(matrix)
     }
 
     private fun openMain() {
         if (openedMain) return
         openedMain = true
-        player?.release()
-        player = null
+        player?.release(); player = null
         startActivity(Intent(this, MainActivity::class.java))
         finish()
         overridePendingTransition(0, 0)
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        player?.let { applyCenterCrop(it.videoWidth, it.videoHeight) }
+        player?.let { textureView.post { applyFitCenter(it.videoWidth, it.videoHeight) } }
     }
-
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        player?.release()
-        player = null
-        return true
-    }
-
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean { player?.release(); player = null; return true }
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
-
-    override fun onDestroy() {
-        player?.release()
-        player = null
-        super.onDestroy()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        // Không thoát app trong lúc video khởi động đang chạy.
-    }
+    override fun onDestroy() { player?.release(); player = null; super.onDestroy() }
+    @Deprecated("Deprecated in Java") override fun onBackPressed() = Unit
 }
