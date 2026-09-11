@@ -1720,25 +1720,31 @@ private fun CustomerDetailContent(
 
             }
         }
-        Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Person, customer.name) }
-        Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, customer.phone) }
-        Card(
-            Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border)
-        ) {
-            Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(19.dp))
-                }
-                Spacer(Modifier.width(6.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(customer.address, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text(if (customer.latitude.isBlank() || customer.longitude.isBlank()) "Chưa có tọa độ" else "${customer.latitude}, ${customer.longitude}", color = TextGray, fontSize = 11.sp)
+        (listOf(customer.name) + customer.aliases).filter { it.isNotBlank() }.forEach { displayName ->
+            Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Person, displayName) }
+        }
+        (listOf(customer.phone) + customer.extraPhones.map { it.number }).filter { it.isNotBlank() }.forEach { displayPhone ->
+            Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, displayPhone) }
+        }
+        (listOf(CustomerAddress(customer.address, customer.latitude, customer.longitude, true)) + customer.extraAddresses).filter { it.address.isNotBlank() }.forEach { addr ->
+            Card(
+                Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+            ) {
+                Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(19.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(addr.address, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(if (addr.latitude.isBlank() || addr.longitude.isBlank()) "Chưa có tọa độ" else "${addr.latitude}, ${addr.longitude}", color = TextGray, fontSize = 11.sp)
+                    }
                 }
             }
         }
         if (customer.note.isNotBlank()) Card(
-            Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+            Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
             border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) { Text(customer.note, Modifier.padding(7.dp), color = Navy, fontSize = 13.sp) }
     }
@@ -1770,9 +1776,11 @@ private data class AddressDraft(val address: String, val latitude: String, val l
 fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Customer) -> Unit) {
     var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
     var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) }
+    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     var expandedPhone by remember { mutableStateOf<Int?>(null) }
     var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
     var validation by remember { mutableStateOf(false) }
+    var showFormPhotoMenu by remember { mutableStateOf(false) }
 
     val phones = remember(customer?.id) {
         mutableStateListOf<PhoneDraft>().apply {
@@ -1799,15 +1807,14 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
         ) {
             Box {
                 CustomerPhotoCard()
-                Row(Modifier.align(Alignment.BottomStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Surface(Modifier.size(38.dp).clickable { /* photo picker is opened from detail after save */ }, CircleShape, color = Orange) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, "Thêm ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) } }
-                    Surface(Modifier.size(38.dp).clickable { }, CircleShape, color = Color(0xFFE21B1B)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DeleteOutline, "Xóa ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) } }
-                }
+                Surface(Modifier.align(Alignment.BottomStart).padding(8.dp).size(38.dp).clickable { showFormPhotoMenu = true }, CircleShape, color = Orange) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, "Quản lý ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) } }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SmallPlusMinus(plus = true) { }
-                Spacer(Modifier.width(4.dp))
-                Box(Modifier.weight(1f)) { CompactInput("Tên khách hàng", name, { name = it }, "Nhập tên khách hàng") }
+            names.forEachIndexed { index, value ->
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Box(Modifier.weight(1f)) { CompactInput(if (index == 0) "Tên khách hàng" else "Tên / biệt danh", value, { v -> names[index] = v; if (index == 0) name = v }, if (index == 0) "Nhập tên khách hàng" else "Nhập tên hoặc biệt danh") }
+                    SmallPlusMinus(plus = true) { names.add(index + 1, "") }
+                    if (names.size > 1 && index > 0) SmallPlusMinus(plus = false) { names.removeAt(index) }
+                }
             }
 
             Text("SỐ ĐIỆN THOẠI", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -1863,11 +1870,15 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                                 if (wasPrimary && addresses.isNotEmpty()) addresses[0] = addresses[0].copy(isPrimary = true)
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                if (item.latitude.isBlank() || item.longitude.isBlank()) "Chưa chọn tọa độ" else "${item.latitude}, ${item.longitude}",
-                                color = TextGray, fontSize = 11.sp, modifier = Modifier.weight(1f)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            fun setCoord(raw: String, latitudeField: Boolean) {
+                                val nums = Regex("[-+]?\\d+(?:[.,]\\d+)?").findAll(raw).map { it.value.replace(',', '.') }.toList()
+                                if (nums.size >= 2) addresses[index] = addresses[index].copy(latitude = nums[0], longitude = nums[1])
+                                else if (latitudeField) addresses[index] = addresses[index].copy(latitude = raw.replace(',', '.'))
+                                else addresses[index] = addresses[index].copy(longitude = raw.replace(',', '.'))
+                            }
+                            OutlinedTextField(item.latitude, { setCoord(it, true) }, Modifier.weight(1f), singleLine = true, label = { Text("Vĩ độ", fontSize = 10.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                            OutlinedTextField(item.longitude, { setCoord(it, false) }, Modifier.weight(1f), singleLine = true, label = { Text("Kinh độ", fontSize = 10.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                             TextButton(onClick = { pickAddressIndex = index }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
                                 Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(2.dp)); Text("Chọn trên bản đồ", fontSize = 11.sp)
                             }
@@ -1895,7 +1906,7 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                             latitude = primaryAddress.latitude.trim(),
                             longitude = primaryAddress.longitude.trim(),
                             initials = createInitials(name),
-                            aliases = customer?.aliases ?: emptyList(),
+                            aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() },
                             extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) },
                             extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false) },
                             note = note.trim(),
@@ -1912,6 +1923,16 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
             OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
         }
     }
+
+    if (showFormPhotoMenu) AlertDialog(
+        onDismissRequest = { showFormPhotoMenu = false },
+        title = { Text("Ảnh cổng nhà khách") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoLibrary, null); Spacer(Modifier.width(6.dp)); Text("Chọn từ thư viện") }
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Chụp ảnh mới") }
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE21B1B)); Spacer(Modifier.width(6.dp)); Text("Xóa ảnh", color = Color(0xFFE21B1B)) }
+        } }, confirmButton = {}, dismissButton = { TextButton(onClick = { showFormPhotoMenu = false }) { Text("Hủy") } }
+    )
 
     pickAddressIndex?.let { index ->
         CustomerCoordinateMapPicker(
