@@ -14,14 +14,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Clean duplicated settings and money ledger code
+      - name: Clean and fix money ledger
         run: |
           python3 tools/cleanup_money_ledger_duplicates_20260911.py
+          python3 tools/fix_money_ledger_inputs_20260911.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Clean duplicated money ledger code [skip ci]"
+            git commit -m "Fix money ledger inputs and controls [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
