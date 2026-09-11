@@ -492,10 +492,11 @@ private fun MoneyLedgerScreen(onBack: () -> Unit) {
                             Text(fmtMoney(d) + "đ", modifier = Modifier.width(84.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             IconButton(onClick = { if (counts[i] > 0) counts[i]-- }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Remove, "Bớt", tint = Orange, modifier = Modifier.size(19.dp)) }
                             OutlinedTextField(
-                                value = counts[i].toString(),
+                                value = if (counts[i] == 0) "" else counts[i].toString(),
                                 onValueChange = { raw: String -> counts[i] = raw.filter(Char::isDigit).trimStart('0').toIntOrNull()?.coerceAtMost(9999) ?: 0 },
                                 modifier = Modifier.width(62.dp).height(54.dp),
                                 singleLine = true,
+                                placeholder = { Text("0") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                             )
@@ -525,30 +526,30 @@ private fun MoneyLedgerScreen(onBack: () -> Unit) {
 
 @Composable
 private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
-    var text by remember(label) { mutableStateOf(if (value == 0L) "0" else fmtMoney(value)) }
+    var text by remember(label) { mutableStateOf(if (value == 0L) "" else fmtMoney(value)) }
+    var lastEmitted by remember(label) { mutableLongStateOf(value) }
+
     LaunchedEffect(value) {
-        val current = parseMoney(text)
-        if (current != value) text = if (value == 0L) "0" else fmtMoney(value)
+        if (value != lastEmitted) {
+            text = if (value == 0L) "" else fmtMoney(value)
+            lastEmitted = value
+        }
     }
+
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.width(58.dp), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = text,
             onValueChange = { raw: String ->
-                val digits0 = raw.filter(Char::isDigit)
-                val digits = if (text == "0" && digits0.length > 1) {
-                    when {
-                        digits0.startsWith("0") -> digits0.drop(1)
-                        digits0.endsWith("0") -> digits0.dropLast(1)
-                        else -> digits0
-                    }
-                } else digits0
-                val parsed = digits.ifEmpty { "0" }.toLongOrNull() ?: 0L
+                val digits = raw.filter(Char::isDigit).trimStart('0')
+                val parsed = digits.toLongOrNull() ?: 0L
                 text = if (digits.isEmpty()) "" else fmtMoney(parsed)
+                lastEmitted = parsed
                 onValueChange(parsed)
             },
             modifier = Modifier.weight(1f).height(56.dp),
             singleLine = true,
+            placeholder = { Text("0", fontSize = 14.sp) },
             suffix = { Text("đ", fontSize = 12.sp) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
@@ -581,6 +582,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
