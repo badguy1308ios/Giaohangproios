@@ -587,26 +587,6 @@ private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.V
     }
 }
 
-private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.VisualTransformation {
-    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
-        val raw = text.text
-        val formatted = raw.reversed().chunked(3).joinToString(",").reversed()
-        val mapping = object : androidx.compose.ui.text.input.OffsetMapping {
-            override fun originalToTransformed(offset: Int): Int {
-                val o = offset.coerceIn(0, raw.length)
-                if (raw.isEmpty()) return 0
-                val commasBefore = if (o == 0) 0 else ((raw.length - 1) / 3 - (raw.length - o - 1).coerceAtLeast(0) / 3).coerceAtLeast(0)
-                return (o + commasBefore).coerceAtMost(formatted.length)
-            }
-            override fun transformedToOriginal(offset: Int): Int {
-                val t = offset.coerceIn(0, formatted.length)
-                return formatted.take(t).count { it != ',' }.coerceAtMost(raw.length)
-            }
-        }
-        return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(formatted), mapping)
-    }
-}
-
 @Composable
 private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> Unit) {
     var text by remember(label) { mutableStateOf(if (value == 0L) "" else value.toString()) }
@@ -664,6 +644,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
