@@ -24,13 +24,17 @@ jobs:
         run: python3 tools/fix_qr_barcode_scanner_20260911.py
       - name: Add compact settings screen
         run: python3 tools/add_settings_screen_20260911.py
+      - name: Add money ledger navigation
+        run: python3 tools/add_money_ledger_nav_20260911.py
+      - name: Add money ledger screen
+        run: python3 tools/add_money_ledger_screen_20260911.py
       - name: Save app fixes
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Add compact settings screen [skip ci]"
+            git commit -m "Add persistent money ledger [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
