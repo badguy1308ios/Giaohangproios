@@ -1,9 +1,11 @@
 from pathlib import Path
+import re
 p=Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
 s=p.read_text()
 
-# Global header is already supplied by the MAIN Scaffold. Remove nested headers in tab bodies.
-s=s.replace('\n        TopHeader()\n', '\n')
+# Global header is already supplied by the MAIN Scaffold. Remove every nested no-arg header in tab bodies,
+# regardless of indentation or trailing comments (CustomerListScreen had `TopHeader() // ...`).
+s=re.sub(r'(?m)^\s*TopHeader\(\)\s*(?://.*)?\n', '', s)
 
 # Fix denomination input lambda typing and remove unsupported contentPadding on OutlinedTextField.
 s=s.replace('onValueChange = { raw -> counts[i] = raw.filter(Char::isDigit).trimStart(\'0\').toIntOrNull()?.coerceAtMost(9999) ?: 0 },',
