@@ -140,6 +140,7 @@ data class Order(
     val item: String,
     val amount: String,
     val tags: List<String>,
+    val shop: String = "",
     val status: String = "Chưa giao", // Trạng thái đơn hàng.
     val latitude: String = "", // Vĩ độ điểm giao; marker chỉ hiện khi tọa độ hợp lệ.
     val longitude: String = "" // Kinh độ điểm giao; dùng cùng với latitude để dẫn đường.
@@ -287,7 +288,7 @@ private val sampleCustomers = listOf(
 enum class Tab { MAP, ORDERS, CUSTOMERS } // Ba tab chính của ứng dụng.
 
 // Điều hướng nội bộ đơn giản cho demo: danh sách chính, chi tiết khách và form thêm/sửa.
-enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER }
+enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT }
 
 // Xác định cặp textbox nào trong form sẽ nhận tọa độ sau khi người dùng chọn trên bản đồ.
 private enum class CoordinateTarget {
@@ -311,6 +312,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_FORM -> screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL
             AppScreen.SETTINGS -> screen = AppScreen.MAIN
             AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
+            AppScreen.VTMAN_EXPORT -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -394,8 +396,9 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                 screen = AppScreen.CUSTOMER_DETAIL
             }
         )
-        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER })
+        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -440,7 +443,7 @@ fun TopHeader(onSettingsClick: () -> Unit = {}) {
 
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
+private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtmanExport: () -> Unit) {
     val context = LocalContext.current
     Scaffold(
         topBar = {
@@ -454,7 +457,7 @@ private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit) {
             SettingsSection("DỮ LIỆU & ĐỒNG BỘ") {
                 SettingsItem(Icons.Default.SwapHoriz, "IMPORT / EXPORT DỮ LIỆU", "Sao lưu khách hàng hoặc quản lý đơn hàng") { Toast.makeText(context,"Import / Export dữ liệu",Toast.LENGTH_SHORT).show() }
                 SettingsDivider()
-                SettingsItem(Icons.Default.FileDownload, "VTMAN EXPORT", "Nạp MVĐ, lấy SĐT và xuất CSV từ VTMan") { Toast.makeText(context,"VTMan Export",Toast.LENGTH_SHORT).show() }
+                SettingsItem(Icons.Default.FileDownload, "VTMAN EXPORT", "Nạp MVĐ và lấy thông tin đơn trực tiếp từ VTMan") { onVtmanExport() }
             }
             SettingsSection("VẬN HÀNH") {
                 SettingsItem(Icons.Default.Inventory2, "XỬ LÝ ĐƠN") { Toast.makeText(context,"Xử lý đơn",Toast.LENGTH_SHORT).show() }
@@ -619,6 +622,75 @@ private fun MoneyEntryRow(label: String, value: Long, onValueChange: (Long) -> U
     }
 }
 
+
+@Composable
+private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var waybills by remember { mutableStateOf("") }
+    var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
+    var importedCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+            val records = com.example.giaohangpro.vtman.VtmanQueueController.records()
+            if (records.size != importedCount) {
+                vm.importVtmanRecords(records)
+                importedCount = records.size
+            }
+            kotlinx.coroutines.delay(400)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            Row(Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White) }
+                Text("VTMan Export", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(6.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Dán danh sách mã vận đơn, mỗi mã một dòng", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = waybills,
+                onValueChange = { waybills = it },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp),
+                placeholder = { Text("150327113189\n150406398811", fontSize = 12.sp) }
+            )
+            Button(onClick = {
+                val list = waybills.lines().flatMap { line -> line.split(',', ';', ' ', '\t') }.map(String::trim).filter { it.isNotBlank() }
+                com.example.giaohangpro.vtman.VtmanQueueController.load(list)
+                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+            }, modifier = Modifier.fillMaxWidth().height(42.dp)) { Text("NẠP DANH SÁCH") }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(onClick = {
+                    if (!android.provider.Settings.canDrawOverlays(context)) {
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}"))
+                        context.startActivity(intent)
+                    } else {
+                        context.startService(android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java))
+                        Toast.makeText(context, "Mở VTMan > Gạch phát offline, rồi bấm Chạy trên popup", Toast.LENGTH_LONG).show()
+                    }
+                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("BẬT POPUP", fontSize = 11.sp) }
+                OutlinedButton(onClick = {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("TRỢ NĂNG", fontSize = 11.sp) }
+            }
+
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Tiến độ: ${snapshot.processed}/${snapshot.total} • Lấy được: ${snapshot.written} • Bỏ qua: ${snapshot.skipped}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Navy)
+                    Text(snapshot.status, fontSize = 12.sp, color = if (snapshot.error.isBlank()) TextGray else Color(0xFFE21B1B))
+                    if (snapshot.currentWaybill.isNotBlank()) Text("Đang xử lý: ${snapshot.currentWaybill}", fontSize = 12.sp, color = OrangeDark)
+                }
+            }
+            Text("Dữ liệu lấy: MVĐ • Shop • SĐT • Tên khách • COD • Địa chỉ • Hàng hóa • Trạng thái • Dịch vụ. Khách cũ theo SĐT tuyệt đối không bị ghi đè.", fontSize = 11.sp, color = TextGray)
+        }
+    }
+}
+
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -644,6 +716,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1354,7 +1427,7 @@ fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
 
             Spacer(Modifier.height(4.dp))
 
-            OrderInfoRow(Icons.Default.Store, order.customer)
+            OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
             OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}", onClick = { onCustomerClick(order) })
             OrderInfoRow(Icons.Default.LocationOn, order.address)
             OrderInfoRow(Icons.Default.Inventory2, order.item)
@@ -2480,8 +2553,8 @@ fun NumberCircle(number: Int, selected: Boolean) {
 // 11. VIEWMODEL
 // ================================================================
 class MainViewModel : androidx.lifecycle.ViewModel() {
-    // Đơn hàng hiện vẫn dùng dữ liệu mẫu; sau này có thể thay bằng Repository/API.
-    val orders = sampleOrders
+    private val orderState = mutableStateListOf<Order>().apply { addAll(sampleOrders) }
+    val orders: List<Order> get() = orderState
 
     // mutableStateListOf giúp Compose tự vẽ lại danh sách khi thêm, sửa hoặc xóa khách.
     private val customerState = mutableStateListOf<Customer>().apply { addAll(sampleCustomers) }
@@ -2559,6 +2632,25 @@ class MainViewModel : androidx.lifecycle.ViewModel() {
 
     // Xóa khách theo id.
     fun deleteCustomer(id: Long) {
-        customerState.removeAll { it.id == id } // Loại bỏ toàn bộ phần tử trùng id.
+        customerState.removeAll { it.id == id }
+    }
+
+    fun importVtmanRecords(records: List<com.example.giaohangpro.vtman.VtmanOrderRecord>) {
+        records.forEach { r ->
+            val order = Order(
+                code = r.waybill,
+                customer = r.customer,
+                phone = r.phone,
+                address = r.address,
+                item = r.goods,
+                amount = r.cod,
+                tags = r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),
+                shop = r.shop,
+                status = r.status
+            )
+            val index = orderState.indexOfFirst { it.code == r.waybill }
+            if (index >= 0) orderState[index] = order else orderState.add(order)
+            ensureCustomerFromImportedOrder(r.customer, r.phone, r.address)
+        }
     }
 }
