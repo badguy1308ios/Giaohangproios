@@ -1,24 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Internet để OSMDroid tải tile OpenStreetMap. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- GPS chính xác để hiển thị vị trí tài xế khi người dùng cấp quyền. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- Fallback vị trí gần đúng qua Wi-Fi/mạng di động. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:theme="@style/Theme.GiaoHangPro"
         android:label="Giao Hàng Pro"
+        android:icon="@drawable/app_icon"
+        android:roundIcon="@drawable/app_icon"
         android:allowBackup="true"
         android:supportsRtl="true">
+
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
     </application>
 </manifest>
