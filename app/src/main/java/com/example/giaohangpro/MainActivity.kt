@@ -1553,17 +1553,9 @@ fun CustomerDetailScreen(
         onPhotoChanged(uri.toString())
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-        bitmap ?: return@rememberLauncherForActivityResult
-        runCatching {
-            val file = java.io.File(context.filesDir, "customer_gate_${customer.id}.jpg")
-            java.io.FileOutputStream(file).use { out ->
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
-            }
-            onPhotoChanged(android.net.Uri.fromFile(file).toString())
-        }.onFailure {
-            Toast.makeText(context, "Không lưu được ảnh vừa chụp", Toast.LENGTH_SHORT).show()
-        }
+    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) pendingCameraUri?.let { onPhotoChanged(it.toString()) }
     }
 
     fun phoneFor(kind: String): String? {
@@ -1594,11 +1586,10 @@ fun CustomerDetailScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             CustomerDetailContent(
                 customer = customer,
-                modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
-                onEditPhoto = { showPhotoMenu = true }
+                modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp)
             )
             CustomerSideActions(
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 3.dp, bottom = 3.dp),
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 3.dp, top = 312.dp, bottom = 3.dp),
                 onCall = { launchPhone("call") },
                 onZalo = { launchPhone("zalo") },
                 onSms = { launchPhone("sms") },
@@ -1624,7 +1615,13 @@ fun CustomerDetailScreen(
                     Spacer(Modifier.width(8.dp)); Text("Chọn từ thư viện")
                 }
                 FilledTonalButton(
-                    onClick = { showPhotoMenu = false; cameraLauncher.launch(null) },
+                    onClick = {
+                        showPhotoMenu = false
+                        val file = java.io.File(context.filesDir, "customer_gate_${customer.id}_${System.currentTimeMillis()}.jpg")
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+                        pendingCameraUri = uri
+                        cameraLauncher.launch(uri)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(20.dp))
@@ -1662,7 +1659,7 @@ private fun CustomerSideActions(
     modifier: Modifier = Modifier,
     onCall: () -> Unit, onZalo: () -> Unit, onSms: () -> Unit, onNavigate: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         DetailActionButton("Gọi", Icons.Default.Call, Orange, onCall)
         DetailActionButton("Zalo", Icons.Default.Chat, Orange, onZalo)
         DetailActionButton("SMS", Icons.Default.ChatBubbleOutline, Orange, onSms)
@@ -1675,7 +1672,7 @@ private fun CustomerSideActions(
 @Composable
 private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.size(width = 43.dp, height = 36.dp).clickable { onClick() },
+        modifier = Modifier.size(width = 45.dp, height = 42.dp).clickable { onClick() },
         shape = RoundedCornerShape(9.dp), colors = CardDefaults.cardColors(containerColor = color)
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
@@ -1689,8 +1686,7 @@ private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics
 @Composable
 private fun CustomerDetailContent(
     customer: Customer,
-    modifier: Modifier = Modifier,
-    onEditPhoto: () -> Unit
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     Column(modifier.verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1722,22 +1718,12 @@ private fun CustomerDetailContent(
                     }
                 }
 
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).size(48.dp).clickable { onEditPhoto() },
-                    shape = CircleShape,
-                    color = Orange,
-                    shadowElevation = 4.dp
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Edit, "Thêm hoặc đổi ảnh", tint = Color.White, modifier = Modifier.size(24.dp))
-                    }
-                }
             }
         }
-        DetailInfoCard(Icons.Default.Person, customer.name)
-        DetailInfoCard(Icons.Default.Phone, customer.phone)
+        Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Person, customer.name) }
+        Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, customer.phone) }
         Card(
-            Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+            Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
             border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
             Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1811,8 +1797,18 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            CustomerPhotoCard()
-            CompactInput("Tên khách hàng", name, { name = it }, "Nhập tên khách hàng")
+            Box {
+                CustomerPhotoCard()
+                Row(Modifier.align(Alignment.BottomStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(Modifier.size(38.dp).clickable { /* photo picker is opened from detail after save */ }, CircleShape, color = Orange) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, "Thêm ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) } }
+                    Surface(Modifier.size(38.dp).clickable { }, CircleShape, color = Color(0xFFE21B1B)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DeleteOutline, "Xóa ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) } }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallPlusMinus(plus = true) { }
+                Spacer(Modifier.width(4.dp))
+                Box(Modifier.weight(1f)) { CompactInput("Tên khách hàng", name, { name = it }, "Nhập tên khách hàng") }
+            }
 
             Text("SỐ ĐIỆN THOẠI", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             phones.forEachIndexed { index, item ->
@@ -1827,7 +1823,7 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                                 placeholder = { Text(if (index == 0) "SĐT chính" else "SĐT phụ", fontSize = 12.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                             )
-                            IconButton(onClick = { expandedPhone = if (expandedPhone == index) null else index }, modifier = Modifier.size(38.dp)) {
+                            IconButton(onClick = { expandedPhone = if (expandedPhone == index) null else index }, modifier = Modifier.size(30.dp)) {
                                 Icon(if (expandedPhone == index) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, "Chọn chức năng")
                             }
                             SmallPlusMinus(plus = true) { phones.add(index + 1, PhoneDraft("", false, false, false)) }
@@ -1852,7 +1848,6 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                                 onCheckedChange = { checked -> if (checked) addresses.indices.forEach { i -> addresses[i] = addresses[i].copy(isPrimary = i == index) } },
                                 modifier = Modifier.size(34.dp)
                             )
-                            Text("Chính", fontSize = 11.sp)
                             Spacer(Modifier.width(3.dp))
                             OutlinedTextField(
                                 value = item.address,
