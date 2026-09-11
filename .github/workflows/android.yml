@@ -20,20 +20,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply latest UI fix
+      - name: Apply coordinate picker fix
         shell: bash
         run: python3 tools/fix_picker_order_20260911.py
 
-      - name: Save app source fix
+      - name: Apply customer photo/detail fix
+        shell: bash
+        run: python3 tools/fix_customer_photo_20260911.py
+
+      - name: Save app source fixes
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "Latest UI fix already applied"
+            echo "App source already up to date"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Fix coordinate picker safe area and focus [skip ci]"
+            git commit -m "Add customer gate photo picker and compact detail icons [skip ci]"
             git push origin HEAD:main
           fi
 
@@ -47,13 +51,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-
-      - name: Use persistent debug signing key
-        shell: bash
-        run: |
-          mkdir -p "$HOME/.android"
-          cp app/keystore/giaohangpro-debug.keystore "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
 
       - name: Prepare version
         id: version
@@ -88,6 +85,7 @@ jobs:
         shell: bash
         run: |
           echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Coordinate picker stays above Android navigation bar" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Coordinate picker focuses on live user location" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Order code text reduced by 2sp" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Customer gate photo: gallery or camera" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Gate photo area enlarged by 70%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Customer and phone icons matched to address icon size" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Coordinate picker safe-area fix retained" >> "$GITHUB_STEP_SUMMARY"
