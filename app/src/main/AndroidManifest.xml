@@ -7,23 +7,16 @@
     <application
         android:theme="@style/Theme.GiaoHangPro"
         android:label="Giao Hàng Pro"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:icon="@drawable/app_icon"
+        android:roundIcon="@drawable/app_icon"
         android:allowBackup="true"
         android:supportsRtl="true">
-
-        <activity
-            android:name=".SplashActivity"
-            android:exported="true"
-            android:theme="@style/Theme.GiaoHangPro">
+        <activity android:name=".SplashActivity" android:exported="true" android:theme="@style/Theme.GiaoHangPro">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
     </application>
 </manifest>
