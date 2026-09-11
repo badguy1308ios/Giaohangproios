@@ -11,6 +11,17 @@
         android:roundIcon="@drawable/app_icon"
         android:allowBackup="true"
         android:supportsRtl="true">
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.example.giaohangpro.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity android:name=".SplashActivity" android:exported="true" android:theme="@style/Theme.GiaoHangPro">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
