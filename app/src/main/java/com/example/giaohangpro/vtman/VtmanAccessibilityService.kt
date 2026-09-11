@@ -14,6 +14,8 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var pkg: String? = null
     private var mode = 0
     private var deadline = 0L
+    private var returnDeadline = 0L
+    private var nextBackAt = 0L
     private val tick = Runnable { process() }
 
     override fun onServiceConnected() { VtmanQueueController.service = this }
@@ -72,15 +74,43 @@ class VtmanAccessibilityService : AccessibilityService() {
             VtmanFixedBlockParser.findPhone(root.collectStrings())?.let { phone ->
                 VtmanQueueController.updatePhone(phone)
                 if (VtmanQueueController.missingActiveFields().isNotEmpty()) { VtmanQueueController.fail("Đơn $mv còn thiếu dữ liệu"); mode=0; return }
-                VtmanQueueController.finalizeCurrent(); mode=5
-                performGlobalAction(GLOBAL_ACTION_BACK); schedule(400); return
+                VtmanQueueController.finalizeCurrent()
+                mode=5
+                val now = System.currentTimeMillis()
+                returnDeadline = now + 6000L
+                nextBackAt = now
+                VtmanQueueController.report("Đã lấy SĐT $phone · đang quay lại Gạch phát offline")
+                schedule(120)
+                return
             }
         }
         if (System.currentTimeMillis()>deadline) { VtmanQueueController.fail("Không đọc được SĐT của $mv"); mode=0 } else schedule(180)
     }
 
     private fun waitReturn(root: AccessibilityNodeInfo) {
-        if (root.packageName?.toString()==pkg) { mode=if(VtmanQueueController.nextWaybill()==null) 0 else 2; if(mode==0) VtmanQueueController.report("Hoàn tất toàn bộ MVĐ") else schedule(180) } else schedule(180)
+        val currentPkg = root.packageName?.toString()
+        if (currentPkg == pkg) {
+            mode = if (VtmanQueueController.nextWaybill()==null) 0 else 2
+            if (mode==0) VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
+            else {
+                VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
+                schedule(250)
+            }
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now > returnDeadline) {
+            VtmanQueueController.fail("Không tự quay lại được Gạch phát offline")
+            mode = 0
+            return
+        }
+
+        if (now >= nextBackAt) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            nextBackAt = now + 650L
+        }
+        schedule(180)
     }
 
     private fun AccessibilityNodeInfo.findSearch(): AccessibilityNodeInfo? {
