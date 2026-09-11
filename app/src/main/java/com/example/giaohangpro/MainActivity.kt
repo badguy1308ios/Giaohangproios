@@ -1359,19 +1359,39 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
                     modifier = Modifier.size(24.dp) // Kích thước tương tự ảnh mẫu.
                 )
             }
-
-            CustomerQuickActions( // Hàng 4 nút thao tác phía dưới thẻ.
+            CustomerQuickActions(
                 onZalo = {
-                    Toast.makeText(context, "Mở Zalo: ${customer.name}", Toast.LENGTH_SHORT).show() // Phản hồi demo khi bấm Zalo.
+                    val raw = if (customer.primaryCanZalo && customer.phone.isNotBlank()) customer.phone
+                    else customer.extraPhones.firstOrNull { it.canZalo }?.number
+                    raw?.let {
+                        val number = it.filter(Char::isDigit)
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://zalo.me/$number")))
+                        }
+                    }
                 },
                 onSms = {
-                    Toast.makeText(context, "Soạn SMS: ${customer.phone}", Toast.LENGTH_SHORT).show() // Phản hồi demo khi bấm SMS.
+                    val raw = if (customer.primaryCanSms && customer.phone.isNotBlank()) customer.phone
+                    else customer.extraPhones.firstOrNull { it.canSms }?.number
+                    raw?.let {
+                        val number = it.filter(Char::isDigit)
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("smsto:$number")))
+                        }
+                    }
                 },
                 onCall = {
-                    Toast.makeText(context, "Gọi: ${customer.phone}", Toast.LENGTH_SHORT).show() // Phản hồi demo khi bấm Gọi.
+                    val raw = if (customer.primaryCanCall && customer.phone.isNotBlank()) customer.phone
+                    else customer.extraPhones.firstOrNull { it.canCall }?.number
+                    raw?.let {
+                        val number = it.filter(Char::isDigit)
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$number")))
+                        }
+                    }
                 },
                 onNavigate = {
-                    Toast.makeText(context, "Dẫn đường đến: ${customer.address}", Toast.LENGTH_SHORT).show() // Phản hồi demo khi bấm Dẫn đường.
+                    pointFromStrings(customer.latitude, customer.longitude)?.let { openGoogleNavigation(context, it) }
                 }
             )
         }
