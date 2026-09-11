@@ -657,6 +657,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -2483,6 +2484,58 @@ class MainViewModel : androidx.lifecycle.ViewModel() {
 
     // Tìm một khách theo id để màn hình chi tiết luôn lấy dữ liệu mới nhất.
     fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
+
+    // Chuẩn hóa SĐT để so khớp khách cũ kể cả khi dữ liệu nhập dùng +84 / 84 / 0 hoặc có khoảng trắng.
+    private fun normalizeCustomerPhone(raw: String): String {
+        val digits = raw.filter(Char::isDigit)
+        return when {
+            digits.startsWith("0084") && digits.length > 4 -> "0" + digits.drop(4)
+            digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
+            else -> digits
+        }
+    }
+
+    // Tìm khách theo SĐT chính hoặc SĐT phụ. Không dùng tên vì tên trên đơn có thể thay đổi.
+    fun findCustomerByPhone(phone: String): Customer? {
+        val wanted = normalizeCustomerPhone(phone)
+        if (wanted.isBlank()) return null
+        return customerState.firstOrNull { customer ->
+            normalizeCustomerPhone(customer.phone) == wanted ||
+                customer.extraPhones.any { normalizeCustomerPhone(it.number) == wanted }
+        }
+    }
+
+    /**
+     * Dùng riêng khi nạp đơn hàng/VTMan.
+     * - Nếu SĐT đã tồn tại: trả khách cũ và TUYỆT ĐỐI không sửa bất kỳ trường nào.
+     * - Nếu SĐT chưa tồn tại: tạo khách mới từ tên + SĐT + địa chỉ; tọa độ để trống để người dùng bổ sung sau.
+     * Hàm này cố ý không gọi updateCustomer() cho khách cũ để bảo vệ tọa độ, ảnh, ghi chú, tên phụ,
+     * SĐT phụ, địa chỉ phụ và mọi dữ liệu người dùng đã lưu trước đó.
+     */
+    fun ensureCustomerFromImportedOrder(name: String, phone: String, address: String): Customer? {
+        val normalized = normalizeCustomerPhone(phone)
+        if (normalized.isBlank()) return null
+
+        findCustomerByPhone(phone)?.let { existing ->
+            return existing // QUAN TRỌNG: khách cũ chỉ đọc và trả về, không ghi đè.
+        }
+
+        val cleanName = name.trim().ifBlank { phone.trim() }
+        val cleanPhone = phone.trim()
+        val cleanAddress = address.trim()
+        val newId = (customerState.maxOfOrNull { it.id } ?: 0L) + 1L
+        val created = Customer(
+            id = newId,
+            name = cleanName,
+            phone = cleanPhone,
+            address = cleanAddress,
+            latitude = "",
+            longitude = "",
+            initials = createInitials(cleanName)
+        )
+        customerState.add(created)
+        return created
+    }
 
     // Thêm khách mới và trả về id vừa tạo để màn hình có thể mở chi tiết ngay.
     fun addCustomer(customer: Customer): Long {
