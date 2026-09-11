@@ -160,7 +160,8 @@ data class Customer(
     val note: String = "", // Ghi chú về khách hàng.
     val primaryCanCall: Boolean = true,
     val primaryCanZalo: Boolean = true,
-    val primaryCanSms: Boolean = true
+    val primaryCanSms: Boolean = true,
+    val photoUri: String = ""
 )
 
 // Kiểu liên hệ của một số điện thoại, ví dụ Gọi hoặc Zalo.
@@ -337,6 +338,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                 customer = c,
                 onBack = { screen = AppScreen.MAIN },
                 onEdit = { formIsNew = false; screen = AppScreen.CUSTOMER_FORM },
+                onPhotoChanged = { uri -> vm.updateCustomer(c.copy(photoUri = uri)) },
                 onDelete = { vm.deleteCustomer(c.id); selectedCustomerId = null; screen = AppScreen.MAIN }
             )
         }
@@ -1529,9 +1531,40 @@ private fun CustomerAddButton( // Nút thêm khách hàng nổi.
 // 8. CHI TIẾT KHÁCH HÀNG
 // ================================================================
 @Composable
-fun CustomerDetailScreen(customer: Customer, onBack: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+fun CustomerDetailScreen(
+    customer: Customer,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onPhotoChanged: (String) -> Unit,
+    onDelete: () -> Unit
+) {
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showPhotoMenu by remember { mutableStateOf(false) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        onPhotoChanged(uri.toString())
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        bitmap ?: return@rememberLauncherForActivityResult
+        runCatching {
+            val file = java.io.File(context.filesDir, "customer_gate_${customer.id}.jpg")
+            java.io.FileOutputStream(file).use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            onPhotoChanged(android.net.Uri.fromFile(file).toString())
+        }.onFailure {
+            Toast.makeText(context, "Không lưu được ảnh vừa chụp", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun phoneFor(kind: String): String? {
         val primaryOk = when (kind) {
@@ -1559,7 +1592,11 @@ fun CustomerDetailScreen(customer: Customer, onBack: () -> Unit, onEdit: () -> U
     Column(Modifier.fillMaxSize().background(Background)) {
         CustomerPageHeader("CHI TIẾT KHÁCH HÀNG", onBack)
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            CustomerDetailContent(customer, Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp))
+            CustomerDetailContent(
+                customer = customer,
+                modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                onEditPhoto = { showPhotoMenu = true }
+            )
             CustomerSideActions(
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 3.dp, bottom = 3.dp),
                 onCall = { launchPhone("call") },
@@ -1573,6 +1610,31 @@ fun CustomerDetailScreen(customer: Customer, onBack: () -> Unit, onEdit: () -> U
             )
         }
     }
+
+    if (showPhotoMenu) AlertDialog(
+        onDismissRequest = { showPhotoMenu = false },
+        title = { Text("Ảnh cổng nhà khách") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = { showPhotoMenu = false; galleryLauncher.launch(arrayOf("image/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp)); Text("Chọn từ thư viện")
+                }
+                FilledTonalButton(
+                    onClick = { showPhotoMenu = false; cameraLauncher.launch(null) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp)); Text("Chụp ảnh mới")
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { showPhotoMenu = false }) { Text("Hủy") } }
+    )
 
     if (showDeleteDialog) AlertDialog(
         onDismissRequest = { showDeleteDialog = false },
@@ -1625,16 +1687,50 @@ private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics
 }
 
 @Composable
-private fun CustomerDetailContent(customer: Customer, modifier: Modifier = Modifier) {
+private fun CustomerDetailContent(
+    customer: Customer,
+    modifier: Modifier = Modifier,
+    onEditPhoto: () -> Unit
+) {
+    val context = LocalContext.current
     Column(modifier.verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Card(
-            Modifier.fillMaxWidth().height(180.dp), RoundedCornerShape(14.dp),
+            Modifier.fillMaxWidth().height(306.dp), RoundedCornerShape(14.dp),
             CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Storefront, "Cổng nhà khách", tint = Orange, modifier = Modifier.size(72.dp))
-                    Text("Hình cổng nhà khách", color = TextGray, fontSize = 13.sp)
+            Box(Modifier.fillMaxSize()) {
+                if (customer.photoUri.isNotBlank()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP } },
+                        update = { imageView ->
+                            val uri = android.net.Uri.parse(customer.photoUri)
+                            val bitmap = runCatching {
+                                when (uri.scheme) {
+                                    "file" -> android.graphics.BitmapFactory.decodeFile(uri.path)
+                                    else -> context.contentResolver.openInputStream(uri)?.use(android.graphics.BitmapFactory::decodeStream)
+                                }
+                            }.getOrNull()
+                            if (bitmap != null) imageView.setImageBitmap(bitmap) else imageView.setImageDrawable(null)
+                        }
+                    )
+                } else {
+                    Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Storefront, "Cổng nhà khách", tint = Orange, modifier = Modifier.size(122.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Hình cổng nhà khách", color = TextGray, fontSize = 13.sp)
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).size(48.dp).clickable { onEditPhoto() },
+                    shape = CircleShape,
+                    color = Orange,
+                    shadowElevation = 4.dp
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Edit, "Thêm hoặc đổi ảnh", tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
                 }
             }
         }
@@ -1669,10 +1765,10 @@ private fun DetailInfoCard(icon: androidx.compose.ui.graphics.vector.ImageVector
         border = androidx.compose.foundation.BorderStroke(1.dp, Border)
     ) {
         Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(46.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(19.dp))
             }
-            Spacer(Modifier.width(7.dp))
+            Spacer(Modifier.width(6.dp))
             Text(value, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
     }
@@ -1810,7 +1906,8 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                             note = note.trim(),
                             primaryCanCall = primaryPhone.canCall,
                             primaryCanZalo = primaryPhone.canZalo,
-                            primaryCanSms = primaryPhone.canSms
+                            primaryCanSms = primaryPhone.canSms,
+                            photoUri = customer?.photoUri.orEmpty()
                         ))
                     }
                 },
