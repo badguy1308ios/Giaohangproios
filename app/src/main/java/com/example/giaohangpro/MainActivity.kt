@@ -1777,29 +1777,9 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
     var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
     var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
-    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     var expandedPhone by remember { mutableStateOf<Int?>(null) }
     var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
     var validation by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var showFormPhotoMenu by remember { mutableStateOf(false) }
     var showFormPhotoMenu by remember { mutableStateOf(false) }
 
     val phones = remember(customer?.id) {
