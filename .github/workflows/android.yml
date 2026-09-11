@@ -21,11 +21,12 @@ jobs:
           python3 tools/fix_header_and_money_compile_20260911.py
           python3 tools/fix_money_cursor_bank_fee_cod_20260911.py
           python3 tools/fix_back_and_order_customer_20260911.py
+          python3 tools/add_safe_customer_import_20260912.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Add back navigation and customer lookup [skip ci]"
+            git commit -m "Protect saved customers during order import [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
