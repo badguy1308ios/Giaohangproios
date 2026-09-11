@@ -1782,9 +1782,11 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
+    val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     var expandedPhone by remember { mutableStateOf<Int?>(null) }
     var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
     var validation by remember { mutableStateOf(false) }
+    var showFormPhotoMenu by remember { mutableStateOf(false) }
     var showFormPhotoMenu by remember { mutableStateOf(false) }
     var showFormPhotoMenu by remember { mutableStateOf(false) }
     var showFormPhotoMenu by remember { mutableStateOf(false) }
@@ -1933,6 +1935,16 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
             OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
         }
     }
+
+    if (showFormPhotoMenu) AlertDialog(
+        onDismissRequest = { showFormPhotoMenu = false },
+        title = { Text("Ảnh cổng nhà khách") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoLibrary, null); Spacer(Modifier.width(6.dp)); Text("Chọn từ thư viện") }
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Chụp ảnh mới") }
+            FilledTonalButton(onClick = { showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE21B1B)); Spacer(Modifier.width(6.dp)); Text("Xóa ảnh", color = Color(0xFFE21B1B)) }
+        } }, confirmButton = {}, dismissButton = { TextButton(onClick = { showFormPhotoMenu = false }) { Text("Hủy") } }
+    )
 
     if (showFormPhotoMenu) AlertDialog(
         onDismissRequest = { showFormPhotoMenu = false },
