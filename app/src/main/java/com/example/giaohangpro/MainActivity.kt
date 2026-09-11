@@ -1023,10 +1023,13 @@ fun OrderListScreen(orders: List<Order>) {
             Spacer(Modifier.height(6.dp))
             SearchBox(keyword, { keyword = it }, { keyword = "" }) {
                 scanLauncher.launch(ScanOptions().apply {
-                    setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    setPrompt("Đưa mã QR vào giữa khung")
+                    // Quét cả QR và các mã vạch 1D phổ biến (Code 128, EAN, UPC, Code 39...).
+                    setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
+                    setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung")
                     setBeepEnabled(false)
-                    setOrientationLocked(false)
+                    // Dùng CaptureActivity riêng và khóa dọc để camera không xoay ngang.
+                    setCaptureActivity(PortraitCaptureActivity::class.java)
+                    setOrientationLocked(true)
                     setBarcodeImageEnabled(false)
                 })
             }
