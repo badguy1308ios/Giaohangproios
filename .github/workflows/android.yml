@@ -13,21 +13,17 @@ jobs:
   build:
     name: "Build v1.0.${{ github.run_number }}"
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Apply coordinate picker fix
-        shell: bash
         run: python3 tools/fix_picker_order_20260911.py
-
       - name: Apply customer photo/detail fix
-        shell: bash
         run: python3 tools/fix_customer_photo_20260911.py
-
+      - name: Apply customer layout v2
+        run: python3 tools/fix_customer_layout_v2_20260911.py
       - name: Save app source fixes
         shell: bash
         run: |
@@ -37,21 +33,18 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Add customer gate photo picker and compact detail icons [skip ci]"
+            git commit -m "Refine customer detail and edit layout [skip ci]"
             git push origin HEAD:main
           fi
-
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-
       - name: Prepare version
         id: version
         shell: bash
@@ -62,16 +55,12 @@ jobs:
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
-
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
-
       - name: Rename APK
-        shell: bash
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk "dist/${APK_NAME}"
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -79,13 +68,3 @@ jobs:
           path: "dist/${{ steps.version.outputs.apk_name }}"
           if-no-files-found: error
           retention-days: 30
-
-      - name: Build summary
-        if: always()
-        shell: bash
-        run: |
-          echo "## GiaoHangPro v${APP_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Customer gate photo: gallery or camera" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Gate photo area enlarged by 70%" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Customer and phone icons matched to address icon size" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Coordinate picker safe-area fix retained" >> "$GITHUB_STEP_SUMMARY"
