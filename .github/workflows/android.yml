@@ -14,15 +14,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Fix customer form photo actions
+        run: python3 tools/fix_customer_form_photo_20260911.py
       - name: Clean duplicated customer form state
         run: python3 tools/cleanup_customer_form_duplicates_20260911.py
-      - name: Save cleanup
+      - name: Save customer form fixes
         run: |
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt
-            git commit -m "Clean duplicate customer form state [skip ci]"
+            git commit -m "Fix customer form photo menu and actions [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
