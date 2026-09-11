@@ -1,6 +1,14 @@
 from pathlib import Path
 p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
 s = p.read_text()
+
+# Remove any previously inserted money visual transformation blocks so repeated CI runs stay idempotent.
+marker = 'private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.VisualTransformation {'
+while marker in s:
+    obj_start = s.index(marker)
+    row_start = s.index('@Composable\nprivate fun MoneyEntryRow(', obj_start)
+    s = s[:obj_start] + s[row_start:]
+
 start = s.index('@Composable\nprivate fun MoneyEntryRow(')
 end = s.index('\n@Composable\nprivate fun SettingsSection', start)
 new = '''private object MoneyCommaVisualTransformation : androidx.compose.ui.text.input.VisualTransformation {
