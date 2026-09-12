@@ -407,6 +407,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -701,6 +702,13 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                         setBarcodeImageEnabled(false)
                     })
                 }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(4.dp)); Text("QUÉT MVĐ", fontSize=11.sp) }
+                OutlinedButton(onClick = {
+                    waybills = ""
+                    com.example.giaohangpro.vtman.VtmanQueueController.load(emptyList())
+                    snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                    importedCount = 0
+                    Toast.makeText(context, "Đã xóa textbox và hàng chờ", Toast.LENGTH_SHORT).show()
+                }, modifier = Modifier.width(74.dp).height(42.dp)) { Icon(Icons.Default.Clear, null); Spacer(Modifier.width(2.dp)); Text("XÓA", fontSize=10.sp) }
             }
             OutlinedButton(onClick = { csvExportLauncher.launch("vtman_orders.csv") }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(4.dp)); Text("XUẤT CSV THÔNG TIN ĐƠN", fontSize=11.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -746,6 +754,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
