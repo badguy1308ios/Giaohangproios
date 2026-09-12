@@ -303,13 +303,17 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
     var screen by remember { mutableStateOf(AppScreen.MAIN) }
     var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
     var formIsNew by remember { mutableStateOf(false) }
+    var returnOrderCode by remember { mutableStateOf<String?>(null) }
     val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)
     val context = LocalContext.current
     var lastBackPressAt by remember { mutableLongStateOf(0L) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
         when (screen) {
-            AppScreen.CUSTOMER_DETAIL -> screen = AppScreen.MAIN
+            AppScreen.CUSTOMER_DETAIL -> {
+                screen = AppScreen.MAIN
+                if (returnOrderCode != null) tab = Tab.ORDERS
+            }
             AppScreen.CUSTOMER_FORM -> screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL
             AppScreen.SETTINGS -> screen = AppScreen.MAIN
             AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
@@ -341,7 +345,10 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                         Tab.MAP -> MapScreen(vm.orders, vm.customers)
                         Tab.ORDERS -> OrderListScreen(
                             vm = vm,
+                            focusOrderCode = returnOrderCode,
+                            onFocusConsumed = { returnOrderCode = null },
                             onCustomerClick = { order ->
+                                returnOrderCode = order.code
                                 fun normalizedPhone(raw: String): String {
                                     val digits = raw.filter(Char::isDigit)
                                     return when {
@@ -366,6 +373,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                         Tab.CUSTOMERS -> CustomerListScreen(
                             customers = vm.customers,
                             onCustomerClick = {
+                                returnOrderCode = null
                                 selectedCustomerId = it.id
                                 screen = AppScreen.CUSTOMER_DETAIL
                             },
@@ -383,7 +391,10 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             val c = selectedCustomer
             if (c == null) screen = AppScreen.MAIN else CustomerDetailScreen(
                 customer = c,
-                onBack = { screen = AppScreen.MAIN },
+                onBack = {
+                    screen = AppScreen.MAIN
+                    if (returnOrderCode != null) tab = Tab.ORDERS
+                },
                 onEdit = { formIsNew = false; screen = AppScreen.CUSTOMER_FORM },
                 onPhotoChanged = { uri -> vm.updateCustomer(c.copy(photoUri = uri)) },
                 onDelete = { vm.deleteCustomer(c.id); selectedCustomerId = null; screen = AppScreen.MAIN }
@@ -399,6 +410,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -769,6 +781,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1203,6 +1216,7 @@ private fun GoongOrderMap(
         MapView(context).also { it.onCreate(null) }
     }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var didInitialDriverFocus by remember { mutableStateOf(false) }
 
     DisposableEffect(mapView, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1266,6 +1280,15 @@ private fun GoongOrderMap(
         }
     }
 
+    LaunchedEffect(map, driverLocation) {
+        val readyMap = map
+        val point = driverLocation
+        if (!didInitialDriverFocus && readyMap != null && point != null) {
+            readyMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
+            didInitialDriverFocus = true
+        }
+    }
+
     LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {
         map?.let { readyMap ->
             readyMap.clear()
@@ -1290,7 +1313,7 @@ private fun GoongOrderMap(
                         .icon(numberIcon)
                         .title("Đơn #${markerData.number} • ${order.code}")
                         .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                )
+                ).setAnchor(0.5f, 1.0f)
             }
             selectedOrderNumber?.let { number ->
                 orders.firstOrNull { it.number == number }?.let { selected ->
@@ -1421,9 +1444,15 @@ private fun CustomerCoordinateMapPicker(
 // 6. TAB CHI TIẾT ĐƠN
 // ================================================================
 @Composable
-fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
+fun OrderListScreen(
+    vm: MainViewModel,
+    focusOrderCode: String? = null,
+    onFocusConsumed: () -> Unit = {},
+    onCustomerClick: (Order) -> Unit
+) {
     val context = LocalContext.current
     val orders = vm.orders
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var editPicker by remember { mutableStateOf(false) }
@@ -1438,12 +1467,18 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
         }.onSuccess { Toast.makeText(context,"Đã xuất ${orders.size} đơn",Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context,"Không xuất được danh sách",Toast.LENGTH_LONG).show() }
     }
     val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
+    LaunchedEffect(focusOrderCode, filteredOrders) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        val index = filteredOrders.indexOfFirst { it.code == code }
+        if (index >= 0) listState.scrollToItem(index)
+        onFocusConsumed()
+    }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
             Spacer(Modifier.height(6.dp))
             SearchBox(keyword,{keyword=it},{keyword=""}) { scanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES); setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung"); setBeepEnabled(false); setCaptureActivity(PortraitCaptureActivity::class.java); setOrientationLocked(true); setBarcodeImageEnabled(false) }) }
             Spacer(Modifier.height(6.dp)); Text("Tổng số: ${filteredOrders.size} đơn", color=Navy,fontSize=20.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(6.dp))
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick) } }
+            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick) } }
         }
         FloatingActionButton(onClick={showTools=true}, modifier=Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp), containerColor=Orange) { Icon(Icons.Default.Edit,"Công cụ đơn",tint=Color.White) }
         DropdownMenu(expanded=showTools,onDismissRequest={showTools=false}, modifier=Modifier.align(Alignment.BottomStart)) {
