@@ -20,6 +20,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -404,6 +405,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -634,6 +636,14 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var waybills by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
     var importedCount by remember { mutableIntStateOf(0) }
+    val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
+            waybills = code
+            com.example.giaohangpro.vtman.VtmanQueueController.load(listOf(code))
+            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+            Toast.makeText(context, "Đã nạp MVĐ $code", Toast.LENGTH_SHORT).show()
+        }
+    }
     val csvImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
@@ -681,9 +691,15 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
                 OutlinedButton(onClick = {
-                    val list = waybills.lines().flatMap { it.split(',', ';', ' ', '\t') }.map(String::trim).filter(String::isNotBlank)
-                    com.example.giaohangpro.vtman.VtmanQueueController.load(list); snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("NẠP TEXTBOX", fontSize=11.sp) }
+                    vtmanScanLauncher.launch(ScanOptions().apply {
+                        setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
+                        setPrompt("Quét mã vận đơn QR hoặc mã vạch")
+                        setBeepEnabled(false)
+                        setCaptureActivity(PortraitCaptureActivity::class.java)
+                        setOrientationLocked(true)
+                        setBarcodeImageEnabled(false)
+                    })
+                }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(4.dp)); Text("QUÉT MVĐ", fontSize=11.sp) }
             }
             OutlinedButton(onClick = { csvExportLauncher.launch("vtman_orders.csv") }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(4.dp)); Text("XUẤT CSV THÔNG TIN ĐƠN", fontSize=11.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -729,6 +745,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1419,11 +1436,19 @@ fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
 
                 Spacer(Modifier.width(8.dp))
 
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
                 Text(
                     order.code,
                     color = Navy,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.combinedClickable(
+                        onClick = {},
+                        onLongClick = {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(order.code))
+                            Toast.makeText(context, "Đã copy MVĐ ${order.code}", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 )
 
                 Spacer(Modifier.width(10.dp))
