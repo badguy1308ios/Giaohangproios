@@ -77,10 +77,12 @@ class VtmanAccessibilityService : AccessibilityService() {
                 VtmanQueueController.finalizeCurrent()
                 mode=5
                 val now = System.currentTimeMillis()
-                returnDeadline = now + 6000L
-                nextBackAt = now
+                returnDeadline = now + 9000L
+                // Chờ màn hình lấy SĐT ổn định rồi mới Back. Sau mỗi Back cũng chờ lâu hơn
+                // để VTMan/Gạch phát offline kịp hiện lại, tránh bấm Back lần hai và thoát khỏi màn hình.
+                nextBackAt = now + 700L
                 VtmanQueueController.report("Đã lấy SĐT $phone · đang quay lại Gạch phát offline")
-                schedule(120)
+                schedule(250)
                 return
             }
         }
@@ -94,7 +96,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             if (mode==0) VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
             else {
                 VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
-                schedule(250)
+                schedule(450)
             }
             return
         }
@@ -108,9 +110,11 @@ class VtmanAccessibilityService : AccessibilityService() {
 
         if (now >= nextBackAt) {
             performGlobalAction(GLOBAL_ACTION_BACK)
-            nextBackAt = now + 650L
+            // Trước đây 650 ms nên có thể Back lần 2 trước khi VTMan kịp render lại.
+            // Tăng lên 1.8 giây: mỗi lần chỉ Back một nấc rồi chờ xác nhận package VTMan.
+            nextBackAt = now + 1800L
         }
-        schedule(180)
+        schedule(250)
     }
 
     private fun AccessibilityNodeInfo.findSearch(): AccessibilityNodeInfo? {
