@@ -433,6 +433,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -825,6 +826,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1130,7 +1132,7 @@ private fun createNumberBubbleDrawable(
 ): android.graphics.drawable.Drawable {
     val density = context.resources.displayMetrics.density // Quy đổi dp sang pixel.
     val width = (34 * density).toInt() // Chiều rộng bong bóng.
-    val height = (42 * density).toInt() // Chiều cao gồm thân và mũi nhọn.
+    val height = (84 * density).toInt() // Nửa dưới trong suốt để tâm bitmap trùng đầu mũi nhọn.
     val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888) // Tạo vùng ảnh trong suốt.
     val canvas = android.graphics.Canvas(bitmap) // Canvas Android để tự vẽ marker.
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG) // Bật khử răng cưa cho hình tròn/chữ.
@@ -1144,7 +1146,7 @@ private fun createNumberBubbleDrawable(
 
     val pointer = android.graphics.Path().apply { // Tạo mũi nhọn chỉ xuống vị trí tọa độ.
         moveTo(width / 2f - 6 * density, bodyBottom)
-        lineTo(width / 2f, height.toFloat())
+        lineTo(width / 2f, 42 * density)
         lineTo(width / 2f + 6 * density, bodyBottom)
         close()
     }
@@ -1313,7 +1315,7 @@ private fun GoongOrderMap(
                         .icon(numberIcon)
                         .title("Đơn #${markerData.number} • ${order.code}")
                         .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                ).setAnchor(0.5f, 1.0f)
+                )
             }
             selectedOrderNumber?.let { number ->
                 orders.firstOrNull { it.number == number }?.let { selected ->
