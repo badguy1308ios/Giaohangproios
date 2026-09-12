@@ -324,6 +324,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -416,6 +417,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1070,6 +1073,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -3187,7 +3191,31 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         val ic=idx("mvd","ma van don"); if(ic<0)return 0
         val ishop=idx("shop");val ip=idx("sdt","so dien thoai");val iname=idx("ten khach");val icod=idx("cod");val ia=idx("dia chi");val ii=idx("hang hoa");val ist=idx("trang thai");val isv=idx("dich vu")
         var n=0
-        lines.drop(1).forEach{line->val c=cells(line);fun g(i:Int)=if(i>=0&&i<c.size)c[i]else"";val code=g(ic).trim();if(code.isNotBlank()){val o=Order(code,g(iname),g(ip),g(ia),g(ii),g(icod),g(isv).split(' ',';',',','|').map(String::trim).filter(String::isNotBlank),shop=g(ishop),status=g(ist).ifBlank{"Chưa giao"});val k=orderState.indexOfFirst{it.code.equals(code,true)};if(k>=0)orderState[k]=o else orderState.add(o);n++}}
+        lines.drop(1).forEach { line ->
+            val c = cells(line)
+            fun g(i: Int): String = if (i >= 0 && i < c.size) c[i] else ""
+            val code = g(ic).trim()
+            if (code.isNotBlank()) {
+                val serviceTags = g(isv)
+                    .split(' ', ';', ',', '|')
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                val order = Order(
+                    code = code,
+                    customer = g(iname),
+                    phone = g(ip),
+                    address = g(ia),
+                    item = g(ii),
+                    amount = g(icod),
+                    tags = serviceTags,
+                    shop = g(ishop),
+                    status = g(ist).ifBlank { "Chưa giao" }
+                )
+                val k = orderState.indexOfFirst { it.code.equals(code, true) }
+                if (k >= 0) orderState[k] = order else orderState.add(order)
+                n++
+            }
+        }
         if(n>0)savePersistentData();return n
     }
     fun deleteOrders(codes:Set<String>){ if(orderState.removeAll{it.code in codes})savePersistentData() }
