@@ -6,6 +6,10 @@ s = p.read_text()
 start = s.index('@Composable\nprivate fun VtmanExportScreen(')
 end = s.index('\n@Composable\nprivate fun SettingsSection', start)
 
+# Keep shared CSV escaping helper used by OrderListScreen. Older VTMan screen
+# happened to define it after the screen, so replacing that whole block removed it.
+helper = '''\nprivate fun csvCell(v: String): String = "\\\"" + v.replace("\\\"", "\\\"\\\"") + "\\\""\n'''
+
 screen = r'''@Composable
 private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -231,5 +235,5 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
 }
 '''
 
-s = s[:start] + screen + s[end:]
+s = s[:start] + screen + helper + s[end:]
 p.write_text(s)
