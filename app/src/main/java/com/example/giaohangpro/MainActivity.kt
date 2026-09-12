@@ -410,6 +410,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -640,17 +641,22 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var waybills by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
     var importedCount by remember { mutableIntStateOf(0) }
+    var importedCount by remember { mutableIntStateOf(0) }
     val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
             val currentCodes = waybills.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
-            if (currentCodes.any { it.equals(code, ignoreCase = true) }) {
-                Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
-            } else {
-                val updatedCodes = currentCodes + code
-                waybills = updatedCodes.joinToString("\n")
-                com.example.giaohangpro.vtman.VtmanQueueController.load(updatedCodes)
-                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-                Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
+            val alreadyHasInfo = vm.orders.any { it.code.trim().equals(code, ignoreCase = true) }
+            when {
+                alreadyHasInfo -> Toast.makeText(context, "Mã $code đã có thông tin trong Chi tiết đơn - bỏ qua", Toast.LENGTH_LONG).show()
+                currentCodes.any { it.equals(code, ignoreCase = true) } -> Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
+                else -> {
+                    val updatedCodes = currentCodes + code
+                    waybills = updatedCodes.joinToString("\n")
+                    com.example.giaohangpro.vtman.VtmanQueueController.load(updatedCodes)
+                    importedCount = 0
+                    snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                    Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -658,15 +664,20 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val codes = text.lineSequence().map { it.trim().removePrefix("\uFEFF") }
+            val rawCodes = text.lineSequence().map { it.trim().removePrefix("\uFEFF") }
                 .filter { it.isNotBlank() }
                 .map { it.substringBefore(',').substringBefore(';').trim().trim('"') }
                 .filterNot { it.equals("MVĐ", true) || it.contains("mã vận đơn", true) || it.contains("ma van don", true) }
-                .filter { it.isNotBlank() }.toList()
+                .filter { it.isNotBlank() }.distinctBy { it.uppercase() }.toList()
+            val existingCodes = vm.orders.map { it.code.trim().uppercase() }.toSet()
+            val skippedExisting = rawCodes.count { it.uppercase() in existingCodes }
+            val codes = rawCodes.filterNot { it.uppercase() in existingCodes }
             waybills = codes.joinToString("\n")
             com.example.giaohangpro.vtman.VtmanQueueController.load(codes)
+            importedCount = 0
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV", Toast.LENGTH_SHORT).show()
+            val suffix = if (skippedExisting > 0) " • Bỏ qua $skippedExisting mã đã có thông tin" else ""
+            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV$suffix", Toast.LENGTH_LONG).show()
         }.onFailure { Toast.makeText(context, "Không đọc được file CSV", Toast.LENGTH_LONG).show() }
     }
     val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -685,7 +696,12 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
         while (true) {
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
             val records = com.example.giaohangpro.vtman.VtmanQueueController.records()
-            if (records.size != importedCount) { vm.importVtmanRecords(records); importedCount = records.size }
+            if (records.size > importedCount) {
+                vm.importVtmanRecords(records.drop(importedCount))
+                importedCount = records.size
+            } else if (records.size < importedCount) {
+                importedCount = records.size
+            }
             kotlinx.coroutines.delay(400)
         }
     }
@@ -762,6 +778,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
