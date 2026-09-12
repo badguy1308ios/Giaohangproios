@@ -437,6 +437,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -885,6 +886,8 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 }
 
+private fun csvCell(v: String): String = "\"" + v.replace("\"", "\"\"") + "\""
+
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -910,6 +913,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
