@@ -5,19 +5,52 @@ s=p.read_text()
 if 'import androidx.compose.foundation.combinedClickable' not in s:
     s=s.replace('import androidx.compose.foundation.clickable\n','import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.combinedClickable\n',1)
 
+# Add scanner if it does not exist yet.
 needle='    var importedCount by remember { mutableIntStateOf(0) }\n    val csvImportLauncher'
 replacement='''    var importedCount by remember { mutableIntStateOf(0) }
     val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
+            val currentCodes = waybills.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+            if (currentCodes.any { it.equals(code, ignoreCase = true) }) {
+                Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
+            } else {
+                val updatedCodes = currentCodes + code
+                waybills = updatedCodes.joinToString("\\n")
+                com.example.giaohangpro.vtman.VtmanQueueController.load(updatedCodes)
+                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val csvImportLauncher'''
+if needle in s and 'val vtmanScanLauncher' not in s:
+    s=s.replace(needle,replacement,1)
+
+# Upgrade older single-code scanner implementation to append + duplicate protection.
+old_launcher='''    val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
             waybills = code
             com.example.giaohangpro.vtman.VtmanQueueController.load(listOf(code))
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
             Toast.makeText(context, "Đã nạp MVĐ $code", Toast.LENGTH_SHORT).show()
         }
-    }
-    val csvImportLauncher'''
-if needle in s and 'val vtmanScanLauncher' not in s:
-    s=s.replace(needle,replacement,1)
+    }'''
+new_launcher='''    val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
+            val currentCodes = waybills.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+            if (currentCodes.any { it.equals(code, ignoreCase = true) }) {
+                Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
+            } else {
+                val updatedCodes = currentCodes + code
+                waybills = updatedCodes.joinToString("\\n")
+                com.example.giaohangpro.vtman.VtmanQueueController.load(updatedCodes)
+                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }'''
+if old_launcher in s:
+    s=s.replace(old_launcher,new_launcher,1)
 
 old='''            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
