@@ -339,7 +339,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                     when (activeTab) {
                         Tab.MAP -> MapScreen(vm.orders, vm.customers)
                         Tab.ORDERS -> OrderListScreen(
-                            orders = vm.orders,
+                            vm = vm,
                             onCustomerClick = { order ->
                                 fun normalizedPhone(raw: String): String {
                                     val digits = raw.filter(Char::isDigit)
@@ -398,6 +398,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -631,67 +632,78 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var waybills by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
     var importedCount by remember { mutableIntStateOf(0) }
+    val csvImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val codes = text.lineSequence().map { it.trim().removePrefix("\uFEFF") }
+                .filter { it.isNotBlank() }
+                .map { it.substringBefore(',').substringBefore(';').trim().trim('"') }
+                .filterNot { it.equals("MVĐ", true) || it.contains("mã vận đơn", true) || it.contains("ma van don", true) }
+                .filter { it.isNotBlank() }.toList()
+            waybills = codes.joinToString("\n")
+            com.example.giaohangpro.vtman.VtmanQueueController.load(codes)
+            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV", Toast.LENGTH_SHORT).show()
+        }.onFailure { Toast.makeText(context, "Không đọc được file CSV", Toast.LENGTH_LONG).show() }
+    }
+    val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            val records = com.example.giaohangpro.vtman.VtmanQueueController.records()
+            val csv = buildString {
+                append("MVĐ,Shop,SĐT,Tên khách,COD,Địa chỉ,Hàng hóa,Trạng thái,Dịch vụ\n")
+                records.forEach { r -> append(listOf(r.waybill,r.shop,r.phone,r.customer,r.cod,r.address,r.goods,r.status,r.service).joinToString(",") { csvCell(it) }).append('\n') }
+            }
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(csv) }
+            Toast.makeText(context, "Đã xuất ${records.size} đơn", Toast.LENGTH_SHORT).show()
+        }.onFailure { Toast.makeText(context, "Không xuất được CSV", Toast.LENGTH_LONG).show() }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
             val records = com.example.giaohangpro.vtman.VtmanQueueController.records()
-            if (records.size != importedCount) {
-                vm.importVtmanRecords(records)
-                importedCount = records.size
-            }
+            if (records.size != importedCount) { vm.importVtmanRecords(records); importedCount = records.size }
             kotlinx.coroutines.delay(400)
         }
     }
 
-    Scaffold(
-        topBar = {
-            Row(Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White) }
-                Text("VTMan Export", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            }
+    Scaffold(topBar = {
+        Row(Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White) }
+            Text("VTMan Export", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
-    ) { padding ->
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(6.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Dán danh sách mã vận đơn, mỗi mã một dòng", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = waybills,
-                onValueChange = { waybills = it },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp),
-                placeholder = { Text("150327113189\n150406398811", fontSize = 12.sp) }
-            )
-            Button(onClick = {
-                val list = waybills.lines().flatMap { line -> line.split(',', ';', ' ', '\t') }.map(String::trim).filter { it.isNotBlank() }
-                com.example.giaohangpro.vtman.VtmanQueueController.load(list)
-                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            }, modifier = Modifier.fillMaxWidth().height(42.dp)) { Text("NẠP DANH SÁCH") }
-
+            Text("Danh sách mã vận đơn", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(value = waybills, onValueChange = { waybills = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp), placeholder = { Text("Mỗi dòng 1 mã vận đơn", fontSize = 12.sp) })
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
+                OutlinedButton(onClick = {
+                    val list = waybills.lines().flatMap { it.split(',', ';', ' ', '\t') }.map(String::trim).filter(String::isNotBlank)
+                    com.example.giaohangpro.vtman.VtmanQueueController.load(list); snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("NẠP TEXTBOX", fontSize=11.sp) }
+            }
+            OutlinedButton(onClick = { csvExportLauncher.launch("vtman_orders.csv") }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(4.dp)); Text("XUẤT CSV THÔNG TIN ĐƠN", fontSize=11.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = {
-                    if (!android.provider.Settings.canDrawOverlays(context)) {
-                        val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}"))
-                        context.startActivity(intent)
-                    } else {
-                        context.startService(android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java))
-                        Toast.makeText(context, "Mở VTMan > Gạch phát offline, rồi bấm Chạy trên popup", Toast.LENGTH_LONG).show()
-                    }
+                    if (!android.provider.Settings.canDrawOverlays(context)) context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}")))
+                    else { context.startService(android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java)); Toast.makeText(context, "Mở VTMan > Gạch phát offline, rồi bấm Chạy trên popup", Toast.LENGTH_LONG).show() }
                 }, modifier = Modifier.weight(1f).height(42.dp)) { Text("BẬT POPUP", fontSize = 11.sp) }
-                OutlinedButton(onClick = {
-                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("TRỢ NĂNG", fontSize = 11.sp) }
+                OutlinedButton(onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f).height(42.dp)) { Text("TRỢ NĂNG", fontSize = 11.sp) }
             }
-
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Tiến độ: ${snapshot.processed}/${snapshot.total} • Lấy được: ${snapshot.written} • Bỏ qua: ${snapshot.skipped}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Navy)
-                    Text(snapshot.status, fontSize = 12.sp, color = if (snapshot.error.isBlank()) TextGray else Color(0xFFE21B1B))
-                    if (snapshot.currentWaybill.isNotBlank()) Text("Đang xử lý: ${snapshot.currentWaybill}", fontSize = 12.sp, color = OrangeDark)
-                }
-            }
-            Text("Dữ liệu lấy: MVĐ • Shop • SĐT • Tên khách • COD • Địa chỉ • Hàng hóa • Trạng thái • Dịch vụ. Khách cũ theo SĐT tuyệt đối không bị ghi đè.", fontSize = 11.sp, color = TextGray)
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Tiến độ: ${snapshot.processed}/${snapshot.total} • Lấy được: ${snapshot.written} • Bỏ qua: ${snapshot.skipped}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Navy)
+                Text(snapshot.status, fontSize = 12.sp, color = if (snapshot.error.isBlank()) TextGray else Color(0xFFE21B1B))
+                if (snapshot.currentWaybill.isNotBlank()) Text("Đang xử lý: ${snapshot.currentWaybill}", fontSize = 12.sp, color = OrangeDark)
+            } }
+            Text("CSV đầu vào: mỗi dòng 1 MVĐ. CSV đầu ra giữ lại toàn bộ thông tin để có thể nạp/đối chiếu lại khi cần.", fontSize = 11.sp, color = TextGray)
         }
     }
 }
+
+private fun csvCell(v:String):String = "\"" + v.replace("\"", "\"\"") + "\""
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -718,6 +730,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1351,41 +1364,43 @@ private fun CustomerCoordinateMapPicker(
 // 6. TAB CHI TIẾT ĐƠN
 // ================================================================
 @Composable
-fun OrderListScreen(orders: List<Order>, onCustomerClick: (Order) -> Unit) {
+fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
+    val context = LocalContext.current
+    val orders = vm.orders
     var keyword by remember { mutableStateOf("") }
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it }
+    var showTools by remember { mutableStateOf(false) }
+    var editOrder by remember { mutableStateOf<Order?>(null) }
+    var deleteMode by remember { mutableStateOf(false) }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it } }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            val csv=buildString { append("MVĐ,Shop,SĐT,Tên khách,COD,Địa chỉ,Hàng hóa,Trạng thái,Dịch vụ\n"); orders.forEach { o -> append(listOf(o.code,o.shop,o.phone,o.customer,o.amount,o.address,o.item,o.status,o.tags.joinToString(" ")).joinToString(",") { csvCell(it) }).append('\n') } }
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(csv) }
+        }.onSuccess { Toast.makeText(context,"Đã xuất ${orders.size} đơn",Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context,"Không xuất được danh sách",Toast.LENGTH_LONG).show() }
     }
-    val filteredOrders = remember(orders, keyword) {
-        val q = keyword.trim()
-        if (q.isBlank()) orders else orders.filter {
-            it.code.contains(q, true) || it.customer.contains(q, true) ||
-                it.phone.contains(q, true) || it.address.contains(q, true)
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
+    val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
+
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
             Spacer(Modifier.height(6.dp))
-            SearchBox(keyword, { keyword = it }, { keyword = "" }) {
-                scanLauncher.launch(ScanOptions().apply {
-                    // Quét cả QR và các mã vạch 1D phổ biến (Code 128, EAN, UPC, Code 39...).
-                    setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
-                    setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung")
-                    setBeepEnabled(false)
-                    // Dùng CaptureActivity riêng và khóa dọc để camera không xoay ngang.
-                    setCaptureActivity(PortraitCaptureActivity::class.java)
-                    setOrientationLocked(true)
-                    setBarcodeImageEnabled(false)
-                })
-            }
-            Spacer(Modifier.height(6.dp))
-            Text("Tổng số: ${filteredOrders.size} đơn", color=Navy, fontSize=20.sp, fontWeight=FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=8.dp)) {
-                itemsIndexed(filteredOrders) { index, order -> OrderCard(index + 1, order, onCustomerClick) }
-            }
+            SearchBox(keyword,{keyword=it},{keyword=""}) { scanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES); setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung"); setBeepEnabled(false); setCaptureActivity(PortraitCaptureActivity::class.java); setOrientationLocked(true); setBarcodeImageEnabled(false) }) }
+            Spacer(Modifier.height(6.dp)); Text("Tổng số: ${filteredOrders.size} đơn", color=Navy,fontSize=20.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(6.dp))
+            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick) } }
+        }
+        FloatingActionButton(onClick={showTools=true}, modifier=Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp), containerColor=Orange) { Icon(Icons.Default.Edit,"Công cụ đơn",tint=Color.White) }
+        DropdownMenu(expanded=showTools,onDismissRequest={showTools=false}, modifier=Modifier.align(Alignment.BottomStart)) {
+            DropdownMenuItem(text={Text("Xuất danh sách đơn")},leadingIcon={Icon(Icons.Default.FileDownload,null)},onClick={showTools=false;exportLauncher.launch("giaohangpro_orders.csv")})
+            DropdownMenuItem(text={Text("Sửa đơn hàng")},leadingIcon={Icon(Icons.Default.Edit,null)},onClick={showTools=false;editOrder=filteredOrders.firstOrNull()})
+            DropdownMenuItem(text={Text("Xóa đơn hàng")},leadingIcon={Icon(Icons.Default.Delete,null)},onClick={showTools=false;deleteMode=true})
         }
     }
+
+    editOrder?.let { original ->
+        var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
+        AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={vm.updateOrder(original.copy(customer=customer,phone=phone,address=address,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})
+    }
+    if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
 
 @Composable
@@ -2638,6 +2653,13 @@ class MainViewModel : androidx.lifecycle.ViewModel() {
     fun deleteCustomer(id: Long) {
         customerState.removeAll { it.id == id }
     }
+
+    fun updateOrder(updated: Order) {
+        val i = orderState.indexOfFirst { it.code == updated.code }
+        if (i >= 0) orderState[i] = updated
+    }
+
+    fun deleteOrder(code: String) { orderState.removeAll { it.code == code } }
 
     fun importVtmanRecords(records: List<com.example.giaohangpro.vtman.VtmanOrderRecord>) {
         records.forEach { r ->
