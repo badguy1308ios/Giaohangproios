@@ -51,15 +51,32 @@ class VtmanAccessibilityService : AccessibilityService() {
         val a=Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,mv) }
         val ok=f.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,a); f.recycle()
         if (!ok) { VtmanQueueController.fail("Không nhập được MVĐ vào Search"); mode=0; return }
-        mode=3; VtmanQueueController.report("Đang đọc $mv"); schedule(500)
+        mode=3; VtmanQueueController.report("Đang đọc $mv"); schedule(650)
     }
 
     private fun readBlock(root: AccessibilityNodeInfo, mv: String) {
-        val texts=root.collectTexts()
-        if (texts.any { it.contains("không có dữ liệu",true) || it.contains("không tìm thấy đơn",true) }) {
-            VtmanQueueController.skipNoData(); mode=if(VtmanQueueController.nextWaybill()==null) 0 else 2; schedule(300); return
+        // VTMan có lúc hiển thị "Không có dữ liệu" bằng contentDescription/hint thay vì node.text.
+        // Vì vậy phải đọc toàn bộ chuỗi accessibility trước khi parse đơn.
+        val allStrings = root.collectStrings()
+        val hasNoData = allStrings.any {
+            it.contains("không có dữ liệu", ignoreCase = true) ||
+                it.contains("không tìm thấy đơn", ignoreCase = true)
         }
-        val rec=VtmanFixedBlockParser.parse(texts,mv) ?: run { schedule(300); return }
+        if (hasNoData) {
+            VtmanQueueController.skipNoData()
+            val next = VtmanQueueController.nextWaybill()
+            if (next == null) {
+                mode = 0
+                VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
+            } else {
+                mode = 2
+                VtmanQueueController.report("$mv không có dữ liệu · bỏ qua, tiếp tục $next")
+                schedule(450)
+            }
+            return
+        }
+
+        val rec=VtmanFixedBlockParser.parse(allStrings,mv) ?: run { schedule(300); return }
         if (rec.customer.isBlank() || rec.address.isBlank() || rec.cod.isBlank()) { schedule(300); return }
         if (!VtmanQueueController.stage(rec)) { VtmanQueueController.fail("MVĐ đọc được không trùng mã đang chờ"); mode=0; return }
         val p=VtmanQueueController.callPoint() ?: run { VtmanQueueController.fail("Chưa chọn nút gọi"); mode=0; return }
@@ -78,8 +95,6 @@ class VtmanAccessibilityService : AccessibilityService() {
                 mode=5
                 val now = System.currentTimeMillis()
                 returnDeadline = now + 9000L
-                // Chờ màn hình lấy SĐT ổn định rồi mới Back. Sau mỗi Back cũng chờ lâu hơn
-                // để VTMan/Gạch phát offline kịp hiện lại, tránh bấm Back lần hai và thoát khỏi màn hình.
                 nextBackAt = now + 700L
                 VtmanQueueController.report("Đã lấy SĐT $phone · đang quay lại Gạch phát offline")
                 schedule(250)
@@ -110,8 +125,6 @@ class VtmanAccessibilityService : AccessibilityService() {
 
         if (now >= nextBackAt) {
             performGlobalAction(GLOBAL_ACTION_BACK)
-            // Trước đây 650 ms nên có thể Back lần 2 trước khi VTMan kịp render lại.
-            // Tăng lên 1.8 giây: mỗi lần chỉ Back một nấc rồi chờ xác nhận package VTMan.
             nextBackAt = now + 1800L
         }
         schedule(250)
