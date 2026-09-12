@@ -408,6 +408,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -640,10 +641,16 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var importedCount by remember { mutableIntStateOf(0) }
     val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
-            waybills = code
-            com.example.giaohangpro.vtman.VtmanQueueController.load(listOf(code))
-            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            Toast.makeText(context, "Đã nạp MVĐ $code", Toast.LENGTH_SHORT).show()
+            val currentCodes = waybills.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+            if (currentCodes.any { it.equals(code, ignoreCase = true) }) {
+                Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
+            } else {
+                val updatedCodes = currentCodes + code
+                waybills = updatedCodes.joinToString("\n")
+                com.example.giaohangpro.vtman.VtmanQueueController.load(updatedCodes)
+                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
+            }
         }
     }
     val csvImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -754,6 +761,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
