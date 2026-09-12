@@ -414,6 +414,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -762,6 +763,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1446,6 +1448,7 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
     if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
     val context = LocalContext.current
