@@ -419,6 +419,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -767,6 +768,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1451,7 +1453,8 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
     if(editPicker) AlertDialog(onDismissRequest={editPicker=false},title={Text("Chọn đơn cần sửa")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{editOrder=o;editPicker=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Text(o.customer,fontSize=11.sp,color=TextGray)} }}},confirmButton={},dismissButton={TextButton(onClick={editPicker=false}){Text("ĐÓNG")}})
     editOrder?.let { original ->
         var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
-        AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={vm.updateOrder(original.copy(customer=customer,phone=phone,address=address,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})
+        var shop by remember(original.code){mutableStateOf(original.shop)}; var item by remember(original.code){mutableStateOf(original.item)}; var service by remember(original.code){mutableStateOf(original.tags.joinToString(" "))}
+        AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(Modifier.heightIn(max=460.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(shop,{shop=it},label={Text("Tên shop")});OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(item,{item=it},label={Text("Hàng hóa")});OutlinedTextField(service,{service=it},label={Text("Dịch vụ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={val tags=service.split(',', ';', ' ', '|').map(String::trim).filter(String::isNotBlank).distinct();vm.updateOrder(original.copy(shop=shop,customer=customer,phone=phone,address=address,item=item,tags=tags,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})
     }
     if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
@@ -1491,7 +1494,7 @@ fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
                 Spacer(Modifier.width(10.dp))
 
                 Text(
-                    "TT505",
+                    order.status.ifBlank { "—" },
                     color = Navy,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
