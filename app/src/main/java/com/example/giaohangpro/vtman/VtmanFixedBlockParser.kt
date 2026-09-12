@@ -36,10 +36,8 @@ object VtmanFixedBlockParser {
         val service = content.lastOrNull { serviceRegex.containsMatchIn(it) }?.trim()?.trimStart(',', '-', ' ').orEmpty()
         val addressIndex = content.indexOfFirst { line -> addressHints.any { hint -> line.contains(hint, true) } }
 
-        val beforeAddress = if (addressIndex > 0) content.take(addressIndex) else emptyList()
+        val beforeAddress: List<String> = (if (addressIndex > 0) content.take(addressIndex) else emptyList())
             .filterNot { statusRegex.containsMatchIn(it) || moneyRegex.matches(it) }
-        // Trong card VTMan: sau MVĐ/TT/COD là Shop, rồi đến Tên người nhận, rồi Địa chỉ.
-        // Chỉ lấy hai dòng sát trước địa chỉ, tuyệt đối không lấy chữ điều khiển ở phần đầu màn hình.
         val customer = beforeAddress.lastOrNull().orEmpty()
         val shop = if (beforeAddress.size >= 2) beforeAddress[beforeAddress.lastIndex - 1] else ""
 
