@@ -441,6 +441,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -685,17 +686,15 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
         snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
     }
 
-    val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.trim()?.takeIf(String::isNotEmpty)?.let { code ->
-            val codes = currentCodes()
-            val alreadyHasInfo = vm.orders.any { it.code.trim().equals(code, ignoreCase = true) }
-            when {
-                alreadyHasInfo -> Toast.makeText(context, "Mã $code đã có thông tin trong Chi tiết đơn - bỏ qua", Toast.LENGTH_LONG).show()
-                codes.any { it.equals(code, ignoreCase = true) } -> Toast.makeText(context, "Mã $code đã được quét", Toast.LENGTH_SHORT).show()
-                else -> {
-                    loadQueue(codes + code)
-                    Toast.makeText(context, "Đã thêm MVĐ $code", Toast.LENGTH_SHORT).show()
-                }
+    val continuousScanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val scanned = result.data
+                ?.getStringArrayListExtra(ContinuousVtmanScanActivity.EXTRA_NEW_CODES)
+                .orEmpty()
+            if (scanned.isNotEmpty()) {
+                val merged = (currentCodes() + scanned).distinctBy { it.uppercase() }
+                loadQueue(merged)
+                Toast.makeText(context, "Đã thêm ${scanned.size} MVĐ từ camera", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -735,11 +734,13 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 
     val codeCount = currentCodes().size
+    val softOrange = Color(0xFFC95C22)
+    val softOrangeDark = Color(0xFFB84F1B)
 
     Scaffold(
         topBar = {
             Row(
-                Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp),
+                Modifier.fillMaxWidth().height(40.dp).background(softOrange).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
@@ -764,17 +765,15 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 ) {
                     Button(
                         onClick = {
-                            vtmanScanLauncher.launch(ScanOptions().apply {
-                                setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
-                                setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung")
-                                setBeepEnabled(false)
-                                setCaptureActivity(PortraitCaptureActivity::class.java)
-                                setOrientationLocked(true)
-                                setBarcodeImageEnabled(false)
-                            })
+                            val intent = android.content.Intent(context, ContinuousVtmanScanActivity::class.java).apply {
+                                putStringArrayListExtra(ContinuousVtmanScanActivity.EXTRA_TEXTBOX_CODES, ArrayList(currentCodes()))
+                                putStringArrayListExtra(ContinuousVtmanScanActivity.EXTRA_ORDER_CODES, ArrayList(vm.orders.map { it.code }))
+                            }
+                            continuousScanLauncher.launch(intent)
                         },
                         modifier = Modifier.fillMaxWidth().height(64.dp),
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = softOrange),
                         contentPadding = PaddingValues(horizontal = 9.dp)
                     ) {
                         Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(23.dp))
@@ -789,6 +788,7 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                         onClick = { csvImportLauncher.launch("text/*") },
                         modifier = Modifier.fillMaxWidth().height(64.dp),
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = softOrange),
                         contentPadding = PaddingValues(horizontal = 9.dp)
                     ) {
                         Icon(Icons.Default.FileOpen, null, modifier = Modifier.size(23.dp))
@@ -810,6 +810,7 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                         },
                         modifier = Modifier.fillMaxWidth().height(64.dp),
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = softOrange),
                         contentPadding = PaddingValues(horizontal = 9.dp)
                     ) {
                         Icon(Icons.Default.Settings, null, modifier = Modifier.size(23.dp))
@@ -818,11 +819,10 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                     }
 
                     Button(
-                        onClick = {
-                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        },
+                        onClick = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                         modifier = Modifier.fillMaxWidth().height(64.dp),
                         shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = softOrange),
                         contentPadding = PaddingValues(horizontal = 9.dp)
                     ) {
                         Icon(Icons.Default.AccessibilityNew, null, modifier = Modifier.size(23.dp))
@@ -831,25 +831,48 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                     }
                 }
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Danh sách mã vận đơn", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Surface(shape = RoundedCornerShape(12.dp), color = OrangeLight) {
-                            Text("$codeCount mã", modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = OrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Card(
+                    modifier = Modifier.weight(1f).height(277.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+                ) {
+                    Column(Modifier.fillMaxSize().padding(7.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Danh sách MVĐ", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Surface(shape = RoundedCornerShape(12.dp), color = OrangeLight) {
+                                Text("$codeCount mã", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = softOrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            TextButton(
+                                onClick = {
+                                    waybills = ""
+                                    com.example.giaohangpro.vtman.VtmanQueueController.load(emptyList())
+                                    importedCount = 0
+                                    snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                                    Toast.makeText(context, "Đã xóa toàn bộ MVĐ trong textbox", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFD33B32))
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(2.dp))
+                                Text("XÓA", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = waybills,
+                            onValueChange = { waybills = it },
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Navy),
+                            placeholder = { Text("Mỗi dòng 1 mã vận đơn", fontSize = 10.sp) },
+                            singleLine = false,
+                            maxLines = Int.MAX_VALUE,
+                            shape = RoundedCornerShape(10.dp)
+                        )
                     }
-                    Spacer(Modifier.height(5.dp))
-                    OutlinedTextField(
-                        value = waybills,
-                        onValueChange = { waybills = it },
-                        modifier = Modifier.fillMaxWidth().height(277.dp),
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Navy),
-                        placeholder = { Text("Mỗi dòng 1 mã vận đơn", fontSize = 10.sp) },
-                        singleLine = false,
-                        maxLines = Int.MAX_VALUE,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Text("Mỗi dòng 1 mã vận đơn", color = TextGray, fontSize = 9.sp, modifier = Modifier.padding(start = 3.dp, top = 3.dp))
                 }
             }
 
@@ -867,7 +890,7 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                     )
                     Text(snapshot.status, fontSize = 11.sp, color = if (snapshot.error.isBlank()) TextGray else Color(0xFFE21B1B))
                     if (snapshot.currentWaybill.isNotBlank()) {
-                        Text("Đang xử lý: ${snapshot.currentWaybill}", fontSize = 11.sp, color = OrangeDark)
+                        Text("Đang xử lý: ${snapshot.currentWaybill}", fontSize = 11.sp, color = softOrangeDark)
                     }
                 }
             }
@@ -879,10 +902,11 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD29A))
             ) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("💡 Hướng dẫn nhanh", color = OrangeDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("• QUÉT MVĐ: quét QR hoặc mã vạch liên tục.", color = Navy, fontSize = 10.sp)
-                    Text("• NẠP MVĐ: lấy danh sách từ file.", color = Navy, fontSize = 10.sp)
-                    Text("• Danh sách bên phải giữ nguyên chiều cao và tự cuộn khi có nhiều mã.", color = Navy, fontSize = 10.sp)
+                    Text("💡 Hướng dẫn nhanh", color = softOrangeDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("• QUÉT MVĐ: camera quét liên tục QR / mã vạch.", color = Navy, fontSize = 10.sp)
+                    Text("• Mã mới tự thêm; mã trùng sẽ hiện Toast.", color = Navy, fontSize = 10.sp)
+                    Text("• XÓA: xóa toàn bộ mã trong textbox và hàng chờ.", color = Navy, fontSize = 10.sp)
+                    Text("• Camera tự thoát sau 30 giây không quét được mã.", color = Navy, fontSize = 10.sp)
                 }
             }
         }
@@ -916,6 +940,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
