@@ -402,6 +402,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -659,7 +660,6 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             Toast.makeText(context, "Đã xuất ${records.size} đơn", Toast.LENGTH_SHORT).show()
         }.onFailure { Toast.makeText(context, "Không xuất được CSV", Toast.LENGTH_LONG).show() }
     }
-
     LaunchedEffect(Unit) {
         while (true) {
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
@@ -668,7 +668,6 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             kotlinx.coroutines.delay(400)
         }
     }
-
     Scaffold(topBar = {
         Row(Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White) }
@@ -702,7 +701,6 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
 }
-
 private fun csvCell(v:String):String = "\"" + v.replace("\"", "\"\"") + "\""
 
 @Composable
@@ -730,6 +728,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1369,6 +1368,7 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
     val orders = vm.orders
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
+    var editPicker by remember { mutableStateOf(false) }
     var editOrder by remember { mutableStateOf<Order?>(null) }
     var deleteMode by remember { mutableStateOf(false) }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it } }
@@ -1380,7 +1380,6 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
         }.onSuccess { Toast.makeText(context,"Đã xuất ${orders.size} đơn",Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context,"Không xuất được danh sách",Toast.LENGTH_LONG).show() }
     }
     val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
-
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
             Spacer(Modifier.height(6.dp))
@@ -1391,11 +1390,11 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
         FloatingActionButton(onClick={showTools=true}, modifier=Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp), containerColor=Orange) { Icon(Icons.Default.Edit,"Công cụ đơn",tint=Color.White) }
         DropdownMenu(expanded=showTools,onDismissRequest={showTools=false}, modifier=Modifier.align(Alignment.BottomStart)) {
             DropdownMenuItem(text={Text("Xuất danh sách đơn")},leadingIcon={Icon(Icons.Default.FileDownload,null)},onClick={showTools=false;exportLauncher.launch("giaohangpro_orders.csv")})
-            DropdownMenuItem(text={Text("Sửa đơn hàng")},leadingIcon={Icon(Icons.Default.Edit,null)},onClick={showTools=false;editOrder=filteredOrders.firstOrNull()})
+            DropdownMenuItem(text={Text("Sửa đơn hàng")},leadingIcon={Icon(Icons.Default.Edit,null)},onClick={showTools=false;editPicker=true})
             DropdownMenuItem(text={Text("Xóa đơn hàng")},leadingIcon={Icon(Icons.Default.Delete,null)},onClick={showTools=false;deleteMode=true})
         }
     }
-
+    if(editPicker) AlertDialog(onDismissRequest={editPicker=false},title={Text("Chọn đơn cần sửa")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{editOrder=o;editPicker=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Text(o.customer,fontSize=11.sp,color=TextGray)} }}},confirmButton={},dismissButton={TextButton(onClick={editPicker=false}){Text("ĐÓNG")}})
     editOrder?.let { original ->
         var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
         AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={vm.updateOrder(original.copy(customer=customer,phone=phone,address=address,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})
