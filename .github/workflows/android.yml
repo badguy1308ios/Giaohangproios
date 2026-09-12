@@ -29,11 +29,12 @@ jobs:
           python3 tools/add_vtman_clear_queue_20260912.py
           python3 tools/update_vtman_layout_20260912.py
           python3 tools/finalize_vtman_ui_scanner_20260912.py
+          python3 tools/add_customer_backup_import_export_20260912.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
             git add app/src/main/java/com/example/giaohangpro/MainActivity.kt app/src/main/AndroidManifest.xml app/src/main/res/xml/vtman_accessibility_service.xml
-            git commit -m "Finalize VTMan scanner UI [skip ci]"
+            git commit -m "Add customer backup import export [skip ci]"
             git push origin HEAD:main
           fi
       - uses: actions/setup-java@v5
