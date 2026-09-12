@@ -103,7 +103,6 @@ s=s.replace('''                Text(
                     order.status.ifBlank { "—" },
                     color = Navy,''',1)
 
-# Remember the order that opened customer detail so Back can return to the same list position.
 if 'var returnOrderCode by remember' not in s:
     s=s.replace('''    var formIsNew by remember { mutableStateOf(false) }
     val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)''','''    var formIsNew by remember { mutableStateOf(false) }
@@ -138,7 +137,6 @@ s=s.replace('''                onBack = { screen = AppScreen.MAIN },''','''     
                     if (returnOrderCode != null) tab = Tab.ORDERS
                 },''',1)
 
-# Scroll the order list back to the exact order after returning from customer detail.
 s=s.replace('''fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
     val context = LocalContext.current
     val orders = vm.orders''','''fun OrderListScreen(
@@ -164,22 +162,12 @@ if 'LaunchedEffect(focusOrderCode, filteredOrders)' not in s:
 
 s=s.replace('''            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''','''            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''',1)
 
-# Anchor order bubbles by their bottom tip instead of the bitmap center.
-s=s.replace('''                readyMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
-                        .icon(numberIcon)
-                        .title("Đơn #${markerData.number} • ${order.code}")
-                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                )''','''                readyMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
-                        .icon(numberIcon)
-                        .title("Đơn #${markerData.number} • ${order.code}")
-                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
-                ).setAnchor(0.5f, 1.0f)''',1)
+# Older MapLibre Marker API anchors custom icons at the bitmap center and exposes no setAnchor().
+# Make the pointer tip sit at the bitmap center by adding transparent space below it.
+s=s.replace(''').setAnchor(0.5f, 1.0f)''', ''')''')
+s=s.replace('''    val height = (42 * density).toInt() // Chiều cao gồm thân và mũi nhọn.''','''    val height = (84 * density).toInt() // Nửa dưới trong suốt để tâm bitmap trùng đầu mũi nhọn.''',1)
+s=s.replace('''        lineTo(width / 2f, height.toFloat())''','''        lineTo(width / 2f, 42 * density)''',1)
 
-# On entering the map tab, focus the camera once on the user's current GPS position.
 if 'var didInitialDriverFocus by remember' not in s:
     s=s.replace('''    var map by remember { mutableStateOf<MapLibreMap?>(null) }
 
