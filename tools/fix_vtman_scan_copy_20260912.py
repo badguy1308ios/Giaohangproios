@@ -162,8 +162,6 @@ if 'LaunchedEffect(focusOrderCode, filteredOrders)' not in s:
 
 s=s.replace('''            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''','''            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''',1)
 
-# Older MapLibre Marker API anchors custom icons at the bitmap center and exposes no setAnchor().
-# Make the pointer tip sit at the bitmap center by adding transparent space below it.
 s=s.replace(''').setAnchor(0.5f, 1.0f)''', ''')''')
 s=s.replace('''    val height = (42 * density).toInt() // Chiều cao gồm thân và mũi nhọn.''','''    val height = (84 * density).toInt() // Nửa dưới trong suốt để tâm bitmap trùng đầu mũi nhọn.''',1)
 s=s.replace('''        lineTo(width / 2f, height.toFloat())''','''        lineTo(width / 2f, 42 * density)''',1)
@@ -187,5 +185,170 @@ if 'LaunchedEffect(map, driverLocation)' not in s:
     }
 
     LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {''',1)
+
+# Persist all order/customer data in app-private SharedPreferences so normal APK updates keep data.
+vm_marker='''// ================================================================
+// 11. VIEWMODEL
+// ================================================================
+'''
+if vm_marker in s:
+    head=s.split(vm_marker,1)[0]
+    persistent_vm=r'''// ================================================================
+// 11. VIEWMODEL
+// ================================================================
+class MainViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
+    private val prefs = application.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE)
+    private val orderState = mutableStateListOf<Order>()
+    val orders: List<Order> get() = orderState
+    private val customerState = mutableStateListOf<Customer>()
+    val customers: List<Customer> get() = customerState
+
+    init {
+        val loaded = loadPersistentData()
+        if (!loaded) {
+            orderState.addAll(sampleOrders)
+            customerState.addAll(sampleCustomers)
+            savePersistentData()
+        }
+    }
+
+    private fun optString(o: org.json.JSONObject, key: String): String = if (o.has(key) && !o.isNull(key)) o.optString(key, "") else ""
+
+    private fun loadPersistentData(): Boolean = runCatching {
+        val ordersJson = prefs.getString("orders", null)
+        val customersJson = prefs.getString("customers", null)
+        if (ordersJson == null && customersJson == null) return@runCatching false
+        orderState.clear(); customerState.clear()
+        ordersJson?.let { raw ->
+            val arr = org.json.JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val tagsArr = o.optJSONArray("tags") ?: org.json.JSONArray()
+                val tags = buildList { for (j in 0 until tagsArr.length()) add(tagsArr.optString(j)) }
+                orderState.add(Order(
+                    code=optString(o,"code"), customer=optString(o,"customer"), phone=optString(o,"phone"),
+                    address=optString(o,"address"), item=optString(o,"item"), amount=optString(o,"amount"), tags=tags,
+                    shop=optString(o,"shop"), status=optString(o,"status").ifBlank { "Chưa giao" },
+                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude")
+                ))
+            }
+        }
+        customersJson?.let { raw ->
+            val arr = org.json.JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val aliasesArr=o.optJSONArray("aliases") ?: org.json.JSONArray()
+                val aliases=buildList { for(j in 0 until aliasesArr.length()) add(aliasesArr.optString(j)) }
+                val phonesArr=o.optJSONArray("extraPhones") ?: org.json.JSONArray()
+                val phones=buildList {
+                    for(j in 0 until phonesArr.length()) {
+                        val p=phonesArr.getJSONObject(j)
+                        add(CustomerPhone(optString(p,"number"),optString(p,"action").ifBlank{"Gọi"},p.optBoolean("canCall",true),p.optBoolean("canZalo",true),p.optBoolean("canSms",true)))
+                    }
+                }
+                val addrArr=o.optJSONArray("extraAddresses") ?: org.json.JSONArray()
+                val addresses=buildList {
+                    for(j in 0 until addrArr.length()) {
+                        val a=addrArr.getJSONObject(j)
+                        add(CustomerAddress(optString(a,"address"),optString(a,"latitude"),optString(a,"longitude"),a.optBoolean("isPrimary",false)))
+                    }
+                }
+                customerState.add(Customer(
+                    id=o.optLong("id",0L), name=optString(o,"name"), phone=optString(o,"phone"), address=optString(o,"address"),
+                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude"), initials=optString(o,"initials"), aliases=aliases,
+                    extraPhones=phones, extraAddresses=addresses, note=optString(o,"note"),
+                    primaryCanCall=o.optBoolean("primaryCanCall",true), primaryCanZalo=o.optBoolean("primaryCanZalo",true),
+                    primaryCanSms=o.optBoolean("primaryCanSms",true), photoUri=optString(o,"photoUri")
+                ))
+            }
+        }
+        true
+    }.getOrElse { false }
+
+    private fun savePersistentData() {
+        val ordersArr=org.json.JSONArray()
+        orderState.forEach { o ->
+            ordersArr.put(org.json.JSONObject().apply {
+                put("code",o.code); put("customer",o.customer); put("phone",o.phone); put("address",o.address); put("item",o.item)
+                put("amount",o.amount); put("tags",org.json.JSONArray(o.tags)); put("shop",o.shop); put("status",o.status)
+                put("latitude",o.latitude); put("longitude",o.longitude)
+            })
+        }
+        val customersArr=org.json.JSONArray()
+        customerState.forEach { c ->
+            customersArr.put(org.json.JSONObject().apply {
+                put("id",c.id); put("name",c.name); put("phone",c.phone); put("address",c.address); put("latitude",c.latitude); put("longitude",c.longitude)
+                put("initials",c.initials); put("aliases",org.json.JSONArray(c.aliases)); put("note",c.note)
+                put("primaryCanCall",c.primaryCanCall); put("primaryCanZalo",c.primaryCanZalo); put("primaryCanSms",c.primaryCanSms); put("photoUri",c.photoUri)
+                put("extraPhones",org.json.JSONArray().apply { c.extraPhones.forEach { p -> put(org.json.JSONObject().apply { put("number",p.number); put("action",p.action); put("canCall",p.canCall); put("canZalo",p.canZalo); put("canSms",p.canSms) }) } })
+                put("extraAddresses",org.json.JSONArray().apply { c.extraAddresses.forEach { a -> put(org.json.JSONObject().apply { put("address",a.address); put("latitude",a.latitude); put("longitude",a.longitude); put("isPrimary",a.isPrimary) }) } })
+            })
+        }
+        prefs.edit().putString("orders",ordersArr.toString()).putString("customers",customersArr.toString()).apply()
+    }
+
+    fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
+
+    private fun normalizeCustomerPhone(raw: String): String {
+        val digits = raw.filter(Char::isDigit)
+        return when {
+            digits.startsWith("0084") && digits.length > 4 -> "0" + digits.drop(4)
+            digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
+            else -> digits
+        }
+    }
+
+    fun findCustomerByPhone(phone: String): Customer? {
+        val wanted = normalizeCustomerPhone(phone)
+        if (wanted.isBlank()) return null
+        return customerState.firstOrNull { customer ->
+            normalizeCustomerPhone(customer.phone) == wanted || customer.extraPhones.any { normalizeCustomerPhone(it.number) == wanted }
+        }
+    }
+
+    fun ensureCustomerFromImportedOrder(name: String, phone: String, address: String): Customer? {
+        val normalized = normalizeCustomerPhone(phone)
+        if (normalized.isBlank()) return null
+        findCustomerByPhone(phone)?.let { return it }
+        val cleanName = name.trim().ifBlank { phone.trim() }
+        val newId = (customerState.maxOfOrNull { it.id } ?: 0L) + 1L
+        val created = Customer(id=newId,name=cleanName,phone=phone.trim(),address=address.trim(),initials=createInitials(cleanName))
+        customerState.add(created); savePersistentData(); return created
+    }
+
+    fun addCustomer(customer: Customer): Long {
+        val newId=(customerState.maxOfOrNull { it.id } ?: 0L)+1L
+        customerState.add(customer.copy(id=newId)); savePersistentData(); return newId
+    }
+
+    fun updateCustomer(updatedCustomer: Customer) {
+        val index=customerState.indexOfFirst { it.id==updatedCustomer.id }
+        if(index>=0){ customerState[index]=updatedCustomer; savePersistentData() }
+    }
+
+    fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
+
+    fun updateOrder(updated: Order) {
+        val i=orderState.indexOfFirst { it.code==updated.code }
+        if(i>=0){ orderState[i]=updated; savePersistentData() }
+    }
+
+    fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+
+    fun importVtmanRecords(records: List<com.example.giaohangpro.vtman.VtmanOrderRecord>) {
+        var changed=false
+        records.forEach { r ->
+            val order=Order(code=r.waybill,customer=r.customer,phone=r.phone,address=r.address,item=r.goods,amount=r.cod,
+                tags=r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),shop=r.shop,status=r.status)
+            val index=orderState.indexOfFirst { it.code==r.waybill }
+            if(index>=0) orderState[index]=order else orderState.add(order)
+            ensureCustomerFromImportedOrder(r.customer,r.phone,r.address)
+            changed=true
+        }
+        if(changed) savePersistentData()
+    }
+}
+'''
+    s=head+vm_marker+persistent_vm.split(vm_marker,1)[1]
 
 p.write_text(s)
