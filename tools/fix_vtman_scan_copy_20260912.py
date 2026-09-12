@@ -89,7 +89,6 @@ newtext='''                val clipboard = androidx.compose.ui.platform.LocalCli
 if oldtext in s:
     s=s.replace(oldtext,newtext,1)
 
-# Expand order editor with shop, goods and service fields.
 old_editor='''        var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
         AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={vm.updateOrder(original.copy(customer=customer,phone=phone,address=address,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})'''
 new_editor='''        var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
@@ -98,11 +97,107 @@ new_editor='''        var customer by remember(original.code){mutableStateOf(ori
 if old_editor in s:
     s=s.replace(old_editor,new_editor,1)
 
-# Show actual VTMan status instead of a hard-coded label.
 s=s.replace('''                Text(
                     "TT505",
                     color = Navy,''','''                Text(
                     order.status.ifBlank { "—" },
                     color = Navy,''',1)
+
+# Remember the order that opened customer detail so Back can return to the same list position.
+if 'var returnOrderCode by remember' not in s:
+    s=s.replace('''    var formIsNew by remember { mutableStateOf(false) }
+    val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)''','''    var formIsNew by remember { mutableStateOf(false) }
+    var returnOrderCode by remember { mutableStateOf<String?>(null) }
+    val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)''',1)
+
+s=s.replace('''            AppScreen.CUSTOMER_DETAIL -> screen = AppScreen.MAIN''','''            AppScreen.CUSTOMER_DETAIL -> {
+                screen = AppScreen.MAIN
+                if (returnOrderCode != null) tab = Tab.ORDERS
+            }''',1)
+
+s=s.replace('''                        Tab.ORDERS -> OrderListScreen(
+                            vm = vm,
+                            onCustomerClick = { order ->''','''                        Tab.ORDERS -> OrderListScreen(
+                            vm = vm,
+                            focusOrderCode = returnOrderCode,
+                            onFocusConsumed = { returnOrderCode = null },
+                            onCustomerClick = { order ->
+                                returnOrderCode = order.code''',1)
+
+s=s.replace('''                        Tab.CUSTOMERS -> CustomerListScreen(
+                            customers = vm.customers,
+                            onCustomerClick = {
+                                selectedCustomerId = it.id''','''                        Tab.CUSTOMERS -> CustomerListScreen(
+                            customers = vm.customers,
+                            onCustomerClick = {
+                                returnOrderCode = null
+                                selectedCustomerId = it.id''',1)
+
+s=s.replace('''                onBack = { screen = AppScreen.MAIN },''','''                onBack = {
+                    screen = AppScreen.MAIN
+                    if (returnOrderCode != null) tab = Tab.ORDERS
+                },''',1)
+
+# Scroll the order list back to the exact order after returning from customer detail.
+s=s.replace('''fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
+    val context = LocalContext.current
+    val orders = vm.orders''','''fun OrderListScreen(
+    vm: MainViewModel,
+    focusOrderCode: String? = null,
+    onFocusConsumed: () -> Unit = {},
+    onCustomerClick: (Order) -> Unit
+) {
+    val context = LocalContext.current
+    val orders = vm.orders
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()''',1)
+
+if 'LaunchedEffect(focusOrderCode, filteredOrders)' not in s:
+    s=s.replace('''    val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
+    Box(Modifier.fillMaxSize()) {''','''    val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
+    LaunchedEffect(focusOrderCode, filteredOrders) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        val index = filteredOrders.indexOfFirst { it.code == code }
+        if (index >= 0) listState.scrollToItem(index)
+        onFocusConsumed()
+    }
+    Box(Modifier.fillMaxSize()) {''',1)
+
+s=s.replace('''            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''','''            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp))''',1)
+
+# Anchor order bubbles by their bottom tip instead of the bitmap center.
+s=s.replace('''                readyMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                        .icon(numberIcon)
+                        .title("Đơn #${markerData.number} • ${order.code}")
+                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
+                )''','''                readyMap.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                        .icon(numberIcon)
+                        .title("Đơn #${markerData.number} • ${order.code}")
+                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
+                ).setAnchor(0.5f, 1.0f)''',1)
+
+# On entering the map tab, focus the camera once on the user's current GPS position.
+if 'var didInitialDriverFocus by remember' not in s:
+    s=s.replace('''    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+
+    DisposableEffect(mapView, lifecycle) {''','''    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var didInitialDriverFocus by remember { mutableStateOf(false) }
+
+    DisposableEffect(mapView, lifecycle) {''',1)
+
+if 'LaunchedEffect(map, driverLocation)' not in s:
+    s=s.replace('''    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {''','''    LaunchedEffect(map, driverLocation) {
+        val readyMap = map
+        val point = driverLocation
+        if (!didInitialDriverFocus && readyMap != null && point != null) {
+            readyMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
+            didInitialDriverFocus = true
+        }
+    }
+
+    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {''',1)
 
 p.write_text(s)
