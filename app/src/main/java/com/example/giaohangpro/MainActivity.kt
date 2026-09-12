@@ -434,6 +434,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -782,6 +783,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2676,20 +2678,99 @@ fun NumberCircle(number: Int, selected: Boolean) {
 // ================================================================
 // 11. VIEWMODEL
 // ================================================================
-class MainViewModel : androidx.lifecycle.ViewModel() {
-    private val orderState = mutableStateListOf<Order>().apply { addAll(sampleOrders) }
+class MainViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
+    private val prefs = application.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE)
+    private val orderState = mutableStateListOf<Order>()
     val orders: List<Order> get() = orderState
-
-    // mutableStateListOf giúp Compose tự vẽ lại danh sách khi thêm, sửa hoặc xóa khách.
-    private val customerState = mutableStateListOf<Customer>().apply { addAll(sampleCustomers) }
-
-    // UI chỉ đọc danh sách thông qua property này để tránh sửa trực tiếp từ màn hình.
+    private val customerState = mutableStateListOf<Customer>()
     val customers: List<Customer> get() = customerState
 
-    // Tìm một khách theo id để màn hình chi tiết luôn lấy dữ liệu mới nhất.
+    init {
+        val loaded = loadPersistentData()
+        if (!loaded) {
+            orderState.addAll(sampleOrders)
+            customerState.addAll(sampleCustomers)
+            savePersistentData()
+        }
+    }
+
+    private fun optString(o: org.json.JSONObject, key: String): String = if (o.has(key) && !o.isNull(key)) o.optString(key, "") else ""
+
+    private fun loadPersistentData(): Boolean = runCatching {
+        val ordersJson = prefs.getString("orders", null)
+        val customersJson = prefs.getString("customers", null)
+        if (ordersJson == null && customersJson == null) return@runCatching false
+        orderState.clear(); customerState.clear()
+        ordersJson?.let { raw ->
+            val arr = org.json.JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val tagsArr = o.optJSONArray("tags") ?: org.json.JSONArray()
+                val tags = buildList { for (j in 0 until tagsArr.length()) add(tagsArr.optString(j)) }
+                orderState.add(Order(
+                    code=optString(o,"code"), customer=optString(o,"customer"), phone=optString(o,"phone"),
+                    address=optString(o,"address"), item=optString(o,"item"), amount=optString(o,"amount"), tags=tags,
+                    shop=optString(o,"shop"), status=optString(o,"status").ifBlank { "Chưa giao" },
+                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude")
+                ))
+            }
+        }
+        customersJson?.let { raw ->
+            val arr = org.json.JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val aliasesArr=o.optJSONArray("aliases") ?: org.json.JSONArray()
+                val aliases=buildList { for(j in 0 until aliasesArr.length()) add(aliasesArr.optString(j)) }
+                val phonesArr=o.optJSONArray("extraPhones") ?: org.json.JSONArray()
+                val phones=buildList {
+                    for(j in 0 until phonesArr.length()) {
+                        val p=phonesArr.getJSONObject(j)
+                        add(CustomerPhone(optString(p,"number"),optString(p,"action").ifBlank{"Gọi"},p.optBoolean("canCall",true),p.optBoolean("canZalo",true),p.optBoolean("canSms",true)))
+                    }
+                }
+                val addrArr=o.optJSONArray("extraAddresses") ?: org.json.JSONArray()
+                val addresses=buildList {
+                    for(j in 0 until addrArr.length()) {
+                        val a=addrArr.getJSONObject(j)
+                        add(CustomerAddress(optString(a,"address"),optString(a,"latitude"),optString(a,"longitude"),a.optBoolean("isPrimary",false)))
+                    }
+                }
+                customerState.add(Customer(
+                    id=o.optLong("id",0L), name=optString(o,"name"), phone=optString(o,"phone"), address=optString(o,"address"),
+                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude"), initials=optString(o,"initials"), aliases=aliases,
+                    extraPhones=phones, extraAddresses=addresses, note=optString(o,"note"),
+                    primaryCanCall=o.optBoolean("primaryCanCall",true), primaryCanZalo=o.optBoolean("primaryCanZalo",true),
+                    primaryCanSms=o.optBoolean("primaryCanSms",true), photoUri=optString(o,"photoUri")
+                ))
+            }
+        }
+        true
+    }.getOrElse { false }
+
+    private fun savePersistentData() {
+        val ordersArr=org.json.JSONArray()
+        orderState.forEach { o ->
+            ordersArr.put(org.json.JSONObject().apply {
+                put("code",o.code); put("customer",o.customer); put("phone",o.phone); put("address",o.address); put("item",o.item)
+                put("amount",o.amount); put("tags",org.json.JSONArray(o.tags)); put("shop",o.shop); put("status",o.status)
+                put("latitude",o.latitude); put("longitude",o.longitude)
+            })
+        }
+        val customersArr=org.json.JSONArray()
+        customerState.forEach { c ->
+            customersArr.put(org.json.JSONObject().apply {
+                put("id",c.id); put("name",c.name); put("phone",c.phone); put("address",c.address); put("latitude",c.latitude); put("longitude",c.longitude)
+                put("initials",c.initials); put("aliases",org.json.JSONArray(c.aliases)); put("note",c.note)
+                put("primaryCanCall",c.primaryCanCall); put("primaryCanZalo",c.primaryCanZalo); put("primaryCanSms",c.primaryCanSms); put("photoUri",c.photoUri)
+                put("extraPhones",org.json.JSONArray().apply { c.extraPhones.forEach { p -> put(org.json.JSONObject().apply { put("number",p.number); put("action",p.action); put("canCall",p.canCall); put("canZalo",p.canZalo); put("canSms",p.canSms) }) } })
+                put("extraAddresses",org.json.JSONArray().apply { c.extraAddresses.forEach { a -> put(org.json.JSONObject().apply { put("address",a.address); put("latitude",a.latitude); put("longitude",a.longitude); put("isPrimary",a.isPrimary) }) } })
+            })
+        }
+        prefs.edit().putString("orders",ordersArr.toString()).putString("customers",customersArr.toString()).apply()
+    }
+
     fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
 
-    // Chuẩn hóa SĐT để so khớp khách cũ kể cả khi dữ liệu nhập dùng +84 / 84 / 0 hoặc có khoảng trắng.
     private fun normalizeCustomerPhone(raw: String): String {
         val digits = raw.filter(Char::isDigit)
         return when {
@@ -2699,89 +2780,53 @@ class MainViewModel : androidx.lifecycle.ViewModel() {
         }
     }
 
-    // Tìm khách theo SĐT chính hoặc SĐT phụ. Không dùng tên vì tên trên đơn có thể thay đổi.
     fun findCustomerByPhone(phone: String): Customer? {
         val wanted = normalizeCustomerPhone(phone)
         if (wanted.isBlank()) return null
         return customerState.firstOrNull { customer ->
-            normalizeCustomerPhone(customer.phone) == wanted ||
-                customer.extraPhones.any { normalizeCustomerPhone(it.number) == wanted }
+            normalizeCustomerPhone(customer.phone) == wanted || customer.extraPhones.any { normalizeCustomerPhone(it.number) == wanted }
         }
     }
 
-    /**
-     * Dùng riêng khi nạp đơn hàng/VTMan.
-     * - Nếu SĐT đã tồn tại: trả khách cũ và TUYỆT ĐỐI không sửa bất kỳ trường nào.
-     * - Nếu SĐT chưa tồn tại: tạo khách mới từ tên + SĐT + địa chỉ; tọa độ để trống để người dùng bổ sung sau.
-     * Hàm này cố ý không gọi updateCustomer() cho khách cũ để bảo vệ tọa độ, ảnh, ghi chú, tên phụ,
-     * SĐT phụ, địa chỉ phụ và mọi dữ liệu người dùng đã lưu trước đó.
-     */
     fun ensureCustomerFromImportedOrder(name: String, phone: String, address: String): Customer? {
         val normalized = normalizeCustomerPhone(phone)
         if (normalized.isBlank()) return null
-
-        findCustomerByPhone(phone)?.let { existing ->
-            return existing // QUAN TRỌNG: khách cũ chỉ đọc và trả về, không ghi đè.
-        }
-
+        findCustomerByPhone(phone)?.let { return it }
         val cleanName = name.trim().ifBlank { phone.trim() }
-        val cleanPhone = phone.trim()
-        val cleanAddress = address.trim()
         val newId = (customerState.maxOfOrNull { it.id } ?: 0L) + 1L
-        val created = Customer(
-            id = newId,
-            name = cleanName,
-            phone = cleanPhone,
-            address = cleanAddress,
-            latitude = "",
-            longitude = "",
-            initials = createInitials(cleanName)
-        )
-        customerState.add(created)
-        return created
+        val created = Customer(id=newId,name=cleanName,phone=phone.trim(),address=address.trim(),initials=createInitials(cleanName))
+        customerState.add(created); savePersistentData(); return created
     }
 
-    // Thêm khách mới và trả về id vừa tạo để màn hình có thể mở chi tiết ngay.
     fun addCustomer(customer: Customer): Long {
-        val newId = (customerState.maxOfOrNull { it.id } ?: 0L) + 1L // Sinh id tăng dần trong bản demo.
-        customerState.add(customer.copy(id = newId)) // Thêm bản sao có id mới vào state list.
-        return newId // Trả id cho lớp điều hướng.
+        val newId=(customerState.maxOfOrNull { it.id } ?: 0L)+1L
+        customerState.add(customer.copy(id=newId)); savePersistentData(); return newId
     }
 
-    // Cập nhật toàn bộ thông tin của một khách theo id.
     fun updateCustomer(updatedCustomer: Customer) {
-        val index = customerState.indexOfFirst { it.id == updatedCustomer.id } // Tìm vị trí khách cần sửa.
-        if (index >= 0) customerState[index] = updatedCustomer // Gán phần tử mới để Compose tự cập nhật UI.
+        val index=customerState.indexOfFirst { it.id==updatedCustomer.id }
+        if(index>=0){ customerState[index]=updatedCustomer; savePersistentData() }
     }
 
-    // Xóa khách theo id.
-    fun deleteCustomer(id: Long) {
-        customerState.removeAll { it.id == id }
-    }
+    fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
 
     fun updateOrder(updated: Order) {
-        val i = orderState.indexOfFirst { it.code == updated.code }
-        if (i >= 0) orderState[i] = updated
+        val i=orderState.indexOfFirst { it.code==updated.code }
+        if(i>=0){ orderState[i]=updated; savePersistentData() }
     }
 
-    fun deleteOrder(code: String) { orderState.removeAll { it.code == code } }
+    fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
 
     fun importVtmanRecords(records: List<com.example.giaohangpro.vtman.VtmanOrderRecord>) {
+        var changed=false
         records.forEach { r ->
-            val order = Order(
-                code = r.waybill,
-                customer = r.customer,
-                phone = r.phone,
-                address = r.address,
-                item = r.goods,
-                amount = r.cod,
-                tags = r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),
-                shop = r.shop,
-                status = r.status
-            )
-            val index = orderState.indexOfFirst { it.code == r.waybill }
-            if (index >= 0) orderState[index] = order else orderState.add(order)
-            ensureCustomerFromImportedOrder(r.customer, r.phone, r.address)
+            val order=Order(code=r.waybill,customer=r.customer,phone=r.phone,address=r.address,item=r.goods,amount=r.cod,
+                tags=r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),shop=r.shop,status=r.status)
+            val index=orderState.indexOfFirst { it.code==r.waybill }
+            if(index>=0) orderState[index]=order else orderState.add(order)
+            ensureCustomerFromImportedOrder(r.customer,r.phone,r.address)
+            changed=true
         }
+        if(changed) savePersistentData()
     }
 }
