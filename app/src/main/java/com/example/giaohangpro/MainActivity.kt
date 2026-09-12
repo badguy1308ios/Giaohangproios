@@ -412,6 +412,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -642,7 +643,6 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var waybills by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
     var importedCount by remember { mutableIntStateOf(0) }
-    var importedCount by remember { mutableIntStateOf(0) }
     val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { code ->
             val currentCodes = waybills.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
@@ -665,20 +665,15 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val rawCodes = text.lineSequence().map { it.trim().removePrefix("\uFEFF") }
+            val codes = text.lineSequence().map { it.trim().removePrefix("\uFEFF") }
                 .filter { it.isNotBlank() }
                 .map { it.substringBefore(',').substringBefore(';').trim().trim('"') }
                 .filterNot { it.equals("MVĐ", true) || it.contains("mã vận đơn", true) || it.contains("ma van don", true) }
-                .filter { it.isNotBlank() }.distinctBy { it.uppercase() }.toList()
-            val existingCodes = vm.orders.map { it.code.trim().uppercase() }.toSet()
-            val skippedExisting = rawCodes.count { it.uppercase() in existingCodes }
-            val codes = rawCodes.filterNot { it.uppercase() in existingCodes }
+                .filter { it.isNotBlank() }.toList()
             waybills = codes.joinToString("\n")
             com.example.giaohangpro.vtman.VtmanQueueController.load(codes)
-            importedCount = 0
             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            val suffix = if (skippedExisting > 0) " • Bỏ qua $skippedExisting mã đã có thông tin" else ""
-            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV$suffix", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV", Toast.LENGTH_SHORT).show()
         }.onFailure { Toast.makeText(context, "Không đọc được file CSV", Toast.LENGTH_LONG).show() }
     }
     val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -718,22 +713,9 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
                 OutlinedButton(onClick = {
-                    vtmanScanLauncher.launch(ScanOptions().apply {
-                        setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
-                        setPrompt("Quét mã vận đơn QR hoặc mã vạch")
-                        setBeepEnabled(false)
-                        setCaptureActivity(PortraitCaptureActivity::class.java)
-                        setOrientationLocked(true)
-                        setBarcodeImageEnabled(false)
-                    })
-                }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(4.dp)); Text("QUÉT MVĐ", fontSize=11.sp) }
-                OutlinedButton(onClick = {
-                    waybills = ""
-                    com.example.giaohangpro.vtman.VtmanQueueController.load(emptyList())
-                    snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-                    importedCount = 0
-                    Toast.makeText(context, "Đã xóa textbox và hàng chờ", Toast.LENGTH_SHORT).show()
-                }, modifier = Modifier.width(74.dp).height(42.dp)) { Icon(Icons.Default.Clear, null); Spacer(Modifier.width(2.dp)); Text("XÓA", fontSize=10.sp) }
+                    val list = waybills.lines().flatMap { it.split(',', ';', ' ', '\t') }.map(String::trim).filter(String::isNotBlank)
+                    com.example.giaohangpro.vtman.VtmanQueueController.load(list); snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("NẠP TEXTBOX", fontSize=11.sp) }
             }
             OutlinedButton(onClick = { csvExportLauncher.launch("vtman_orders.csv") }, modifier = Modifier.fillMaxWidth().height(40.dp)) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(4.dp)); Text("XUẤT CSV THÔNG TIN ĐƠN", fontSize=11.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -779,6 +761,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1461,8 +1444,10 @@ fun OrderListScreen(vm: MainViewModel, onCustomerClick: (Order) -> Unit) {
     if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
