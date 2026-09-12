@@ -36,17 +36,27 @@ replacement='''    var importedCount by remember { mutableIntStateOf(0) }
 if needle in s and 'val vtmanScanLauncher' not in s:
     s=s.replace(needle,replacement,1)
 
-# Ensure OrderCard has context and opt-in for combinedClickable.
-base='''@Composable
+# Ensure OrderCard always opts into combinedClickable, whether context already exists or not.
+order_marker='''@Composable
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {'''
+order_fixed='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {'''
+if order_marker in s and order_fixed not in s:
+    s=s.replace(order_marker,order_fixed,1)
+
+# Ensure context is available inside OrderCard.
+ctx_marker='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
 fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
     Card('''
-repl='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ctx_fixed='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
     val context = LocalContext.current
     Card('''
-if base in s:
-    s=s.replace(base,repl,1)
+if ctx_marker in s:
+    s=s.replace(ctx_marker,ctx_fixed,1)
 
 s=s.replace('''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
