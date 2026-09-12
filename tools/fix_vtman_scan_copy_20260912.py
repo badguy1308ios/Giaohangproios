@@ -5,7 +5,13 @@ s=p.read_text()
 if 'import androidx.compose.foundation.combinedClickable' not in s:
     s=s.replace('import androidx.compose.foundation.clickable\n','import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.combinedClickable\n',1)
 
-# Add/upgrade scanner: append one MVĐ per line, reject duplicates and skip orders already in Chi tiết đơn.
+# Clean accidental duplicates from prior patch runs.
+s=s.replace('''    var importedCount by remember { mutableIntStateOf(0) }
+    var importedCount by remember { mutableIntStateOf(0) }
+''','''    var importedCount by remember { mutableIntStateOf(0) }
+''')
+
+# Add/upgrade scanner only once.
 needle='    var importedCount by remember { mutableIntStateOf(0) }\n    val csvImportLauncher'
 replacement='''    var importedCount by remember { mutableIntStateOf(0) }
     val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
@@ -30,40 +36,24 @@ replacement='''    var importedCount by remember { mutableIntStateOf(0) }
 if needle in s and 'val vtmanScanLauncher' not in s:
     s=s.replace(needle,replacement,1)
 
-# Replace any previous scanner block between launcher declaration and csv launcher.
-if 'val vtmanScanLauncher' in s:
-    a=s.index('    val vtmanScanLauncher = rememberLauncherForActivityResult(ScanContract())')
-    b=s.index('    val csvImportLauncher',a)
-    s=s[:a]+replacement.split('    val csvImportLauncher')[0]+s[b:]
+# Ensure OrderCard has context and opt-in for combinedClickable.
+base='''@Composable
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
+    Card('''
+repl='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
+    val context = LocalContext.current
+    Card('''
+if base in s:
+    s=s.replace(base,repl,1)
 
-# CSV input: skip duplicate file rows and MVĐ already present in Chi tiết đơn.
-old='''            val codes = text.lineSequence().map { it.trim().removePrefix("\\uFEFF") }
-                .filter { it.isNotBlank() }
-                .map { it.substringBefore(',').substringBefore(';').trim().trim('"') }
-                .filterNot { it.equals("MVĐ", true) || it.contains("mã vận đơn", true) || it.contains("ma van don", true) }
-                .filter { it.isNotBlank() }.toList()
-            waybills = codes.joinToString("\\n")
-            com.example.giaohangpro.vtman.VtmanQueueController.load(codes)
-            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV", Toast.LENGTH_SHORT).show()'''
-new='''            val rawCodes = text.lineSequence().map { it.trim().removePrefix("\\uFEFF") }
-                .filter { it.isNotBlank() }
-                .map { it.substringBefore(',').substringBefore(';').trim().trim('"') }
-                .filterNot { it.equals("MVĐ", true) || it.contains("mã vận đơn", true) || it.contains("ma van don", true) }
-                .filter { it.isNotBlank() }.distinctBy { it.uppercase() }.toList()
-            val existingCodes = vm.orders.map { it.code.trim().uppercase() }.toSet()
-            val skippedExisting = rawCodes.count { it.uppercase() in existingCodes }
-            val codes = rawCodes.filterNot { it.uppercase() in existingCodes }
-            waybills = codes.joinToString("\\n")
-            com.example.giaohangpro.vtman.VtmanQueueController.load(codes)
-            importedCount = 0
-            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-            val suffix = if (skippedExisting > 0) " • Bỏ qua $skippedExisting mã đã có thông tin" else ""
-            Toast.makeText(context, "Đã nạp ${codes.size} MVĐ từ CSV$suffix", Toast.LENGTH_LONG).show()'''
-if old in s:
-    s=s.replace(old,new,1)
+s=s.replace('''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable''','''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable''')
 
-# Import each successfully completed record immediately. If a later MVĐ fails, earlier ones remain in the order tab.
+# Incremental import: only new completed records are appended to Chi tiết đơn.
 s=s.replace('''            if (records.size != importedCount) { vm.importVtmanRecords(records); importedCount = records.size }''','''            if (records.size > importedCount) {
                 vm.importVtmanRecords(records.drop(importedCount))
                 importedCount = records.size
@@ -71,29 +61,7 @@ s=s.replace('''            if (records.size != importedCount) { vm.importVtmanRe
                 importedCount = records.size
             }''',1)
 
-old_buttons='''            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
-                OutlinedButton(onClick = {
-                    val list = waybills.lines().flatMap { it.split(',', ';', ' ', '\\t') }.map(String::trim).filter(String::isNotBlank)
-                    com.example.giaohangpro.vtman.VtmanQueueController.load(list); snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
-                }, modifier = Modifier.weight(1f).height(42.dp)) { Text("NẠP TEXTBOX", fontSize=11.sp) }
-            }'''
-new_buttons='''            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { csvImportLauncher.launch("text/*") }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("NẠP MVĐ", fontSize=11.sp) }
-                OutlinedButton(onClick = {
-                    vtmanScanLauncher.launch(ScanOptions().apply {
-                        setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
-                        setPrompt("Quét mã vận đơn QR hoặc mã vạch")
-                        setBeepEnabled(false)
-                        setCaptureActivity(PortraitCaptureActivity::class.java)
-                        setOrientationLocked(true)
-                        setBarcodeImageEnabled(false)
-                    })
-                }, modifier = Modifier.weight(1f).height(42.dp)) { Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(4.dp)); Text("QUÉT MVĐ", fontSize=11.sp) }
-            }'''
-if old_buttons in s:
-    s=s.replace(old_buttons,new_buttons,1)
-
+# Long-press copy if still missing.
 oldtext='''                Text(
                     order.code,
                     color = Navy,
