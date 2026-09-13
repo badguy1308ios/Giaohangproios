@@ -364,6 +364,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -464,6 +465,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1331,6 +1334,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1641,24 +1645,6 @@ fun MapScreen(
         onImportStt = { importLauncher.launch("text/*") }
     )
 
-    if (false) editMarker?.let { marker ->
-        val maxStt = draft.size.coerceAtLeast(1)
-        AlertDialog(
-            onDismissRequest = { editMarker = null },
-            title = { Text("Đổi STT") },
-            text = { OutlinedTextField(value=editNumberText,onValueChange={editNumberText=it.filter(Char::isDigit).take(4)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),label={Text("STT mới 1-$maxStt")}) },
-            confirmButton = { TextButton(onClick = {
-                val target = editNumberText.toIntOrNull()?.coerceIn(1,maxStt)
-                if(target!=null){
-                    val groupKey = activeGroups.firstOrNull { it.orders.first().code == marker.order.code }?.key
-                    val current = groupKey?.let(draft::indexOf) ?: -1
-                    if(current>=0){ val next=draft.toMutableList(); val moving=next.removeAt(current); next.add((target-1).coerceIn(0,next.size),moving); draft=next }
-                    editMarker=null
-                }
-            }) { Text("ÁP DỤNG") } },
-            dismissButton = { TextButton(onClick={editMarker=null}){Text("HỦY")} }
-        )
-    }
 
     if (confirmSave) AlertDialog(
         onDismissRequest = { confirmSave=false },
@@ -2644,42 +2630,74 @@ fun OrderListScreen(
         }
     }
 
-    if (editPicker) AlertDialog(
-        onDismissRequest = { editPicker = false },
-        title = { Text("Chọn đơn cần sửa") },
-        text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-                filteredOrders.forEach { o ->
-                    Row(Modifier.fillMaxWidth().clickable { editOrder = o; editPicker = false }.padding(10.dp)) {
-                        Text(o.code, Modifier.weight(1f))
-                        Text(o.customer, fontSize = 11.sp, color = TextGray)
+    if (editPicker) {
+        val editQuery = keyword.trim()
+        val editCandidates = vm.orders.filter { o ->
+            editQuery.isBlank() || o.code.contains(editQuery, true) || o.customer.contains(editQuery, true) ||
+                o.phone.contains(editQuery, true) || o.address.contains(editQuery, true) ||
+                o.shop.contains(editQuery, true) || o.item.contains(editQuery, true)
+        }
+        AlertDialog(
+            onDismissRequest = { editPicker = false },
+            title = { Text("Chọn đơn cần sửa") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    editCandidates.forEach { o ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { editOrder = o; editPicker = false }.padding(vertical = 9.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(o.code, color = Navy, fontWeight = FontWeight.Bold)
+                                Text("${o.customer} • ${o.phone}", fontSize = 11.sp, color = TextGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
+                    if (editCandidates.isEmpty()) Text("Không tìm thấy đơn phù hợp", color = TextGray, modifier = Modifier.padding(10.dp))
                 }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = { editPicker = false }) { Text("ĐÓNG") } }
-    )
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { editPicker = false }) { Text("ĐÓNG") } }
+        )
+    }
 
     editOrder?.let { original ->
+        var shop by remember(original.code) { mutableStateOf(original.shop) }
         var customer by remember(original.code) { mutableStateOf(original.customer) }
         var phone by remember(original.code) { mutableStateOf(original.phone) }
         var address by remember(original.code) { mutableStateOf(original.address) }
         var amount by remember(original.code) { mutableStateOf(original.amount) }
+        var item by remember(original.code) { mutableStateOf(original.item) }
+        var services by remember(original.code) { mutableStateOf(original.tags.joinToString(" ")) }
         AlertDialog(
             onDismissRequest = { editOrder = null },
             title = { Text("Sửa ${original.code}") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(customer, { customer = it }, label = { Text("Tên khách") })
-                    OutlinedTextField(phone, { phone = it }, label = { Text("SĐT") })
+                Column(
+                    Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedTextField(shop, { shop = it }, label = { Text("Tên Shop") }, singleLine = true)
+                    OutlinedTextField(customer, { customer = it }, label = { Text("Tên khách") }, singleLine = true)
+                    OutlinedTextField(phone, { phone = it }, label = { Text("SĐT") }, singleLine = true)
                     OutlinedTextField(address, { address = it }, label = { Text("Địa chỉ") })
-                    OutlinedTextField(amount, { amount = it }, label = { Text("COD") })
+                    OutlinedTextField(amount, { amount = it }, label = { Text("COD") }, singleLine = true)
+                    OutlinedTextField(item, { item = it }, label = { Text("Hàng hóa") })
+                    OutlinedTextField(services, { services = it }, label = { Text("Dịch vụ") }, singleLine = true)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.updateOrder(original.copy(customer = customer, phone = phone, address = address, amount = amount))
+                    val tags = services.split(Regex("[\s,;]+" )).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                    vm.updateOrder(original.copy(
+                        shop = shop,
+                        customer = customer,
+                        phone = phone,
+                        address = address,
+                        amount = amount,
+                        item = item,
+                        tags = tags
+                    ))
                     editOrder = null
                 }) { Text("LƯU") }
             },
@@ -2789,6 +2807,8 @@ private fun DeliveryGroupCard(
         // Customer ID chỉ có 1 MVĐ: hiển thị bình thường, không có phần đầu nhóm.
         SingleOrderDetailCard(
             order = primary,
+            routeStt = routeStt,
+            hasRealCoordinate = deliveryGroupHasCoordinate(group),
             delivered = delivered,
             onCustomerClick = onCustomerClick,
             onDelivered = onDelivered,
@@ -2827,6 +2847,8 @@ private fun GroupedOrderDetail(
 @Composable
 private fun SingleOrderDetailCard(
     order: Order,
+    routeStt: Int?,
+    hasRealCoordinate: Boolean,
     delivered: Boolean,
     onCustomerClick: () -> Unit,
     onDelivered: () -> Unit,
@@ -2843,6 +2865,13 @@ private fun SingleOrderDetailCard(
     ) {
         Column(Modifier.padding(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!delivered) {
+                    Box(
+                        Modifier.size(38.dp).clip(CircleShape).clickable { },
+                        contentAlignment = Alignment.Center
+                    ) { RouteStateCircle(routeStt, hasRealCoordinate, false) }
+                    Spacer(Modifier.width(7.dp))
+                }
                 Text(order.code, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
                 Text(order.status.ifBlank { if (delivered) "Đã giao" else "—" }, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(8.dp))
@@ -2919,6 +2948,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
