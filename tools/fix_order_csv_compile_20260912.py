@@ -27,8 +27,9 @@ new = '''        lines.drop(1).forEach { line ->
                 n++
             }
         }'''
-if old not in s:
-    raise SystemExit('target order csv line not found')
-s = s.replace(old, new, 1)
-p.write_text(s)
-print('fixed order CSV Kotlin syntax')
+if old in s:
+    s = s.replace(old, new, 1)
+    p.write_text(s)
+    print('fixed order CSV Kotlin syntax')
+else:
+    print('order CSV compile patch already applied; no changes required')
