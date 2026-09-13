@@ -355,6 +355,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -468,6 +469,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1215,6 +1218,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2807,6 +2811,7 @@ fun RowScope.ActionButton(
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
+            .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
             .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
@@ -3883,6 +3888,47 @@ fun NumberCircle(number: Int, selected: Boolean) {
 // ================================================================
 class MainViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE)
+    var routeNumberingEnabled by mutableStateOf(prefs.getBoolean("route_numbering_enabled_v1", false))
+        private set
+    private var routeAnchorLat by mutableStateOf(prefs.getString("route_anchor_lat_v1", "").orEmpty())
+    private var routeAnchorLng by mutableStateOf(prefs.getString("route_anchor_lng_v1", "").orEmpty())
+
+    fun routeAnchorPoint(): MapPoint? {
+        routeAnchorLat = prefs.getString("route_anchor_lat_v1", routeAnchorLat).orEmpty()
+        routeAnchorLng = prefs.getString("route_anchor_lng_v1", routeAnchorLng).orEmpty()
+        return pointFromStrings(routeAnchorLat, routeAnchorLng)
+    }
+
+    fun setRouteAnchor(point: MapPoint) {
+        routeAnchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
+        routeAnchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
+        prefs.edit().putString("route_anchor_lat_v1", routeAnchorLat).putString("route_anchor_lng_v1", routeAnchorLng).apply()
+    }
+
+    fun enableRouteNumbering() {
+        routeNumberingEnabled = true
+        prefs.edit().putBoolean("route_numbering_enabled_v1", true).apply()
+    }
+
+    fun learnRoutePattern(points: List<MapPoint>) {
+        if (points.size < 2) return
+        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
+        val scale = 500.0
+        fun cell(p: MapPoint) = "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
+        for (i in 0 until points.lastIndex) {
+            val key = "${cell(points[i])}>${cell(points[i + 1])}"
+            obj.put(key, obj.optDouble(key, 0.0) + 1.0)
+        }
+        prefs.edit().putString("route_learning_v1", obj.toString()).apply()
+    }
+
+    fun learnedRouteWeight(from: MapPoint, to: MapPoint): Double {
+        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
+        val scale = 500.0
+        fun cell(p: MapPoint) = "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
+        return obj.optDouble("${cell(from)}>${cell(to)}", 0.0)
+    }
+
     private val orderState = mutableStateListOf<Order>()
     val orders: List<Order> get() = orderState
     private val customerState = mutableStateListOf<Customer>()
