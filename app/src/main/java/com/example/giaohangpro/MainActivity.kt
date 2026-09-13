@@ -374,6 +374,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -474,6 +475,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1265,6 +1268,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2529,7 +2533,12 @@ fun OrderListScreen(
                 o.shop.contains(q, true) || o.item.contains(q, true)
         } || (g.customer?.name?.contains(q, true) == true)
 
-    val visibleGroups = activeGroups.filter(::matches) + deliveredGroups.filter(::matches)
+    // Tab Chi tiết đơn: các điểm CHƯA có tọa độ thật luôn nằm đầu danh sách.
+    // Chỉ đổi thứ tự hiển thị; activeGroups vẫn giữ thứ tự tuyến gốc để STT đã tạo không bị lệch.
+    val matchedActiveGroups = activeGroups.filter(::matches)
+    val pendingGroups = matchedActiveGroups.filterNot(::deliveryGroupHasCoordinate)
+    val locatedGroups = matchedActiveGroups.filter(::deliveryGroupHasCoordinate)
+    val visibleGroups = pendingGroups + locatedGroups + deliveredGroups.filter(::matches)
     val filteredOrders = if (q.isBlank()) vm.orders else vm.orders.filter { o ->
         o.code.contains(q, true) || o.customer.contains(q, true) || o.phone.contains(q, true) ||
             o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true)
@@ -3030,6 +3039,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
