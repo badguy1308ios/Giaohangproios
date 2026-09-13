@@ -42,6 +42,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -339,6 +340,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -452,6 +454,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1199,6 +1203,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1324,10 +1329,29 @@ fun MapScreen(
 ) {
     val context = LocalContext.current
     var editing by remember { mutableStateOf(false) }
-    var confirmSave by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf(vm.orders.map { it.code }) }
     var editMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
     var editNumberText by remember { mutableStateOf("") }
+    var editOnMap by remember { mutableStateOf(false) }
+    // DIRECT_STT_INLINE_EDIT_V1
+
+    fun commitDirectStt() {
+        val marker = editMarker ?: return
+        val maxStt = draft.size.coerceAtLeast(1)
+        val target = editNumberText.toIntOrNull()?.coerceIn(1, maxStt) ?: return
+        val current = draft.indexOf(marker.order.code)
+        if (current >= 0) {
+            val next = draft.toMutableList()
+            next.removeAt(current)
+            next.add((target - 1).coerceIn(0, next.size), marker.order.code)
+            draft = next
+            // Lưu ngay để bong bóng, list bản đồ và tab Chi tiết đơn luôn cùng một STT.
+            vm.reorderOrders(next)
+        }
+        editMarker = null
+        editNumberText = ""
+        editOnMap = false
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -1384,67 +1408,33 @@ fun MapScreen(
             editing = true
             Toast.makeText(context, "Bấm STT trên bản đồ hoặc danh sách để đổi số", Toast.LENGTH_SHORT).show()
         },
-        onSaveRoute = { confirmSave = true },
-        onEditStt = { marker ->
+        onSaveRoute = {
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
+            editing = false
+        },
+        onEditStt = { marker, fromMap ->
             if (editing) {
                 editMarker = marker
                 editNumberText = marker.number.toString()
+                editOnMap = fromMap
             }
+        },
+        editingCode = editMarker?.order?.code,
+        editingNumberText = editNumberText,
+        editingOnMap = editOnMap,
+        onEditingNumberChange = { editNumberText = it.filter(Char::isDigit).take(4) },
+        onCommitEdit = { commitDirectStt() },
+        onCancelEdit = {
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
         },
         onExportStt = { exportLauncher.launch("giaohangpro_thu_tu_mvd.csv") },
         onImportStt = { importLauncher.launch("text/*") }
     )
 
-    editMarker?.let { marker ->
-        val maxStt = draft.size.coerceAtLeast(1)
-        AlertDialog(
-            onDismissRequest = { editMarker = null },
-            title = { Text("Đổi STT đơn ${marker.order.code}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("STT hiện tại: ${marker.number} • Nhập vị trí mới từ 1 đến $maxStt", color = TextGray, fontSize = 12.sp)
-                    OutlinedTextField(
-                        value = editNumberText,
-                        onValueChange = { value -> editNumberText = value.filter(Char::isDigit).take(4) },
-                        label = { Text("STT mới") },
-                        singleLine = true,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val target = editNumberText.toIntOrNull()?.coerceIn(1, maxStt)
-                    if (target != null) {
-                        val movingCode = marker.order.code
-                        val current = draft.indexOf(movingCode)
-                        if (current >= 0) {
-                            val next = draft.toMutableList()
-                            next.removeAt(current)
-                            next.add((target - 1).coerceIn(0, next.size), movingCode)
-                            draft = next
-                        }
-                        editMarker = null
-                    }
-                }) { Text("ÁP DỤNG") }
-            },
-            dismissButton = { TextButton(onClick = { editMarker = null }) { Text("HỦY") } }
-        )
-    }
-
-    if (confirmSave) AlertDialog(
-        onDismissRequest = { confirmSave = false },
-        title = { Text("Lưu STT tuyến") },
-        text = { Text("Xác nhận lưu thứ tự mới? Dãy STT sẽ luôn liên tục từ 1 đến ${draft.size}.") },
-        confirmButton = {
-            TextButton(onClick = {
-                vm.reorderOrders(draft)
-                confirmSave = false
-                editing = false
-            }) { Text("LƯU") }
-        },
-        dismissButton = { TextButton(onClick = { confirmSave = false }) { Text("HỦY") } }
-    )
 }
 
 @Composable
@@ -1458,7 +1448,13 @@ private fun BaseMapScreen(
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
     onSaveRoute: () -> Unit,
-    onEditStt: (MapOrderMarker) -> Unit,
+    onEditStt: (MapOrderMarker, Boolean) -> Unit,
+    editingCode: String?,
+    editingNumberText: String,
+    editingOnMap: Boolean,
+    onEditingNumberChange: (String) -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
     onExportStt: () -> Unit,
     onImportStt: () -> Unit
 ) {
@@ -1499,7 +1495,13 @@ private fun BaseMapScreen(
                 editingStt = editingStt,
                 onToggleExpand = { mapExpanded = !mapExpanded },
                 onOrderSelected = { selectedOrderCode = it.order.code },
-                onEditStt = onEditStt
+                onEditStt = { marker -> onEditStt(marker, true) },
+                editingCode = editingCode,
+                editingNumberText = editingNumberText,
+                showInlineEditor = editingStt && editingOnMap,
+                onEditingNumberChange = onEditingNumberChange,
+                onCommitEdit = onCommitEdit,
+                onCancelEdit = onCancelEdit
             )
 
             if (!mapExpanded) {
@@ -1510,8 +1512,14 @@ private fun BaseMapScreen(
                     onOrderClick = { marker -> if (!editingStt) onOpenOrder(marker.order.code) },
                     onNumberClick = { marker ->
                         selectedOrderCode = marker.order.code
-                        if (editingStt) onEditStt(marker)
+                        if (editingStt) onEditStt(marker, false)
                     },
+                    editingCode = editingCode,
+                    editingNumberText = editingNumberText,
+                    editingOnMap = editingOnMap,
+                    onEditingNumberChange = onEditingNumberChange,
+                    onCommitEdit = onCommitEdit,
+                    onCancelEdit = onCancelEdit,
                     onNavigate = { marker ->
                         if (marker.hasRealCoordinate) {
                             openGoogleNavigation(context, marker.point)
@@ -1538,6 +1546,12 @@ private fun BoxScope.MapOrderBottomSheet(
     editingStt: Boolean,
     onOrderClick: (MapOrderMarker) -> Unit,
     onNumberClick: (MapOrderMarker) -> Unit,
+    editingCode: String?,
+    editingNumberText: String,
+    editingOnMap: Boolean,
+    onEditingNumberChange: (String) -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
     onNavigate: (MapOrderMarker) -> Unit,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
@@ -1616,7 +1630,7 @@ private fun BoxScope.MapOrderBottomSheet(
                 }
             }
             if (editingStt) {
-                Text("Chạm vào vòng tròn STT hoặc bong bóng trên bản đồ để đổi vị trí.", color = TextGray, fontSize = 10.sp)
+                Text("Chạm STT trong list hoặc bong bóng trên bản đồ rồi gõ số mới trực tiếp.", color = TextGray, fontSize = 10.sp)
             }
             Spacer(Modifier.height(if (editingStt) 4.dp else 10.dp))
             LazyColumn(
@@ -1630,6 +1644,12 @@ private fun BoxScope.MapOrderBottomSheet(
                         marker = marker,
                         selected = marker.number == selectedNumber,
                         editingStt = editingStt,
+                        editingCode = editingCode,
+                        editingNumberText = editingNumberText,
+                        inlineEditingHere = !editingOnMap,
+                        onEditingNumberChange = onEditingNumberChange,
+                        onCommitEdit = onCommitEdit,
+                        onCancelEdit = onCancelEdit,
                         onClick = { onOrderClick(marker) },
                         onNumberClick = { onNumberClick(marker) },
                         onNavigate = { onNavigate(marker) }
@@ -1645,6 +1665,12 @@ private fun MapOrderListRow(
     marker: MapOrderMarker,
     selected: Boolean,
     editingStt: Boolean,
+    editingCode: String?,
+    editingNumberText: String,
+    inlineEditingHere: Boolean,
+    onEditingNumberChange: (String) -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
     onClick: () -> Unit,
     onNumberClick: () -> Unit,
     onNavigate: () -> Unit
@@ -1661,14 +1687,38 @@ private fun MapOrderListRow(
             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .clickable { onNumberClick() },
-                contentAlignment = Alignment.Center
-            ) {
-                NumberCircle(marker.number, selected = selected || editingStt)
+            if (editingStt && inlineEditingHere && editingCode == order.code) {
+                val focusRequester = remember(order.code) { androidx.compose.ui.focus.FocusRequester() }
+                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                LaunchedEffect(editingCode) {
+                    kotlinx.coroutines.delay(80)
+                    focusRequester.requestFocus()
+                }
+                OutlinedTextField(
+                    value = editingNumberText,
+                    onValueChange = onEditingNumberChange,
+                    modifier = Modifier.width(58.dp).height(52.dp).focusRequester(focusRequester),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        onCommitEdit()
+                        focusManager.clearFocus()
+                    }),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                )
+            } else {
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable { onNumberClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    NumberCircle(marker.number, selected = selected || editingStt)
+                }
             }
             Spacer(Modifier.width(4.dp))
             Box(
@@ -1783,7 +1833,13 @@ private fun GoongOrderMap(
     editingStt: Boolean,
     onToggleExpand: () -> Unit,
     onOrderSelected: (MapOrderMarker) -> Unit,
-    onEditStt: (MapOrderMarker) -> Unit
+    onEditStt: (MapOrderMarker) -> Unit,
+    editingCode: String?,
+    editingNumberText: String,
+    showInlineEditor: Boolean,
+    onEditingNumberChange: (String) -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -1793,6 +1849,22 @@ private fun GoongOrderMap(
     }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var didInitialDriverFocus by remember { mutableStateOf(false) }
+    var inlineEditorOffset by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
+    val inlineEditorMarker = orders.firstOrNull { it.order.code == editingCode }
+
+    LaunchedEffect(map, inlineEditorMarker, showInlineEditor) {
+        if (!showInlineEditor) return@LaunchedEffect
+        val readyMap = map ?: return@LaunchedEffect
+        val marker = inlineEditorMarker ?: return@LaunchedEffect
+        // Chờ camera focus marker xong rồi đặt textbox ngay trên bong bóng.
+        kotlinx.coroutines.delay(260)
+        val screenPoint = readyMap.projection.toScreenLocation(LatLng(marker.point.latitude, marker.point.longitude))
+        val density = context.resources.displayMetrics.density
+        val editorWidth = (64f * density).toInt()
+        val x = (screenPoint.x - editorWidth / 2f).toInt().coerceIn(0, (mapView.width - editorWidth).coerceAtLeast(0))
+        val y = (screenPoint.y - 64f * density).toInt().coerceAtLeast(0)
+        inlineEditorOffset = androidx.compose.ui.unit.IntOffset(x, y)
+    }
 
     DisposableEffect(mapView, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1838,6 +1910,38 @@ private fun GoongOrderMap(
             },
             update = { view -> view.getMapAsync { readyMap -> if (readyMap.style != null) map = readyMap } }
         )
+
+        if (editingStt && showInlineEditor && inlineEditorMarker != null) {
+            val focusRequester = remember(inlineEditorMarker.order.code) { androidx.compose.ui.focus.FocusRequester() }
+            val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+            LaunchedEffect(editingCode) {
+                kotlinx.coroutines.delay(120)
+                focusRequester.requestFocus()
+            }
+            Surface(
+                modifier = Modifier.offset { inlineEditorOffset }.width(64.dp).height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White,
+                shadowElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(2.dp, Orange)
+            ) {
+                OutlinedTextField(
+                    value = editingNumberText,
+                    onValueChange = onEditingNumberChange,
+                    modifier = Modifier.fillMaxSize().focusRequester(focusRequester),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        onCommitEdit()
+                        focusManager.clearFocus()
+                    }),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                )
+            }
+        }
 
         Column(
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
