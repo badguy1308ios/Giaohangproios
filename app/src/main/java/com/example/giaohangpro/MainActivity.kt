@@ -359,6 +359,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -459,6 +460,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1220,6 +1223,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2259,13 +2263,14 @@ private fun CustomerCoordinateMapPicker(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val driverLocation by rememberDriverLocation()
 
-    // Quy tắc focus duy nhất:
-    // 1) Khách đã có tọa độ thật -> focus đúng tọa độ khách MỘT LẦN khi mở.
-    // 2) Khách chưa có tọa độ -> khi GPS có dữ liệu, focus GPS MỘT LẦN khi mở.
-    // Sau lần focus đầu tiên, GPS cập nhật tiếp cũng KHÔNG được kéo bản đồ đi nữa.
+    // Hai quy tắc độc lập, không được chồng lên nhau:
+    // - Có tọa độ thật của khách: focus tọa độ khách đúng 1 lần khi mở.
+    // - Chưa có tọa độ thật: lấy GPS người dùng đúng 1 lần đầu khi GPS sẵn sàng.
+    // Sau lần focus đầu tiên, các bản tin GPS tiếp theo chỉ là dữ liệu vị trí,
+    // tuyệt đối không tự kéo camera và không ghi đè điểm khách đã chọn.
     var selectedPoint by remember(initialPoint) { mutableStateOf(initialPoint) }
     var initialFocusDone by remember(initialPoint, focusUserLocation) {
-        mutableStateOf(initialPoint != null || !focusUserLocation)
+        mutableStateOf(!focusUserLocation && initialPoint == null)
     }
 
     val mapView = remember(context) {
@@ -2292,8 +2297,7 @@ private fun CustomerCoordinateMapPicker(
         }
     }
 
-    // Chỉ dành cho khách CHƯA có tọa độ thật. Khi GPS trả dữ liệu lần đầu,
-    // lấy đó làm điểm đang chọn + focus đúng một lần rồi khóa auto-focus.
+    // Chỉ chạy cho trường hợp khách CHƯA có tọa độ và GPS chưa sẵn sàng lúc style vừa mở.
     LaunchedEffect(driverLocation, map, styleReady, initialPoint, focusUserLocation, initialFocusDone) {
         if (initialPoint == null && focusUserLocation && !initialFocusDone) {
             val gps = driverLocation ?: return@LaunchedEffect
@@ -2331,13 +2335,34 @@ private fun CustomerCoordinateMapPicker(
                                         map = readyMap
                                         styleReady = true
 
-                                        // Tọa độ thật của khách luôn thắng GPS.
-                                        // Chỉ set camera ở đây đúng lần khởi tạo style.
-                                        val startPoint = initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT
-                                        readyMap.cameraPosition = CameraPosition.Builder()
-                                            .target(LatLng(startPoint.latitude, startPoint.longitude))
-                                            .zoom(if (initialPoint != null) 16.0 else 15.0)
-                                            .build()
+                                        when {
+                                            initialPoint != null -> {
+                                                // Mệnh đề 1: tọa độ thật của khách luôn thắng GPS.
+                                                selectedPoint = initialPoint
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(initialPoint.latitude, initialPoint.longitude))
+                                                    .zoom(16.0)
+                                                    .build()
+                                                initialFocusDone = true
+                                            }
+                                            focusUserLocation && driverLocation != null -> {
+                                                // Mệnh đề 2: nếu GPS đã có ngay lúc mở, dùng đúng lần này rồi khóa auto-focus.
+                                                val gps = driverLocation!!
+                                                selectedPoint = gps
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(gps.latitude, gps.longitude))
+                                                    .zoom(16.0)
+                                                    .build()
+                                                initialFocusDone = true
+                                            }
+                                            else -> {
+                                                // Chờ GPS đầu tiên; không tự coi điểm mặc định là tọa độ khách.
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
+                                                    .zoom(15.0)
+                                                    .build()
+                                            }
+                                        }
 
                                         selectedPoint?.let { point ->
                                             readyMap.clear()
@@ -2347,9 +2372,6 @@ private fun CustomerCoordinateMapPicker(
                                                     .title("Vị trí đang chọn")
                                             )
                                         }
-
-                                        // Nếu đã có tọa độ thật, lần focus đầu đã hoàn tất ngay khi mở.
-                                        if (initialPoint != null) initialFocusDone = true
 
                                         readyMap.addOnMapClickListener { tapped ->
                                             selectedPoint = MapPoint(tapped.latitude, tapped.longitude)
@@ -2881,6 +2903,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
@@ -3730,69 +3753,7 @@ private fun CustomerPhotoCard(photoUri: String = "") {
     }
 }
 
-@Composable
-private fun CustomerCoordinateMapPicker(
-    initialPoint: MapPoint?,
-    focusUserLocation: Boolean = true,
-    onDismiss: () -> Unit,
-    onSavePoint: (MapPoint) -> Unit
-) {
-    val driverLocation by rememberDriverLocation()
-    var selected by remember { mutableStateOf(initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT) }
-    val start = initialPoint ?: (if (focusUserLocation) driverLocation else null) ?: DEFAULT_MAP_POINT
-    var didInitialGpsFocus by remember { mutableStateOf(initialPoint != null || !focusUserLocation) }
 
-    // Chỉ focus GPS đúng một lần khi khách chưa có tọa độ.
-    LaunchedEffect(driverLocation, focusUserLocation, initialPoint) {
-        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation) {
-            driverLocation?.let { gps ->
-                selected = gps
-                didInitialGpsFocus = true
-            }
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 72.dp),
-            shape = RoundedCornerShape(14.dp), color = Background
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Close, "Đóng") }
-                    Text("CHỌN TỌA ĐỘ", fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    driverLocation?.let { TextButton(onClick = { selected = it }) { Text("Vị trí tôi", fontSize = 11.sp) } }
-                }
-                CoordinatePickerMap(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    initialPoint = start,
-                    driverLocation = driverLocation,
-                    selectedPoint = selected,
-                    onPointSelected = { selected = it }
-                )
-                Row(
-                    Modifier.fillMaxWidth().height(48.dp).background(Color.White).padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(0.35f).fillMaxHeight(),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                    ) { Text("HỦY", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    Button(
-                        onClick = { onSavePoint(selected) },
-                        modifier = Modifier.weight(0.65f).fillMaxHeight(),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                    ) { Text("LƯU TỌA ĐỘ", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
-        }
-    }
-}
 
 
 // ================================================================
@@ -3829,99 +3790,7 @@ fun RowScope.BottomTabItem(
 private fun createInitials(name: String): String =
     name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }
 
-@Composable
-private fun CoordinatePickerMap(
-    modifier: Modifier,
-    initialPoint: MapPoint,
-    driverLocation: MapPoint?,
-    selectedPoint: MapPoint,
-    onPointSelected: (MapPoint) -> Unit
-) {
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val mapView = remember(context) {
-        MapLibre.getInstance(context)
-        MapView(context).also { it.onCreate(null) }
-    }
-    var readyMap by remember { mutableStateOf<MapLibreMap?>(null) }
 
-    DisposableEffect(mapView, lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            mapView.onDestroy()
-        }
-    }
-
-    AndroidView(
-        modifier = modifier,
-        factory = {
-            mapView.apply {
-                getMapAsync { map ->
-                    map.setStyle(Style.Builder().fromJson(goongStyle(context))) {
-                        readyMap = map
-                        map.cameraPosition = CameraPosition.Builder()
-                            .target(LatLng(initialPoint.latitude, initialPoint.longitude))
-                            .zoom(16.0)
-                            .build()
-                        map.addOnMapClickListener { latLng ->
-                            onPointSelected(MapPoint(latLng.latitude, latLng.longitude))
-                            true
-                        }
-                    }
-                }
-            }
-        },
-        update = { view ->
-            view.getMapAsync { map ->
-                if (map.style != null) readyMap = map
-            }
-        }
-    )
-
-    // Mỗi khi GPS người dùng xuất hiện/cập nhật, camera focus ngay vào vị trí đó.
-    LaunchedEffect(readyMap, driverLocation) {
-        val map = readyMap ?: return@LaunchedEffect
-        driverLocation?.let { point ->
-            map.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0)
-            )
-        }
-    }
-
-    LaunchedEffect(readyMap, selectedPoint, driverLocation) {
-        val map = readyMap ?: return@LaunchedEffect
-        map.clear()
-        val selectedBitmap = createNumberBubbleDrawable(context, 1, false)
-        val selectedIcon = IconFactory.getInstance(context).fromBitmap(
-            (selectedBitmap as android.graphics.drawable.BitmapDrawable).bitmap
-        )
-        map.addMarker(
-            MarkerOptions()
-                .position(LatLng(selectedPoint.latitude, selectedPoint.longitude))
-                .icon(selectedIcon)
-                .title("Vị trí đã chọn")
-        )
-        driverLocation?.let { point ->
-            val driverIcon = IconFactory.getInstance(context).fromBitmap(createDriverMotorbikeBitmap(context))
-            map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(point.latitude, point.longitude))
-                    .icon(driverIcon)
-                    .title("Vị trí của tôi")
-            )
-        }
-    }
-}
 
 // ================================================================
 // 10. Ô TÌM KIẾM + SỐ THỨ TỰ
