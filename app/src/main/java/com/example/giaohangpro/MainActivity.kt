@@ -345,6 +345,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -458,6 +459,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1146,6 +1149,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2263,50 +2267,158 @@ private fun DeliveryGroupCard(
     onCustomerClick: () -> Unit,
     onDelivered: () -> Unit
 ) {
-    val context=LocalContext.current
-    val primary=group.orders.first()
-    val customer=group.customer
-    val phone=(customer?.phone ?: primary.phone).filter(Char::isDigit)
-    Card(
-        modifier=Modifier.fillMaxWidth(),
-        shape=RoundedCornerShape(14.dp),
-        colors=CardDefaults.cardColors(containerColor=if(delivered) Color(0xFFE4F5E8) else Color.White),
-        border=androidx.compose.foundation.BorderStroke(1.dp,if(delivered) Color(0xFF9DCEA8) else Border),
-        elevation=CardDefaults.cardElevation(defaultElevation=1.dp)
-    ) {
-        Column(Modifier.padding(7.dp)) {
-            Row(verticalAlignment=Alignment.CenterVertically) {
-                if(routeStt!=null) Box(Modifier.size(30.dp).clip(CircleShape).clickable{onNumberClick()},contentAlignment=Alignment.Center){ NumberCircle(routeStt,true) }
-                else Icon(Icons.Default.CheckCircle,"Đã giao",tint=Color(0xFF2E7D32),modifier=Modifier.size(30.dp))
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(customer?.name ?: primary.customer,color=Navy,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text("${group.orders.size} MVĐ",color=TextGray,fontSize=11.sp)
+    val context = LocalContext.current
+    val primary = group.orders.first()
+    val customer = group.customer
+    val phone = (customer?.phone ?: primary.phone).filter(Char::isDigit)
+
+    fun openZalo() {
+        if (phone.isNotBlank()) runCatching {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://zalo.me/$phone")))
+        }
+    }
+    fun openSms() {
+        if (phone.isNotBlank()) runCatching {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$phone")))
+        }
+    }
+    fun openCall() {
+        if (phone.isNotBlank()) runCatching {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone")))
+        }
+    }
+
+    // Chỉ Customer ID có từ 2 MVĐ trở lên mới có phần đầu nhóm.
+    if (group.orders.size > 1) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = if (delivered) Color(0xFFE4F5E8) else Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (delivered) Color(0xFF9DCEA8) else Border),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column {
+                // Phần dùng chung: STT - số đơn - tổng tiền.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (routeStt != null) {
+                        Box(
+                            Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() },
+                            contentAlignment = Alignment.Center
+                        ) { NumberCircle(routeStt, selected = true) }
+                    } else {
+                        Icon(Icons.Default.CheckCircle, "Đã giao", tint = Color(0xFF2E7D32), modifier = Modifier.size(38.dp))
+                    }
+                    Spacer(Modifier.width(9.dp))
+                    Text("${group.orders.size} đơn", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("  •  Tổng COD ", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(groupMoneyText(group), color = MoneyGreen, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                 }
-                Text(groupMoneyText(group),color=MoneyGreen,fontSize=14.sp,fontWeight=FontWeight.Bold)
+
+                // Cụm nút thao tác dùng chung cho tất cả MVĐ trong Customer ID này.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, onClick = onDelivered)
+                    ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
+                    ActionButton("Zalo", Icons.Default.Chat, onClick = { openZalo() })
+                    ActionButton("SMS", Icons.Default.Sms, onClick = { openSms() })
+                    ActionButton("Gọi", Icons.Default.Call, onClick = { openCall() })
+                }
+
+                // Mỗi đơn vẫn giữ nguyên cấu trúc chi tiết riêng như giao diện cũ.
+                group.orders.forEachIndexed { index, order ->
+                    if (index > 0) HorizontalDivider(color = Border)
+                    GroupedOrderDetail(
+                        order = order,
+                        delivered = delivered,
+                        onCustomerClick = onCustomerClick
+                    )
+                }
             }
+        }
+    } else {
+        // Customer ID chỉ có 1 MVĐ: hiển thị bình thường, không có phần đầu nhóm.
+        SingleOrderDetailCard(
+            order = primary,
+            delivered = delivered,
+            onCustomerClick = onCustomerClick,
+            onDelivered = onDelivered,
+            onZalo = { openZalo() },
+            onSms = { openSms() },
+            onCall = { openCall() }
+        )
+    }
+}
+
+@Composable
+private fun GroupedOrderDetail(
+    order: Order,
+    delivered: Boolean,
+    onCustomerClick: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(order.code, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text(order.status.ifBlank { if (delivered) "Đã giao" else "—" }, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(8.dp))
+            Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(4.dp))
+        OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
+        OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}", onClick = onCustomerClick)
+        OrderInfoRow(Icons.Default.LocationOn, order.address)
+        OrderInfoRow(Icons.Default.Inventory2, order.item)
+        if (order.tags.isNotEmpty()) {
             Spacer(Modifier.height(5.dp))
-            group.orders.forEach { o ->
-                Row(Modifier.fillMaxWidth().padding(vertical=2.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Text(o.code,Modifier.weight(1f),color=Navy,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
-                    Text(o.amount,color=MoneyGreen,fontSize=12.sp)
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { order.tags.forEach { Tag(it) } }
+        }
+    }
+}
+
+@Composable
+private fun SingleOrderDetailCard(
+    order: Order,
+    delivered: Boolean,
+    onCustomerClick: () -> Unit,
+    onDelivered: () -> Unit,
+    onZalo: () -> Unit,
+    onSms: () -> Unit,
+    onCall: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = if (delivered) Color(0xFFE4F5E8) else Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (delivered) Color(0xFF9DCEA8) else Border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(order.code, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                Text(order.status.ifBlank { if (delivered) "Đã giao" else "—" }, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(8.dp))
+                Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
-            OrderInfoRow(Icons.Default.Person,"${customer?.name ?: primary.customer} - ${customer?.phone ?: primary.phone}",onClick=onCustomerClick)
-            OrderInfoRow(Icons.Default.LocationOn,customer?.address?.takeIf(String::isNotBlank) ?: primary.address)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
-                ActionButton("Đã giao",Icons.Default.CheckCircle,filled=true,onClick=onDelivered)
-                ActionButton("Bank",Icons.Default.AccountBalance,onClick={})
-                ActionButton("Zalo",Icons.Default.Chat,onClick={
-                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://zalo.me/$phone"))) }
-                })
-                ActionButton("SMS",Icons.Default.Sms,onClick={
-                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO,android.net.Uri.parse("smsto:$phone"))) }
-                })
-                ActionButton("Gọi",Icons.Default.Call,onClick={
-                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.parse("tel:$phone"))) }
-                })
+            Spacer(Modifier.height(4.dp))
+            OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
+            OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}", onClick = onCustomerClick)
+            OrderInfoRow(Icons.Default.LocationOn, order.address)
+            OrderInfoRow(Icons.Default.Inventory2, order.item)
+            if (order.tags.isNotEmpty()) {
+                Spacer(Modifier.height(5.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { order.tags.forEach { Tag(it) } }
+            }
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, onClick = onDelivered)
+                ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
+                ActionButton("Zalo", Icons.Default.Chat, onClick = onZalo)
+                ActionButton("SMS", Icons.Default.Sms, onClick = onSms)
+                ActionButton("Gọi", Icons.Default.Call, onClick = onCall)
             }
         }
     }
@@ -2362,6 +2474,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
@@ -3560,23 +3673,6 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
-
-    fun markDeliveredGroup(code: String) {
-        val base = orderState.firstOrNull { it.code == code } ?: return
-        val customer = findCustomerByPhone(base.phone)
-        if (customer == null) {
-            val i = orderState.indexOfFirst { it.code == code }
-            if (i >= 0) orderState[i] = orderState[i].copy(status = "Đã giao")
-        } else {
-            val keys = (listOf(customer.phone) + customer.extraPhones.map { it.number }).map(::normalizeCustomerPhone).filter(String::isNotBlank).toSet()
-            orderState.indices.forEach { i ->
-                if (normalizeCustomerPhone(orderState[i].phone) in keys) orderState[i] = orderState[i].copy(status = "Đã giao")
-            }
-        }
-        savePersistentData()
-    }
-
-
 
     fun reorderOrders(codes: List<String>) {
         val rank = codes.withIndex().associate { it.value to it.index }
