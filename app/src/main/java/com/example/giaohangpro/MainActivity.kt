@@ -342,6 +342,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -455,6 +456,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1208,6 +1211,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1305,6 +1309,51 @@ private suspend fun geocodeAddressWithGoong(address: String): MapPoint? = withCo
     }
 }
 
+private fun uiNormPhone(raw: String): String {
+    val digits = raw.filter(Char::isDigit)
+    return when {
+        digits.startsWith("0084") && digits.length > 4 -> "0" + digits.drop(4)
+        digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
+        else -> digits
+    }
+}
+
+private data class DeliveryGroup(val key: String, val customer: Customer?, val orders: List<Order>)
+
+private fun buildDeliveryGroups(orders: List<Order>, customers: List<Customer>): List<DeliveryGroup> {
+    val customerByPhone = mutableMapOf<String, Customer>()
+    customers.forEach { c ->
+        (listOf(c.phone) + c.extraPhones.map { it.number }).forEach { raw ->
+            uiNormPhone(raw).takeIf(String::isNotBlank)?.let { customerByPhone[it] = c }
+        }
+    }
+    val grouped = linkedMapOf<String, MutableList<Order>>()
+    val customerForKey = mutableMapOf<String, Customer?>()
+    orders.forEach { order ->
+        val customer = customerByPhone[uiNormPhone(order.phone)]
+        val key = customer?.let { "C:${it.id}" } ?: "O:${order.code}"
+        grouped.getOrPut(key) { mutableListOf() }.add(order)
+        customerForKey[key] = customer
+    }
+    return grouped.map { (key, list) -> DeliveryGroup(key, customerForKey[key], list) }
+}
+
+private fun orderMoneyValue(raw: String): Long = raw.filter(Char::isDigit).toLongOrNull() ?: 0L
+private fun groupMoneyText(group: DeliveryGroup): String = fmtMoney(group.orders.sumOf { orderMoneyValue(it.amount) }) + "đ"
+private fun groupRepresentative(group: DeliveryGroup): Order {
+    val first = group.orders.first()
+    val c = group.customer
+    return first.copy(
+        customer = c?.name ?: first.customer,
+        phone = c?.phone ?: first.phone,
+        address = c?.address?.takeIf(String::isNotBlank) ?: first.address,
+        latitude = c?.latitude?.takeIf(String::isNotBlank) ?: first.latitude,
+        longitude = c?.longitude?.takeIf(String::isNotBlank) ?: first.longitude,
+        amount = groupMoneyText(group),
+        item = if (group.orders.size > 1) "${group.orders.size} MVĐ" else first.item
+    )
+}
+
 private fun openGoogleNavigation(context: android.content.Context, point: MapPoint) {
     val uri = android.net.Uri.parse("google.navigation:q=${point.latitude},${point.longitude}&mode=l") // mode=l ưu tiên chế độ xe máy.
     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
@@ -1332,65 +1381,39 @@ fun MapScreen(
     onOpenOrder: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { it.status.equals("Đã giao", true) }, vm.customers)
     var editing by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf(vm.orders.map { it.code }) }
+    var confirmSave by remember { mutableStateOf(false) }
+    var draft by remember(activeGroups.map { it.key }) { mutableStateOf(activeGroups.map { it.key }) }
     var editMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
     var editNumberText by remember { mutableStateOf("") }
-    var editOnMap by remember { mutableStateOf(false) }
-    // DIRECT_STT_INLINE_EDIT_V1
-
-    fun commitDirectStt() {
-        val marker = editMarker ?: return
-        val maxStt = draft.size.coerceAtLeast(1)
-        val target = editNumberText.toIntOrNull()?.coerceIn(1, maxStt) ?: return
-        val current = draft.indexOf(marker.order.code)
-        if (current >= 0) {
-            val next = draft.toMutableList()
-            next.removeAt(current)
-            next.add((target - 1).coerceIn(0, next.size), marker.order.code)
-            draft = next
-            // Lưu ngay để bong bóng, list bản đồ và tab Chi tiết đơn luôn cùng một STT.
-            vm.reorderOrders(next)
-        }
-        editMarker = null
-        editNumberText = ""
-        editOnMap = false
-    }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             val csv = buildString {
                 append("STT,MVĐ\n")
-                vm.orders.forEachIndexed { i, o -> append("${i + 1},${csvCell(o.code)}\n") }
+                activeGroups.forEachIndexed { i, g -> append("${i + 1},${csvCell(g.orders.joinToString(" ") { it.code })}\n") }
             }
             context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(csv) }
-        }.onSuccess {
-            Toast.makeText(context, "Đã xuất thứ tự ${vm.orders.size} MVĐ", Toast.LENGTH_SHORT).show()
-        }.onFailure {
-            Toast.makeText(context, "Không xuất được STT", Toast.LENGTH_LONG).show()
-        }
+        }.onSuccess { Toast.makeText(context, "Đã xuất ${activeGroups.size} điểm giao", Toast.LENGTH_SHORT).show() }
+         .onFailure { Toast.makeText(context, "Không xuất được STT", Toast.LENGTH_LONG).show() }
     }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val codes = text.lineSequence().drop(1).mapNotNull { line ->
-                line.substringAfter(',', "").trim().trim('"').takeIf(String::isNotBlank)
-            }.toList()
-            vm.reorderOrders(codes)
-            Toast.makeText(context, "Đã nhập STT cho ${codes.size} MVĐ", Toast.LENGTH_SHORT).show()
-        }.onFailure {
-            Toast.makeText(context, "Không đọc được file STT", Toast.LENGTH_LONG).show()
-        }
+            val codes = text.lineSequence().drop(1).mapNotNull { line -> line.substringAfter(',', "").trim().trim('"').split(' ').firstOrNull()?.takeIf(String::isNotBlank) }.toList()
+            val byRep = activeGroups.associateBy { it.orders.first().code }
+            val ordered = codes.mapNotNull { byRep[it] }.flatMap { it.orders.map(Order::code) }
+            val remaining = activeGroups.filterNot { it.orders.first().code in codes }.flatMap { it.orders.map(Order::code) }
+            vm.reorderOrders(ordered + remaining)
+        }.onFailure { Toast.makeText(context, "Không đọc được file STT", Toast.LENGTH_LONG).show() }
     }
 
-    val displayOrders = if (editing) {
-        draft.mapNotNull { code -> vm.orders.firstOrNull { it.code == code } }
-    } else {
-        vm.orders.toList()
-    }
+    val orderedGroups = if (editing) draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key } } else activeGroups
+    val displayOrders = orderedGroups.map(::groupRepresentative)
 
     BaseMapScreen(
         orders = displayOrders,
@@ -1400,45 +1423,60 @@ fun MapScreen(
         onFocusConsumed = onFocusConsumed,
         onOpenOrder = onOpenOrder,
         onCreateRoute = {
-            val sorted = vm.orders.sortedWith(
-                compareBy<Order> { it.latitude.toDoubleOrNull() ?: 999.0 }
-                    .thenBy { it.longitude.toDoubleOrNull() ?: 999.0 }
-            ).map { it.code }
-            vm.reorderOrders(sorted)
-            Toast.makeText(context, "Đã tạo tuyến theo vị trí", Toast.LENGTH_SHORT).show()
+            val sortedGroups = activeGroups.sortedWith(compareBy<DeliveryGroup> {
+                val r = groupRepresentative(it); r.latitude.toDoubleOrNull() ?: 999.0
+            }.thenBy {
+                val r = groupRepresentative(it); r.longitude.toDoubleOrNull() ?: 999.0
+            })
+            vm.reorderOrders(sortedGroups.flatMap { it.orders.map(Order::code) })
+            Toast.makeText(context, "Đã tạo tuyến theo ${sortedGroups.size} điểm giao", Toast.LENGTH_SHORT).show()
         },
         onEditRoute = {
-            draft = vm.orders.map { it.code }
+            draft = activeGroups.map { it.key }
             editing = true
-            Toast.makeText(context, "Bấm STT trên bản đồ hoặc danh sách để đổi số", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Chạm STT để nhập số mới trực tiếp", Toast.LENGTH_SHORT).show()
         },
-        onSaveRoute = {
-            editMarker = null
-            editNumberText = ""
-            editOnMap = false
-            editing = false
-        },
-        onEditStt = { marker, fromMap ->
+        onSaveRoute = { confirmSave = true },
+        onEditStt = { marker ->
             if (editing) {
                 editMarker = marker
                 editNumberText = marker.number.toString()
-                editOnMap = fromMap
             }
-        },
-        editingCode = editMarker?.order?.code,
-        editingNumberText = editNumberText,
-        editingOnMap = editOnMap,
-        onEditingNumberChange = { editNumberText = it.filter(Char::isDigit).take(4) },
-        onCommitEdit = { commitDirectStt() },
-        onCancelEdit = {
-            editMarker = null
-            editNumberText = ""
-            editOnMap = false
         },
         onExportStt = { exportLauncher.launch("giaohangpro_thu_tu_mvd.csv") },
         onImportStt = { importLauncher.launch("text/*") }
     )
 
+    editMarker?.let { marker ->
+        val maxStt = draft.size.coerceAtLeast(1)
+        AlertDialog(
+            onDismissRequest = { editMarker = null },
+            title = { Text("Đổi STT") },
+            text = { OutlinedTextField(value=editNumberText,onValueChange={editNumberText=it.filter(Char::isDigit).take(4)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),label={Text("STT mới 1-$maxStt")}) },
+            confirmButton = { TextButton(onClick = {
+                val target = editNumberText.toIntOrNull()?.coerceIn(1,maxStt)
+                if(target!=null){
+                    val groupKey = activeGroups.firstOrNull { it.orders.first().code == marker.order.code }?.key
+                    val current = groupKey?.let(draft::indexOf) ?: -1
+                    if(current>=0){ val next=draft.toMutableList(); val moving=next.removeAt(current); next.add((target-1).coerceIn(0,next.size),moving); draft=next }
+                    editMarker=null
+                }
+            }) { Text("ÁP DỤNG") } },
+            dismissButton = { TextButton(onClick={editMarker=null}){Text("HỦY")} }
+        )
+    }
+
+    if (confirmSave) AlertDialog(
+        onDismissRequest = { confirmSave=false },
+        title = { Text("Lưu STT tuyến") },
+        text = { Text("Lưu thứ tự ${draft.size} điểm giao?") },
+        confirmButton = { TextButton(onClick={
+            val groupByKey=activeGroups.associateBy{it.key}
+            vm.reorderOrders(draft.mapNotNull(groupByKey::get).flatMap{it.orders.map(Order::code)})
+            confirmSave=false; editing=false
+        }){Text("LƯU")} },
+        dismissButton = { TextButton(onClick={confirmSave=false}){Text("HỦY")} }
+    )
 }
 
 @Composable
@@ -2132,99 +2170,101 @@ fun OrderListScreen(
     onCustomerClick: (Order) -> Unit
 ) {
     val context = LocalContext.current
-    val orders = vm.orders
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val allGroups = buildDeliveryGroups(vm.orders, vm.customers)
+    val activeGroups = allGroups.filterNot { g -> g.orders.all { it.status.equals("Đã giao", true) } }
+    val deliveredGroups = allGroups.filter { g -> g.orders.all { it.status.equals("Đã giao", true) } }
     var keyword by remember { mutableStateOf("") }
-    var showTools by remember { mutableStateOf(false) }
-    var editPicker by remember { mutableStateOf(false) }
-    var editOrder by remember { mutableStateOf<Order?>(null) }
-    var deleteMode by remember { mutableStateOf(false) }
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result -> result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it } }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            val csv=buildString { append("MVĐ,Shop,SĐT,Tên khách,COD,Địa chỉ,Hàng hóa,Trạng thái,Dịch vụ\n"); orders.forEach { o -> append(listOf(o.code,o.shop,o.phone,o.customer,o.amount,o.address,o.item,o.status,o.tags.joinToString(" ")).joinToString(",") { csvCell(it) }).append('\n') } }
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(csv) }
-        }.onSuccess { Toast.makeText(context,"Đã xuất ${orders.size} đơn",Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context,"Không xuất được danh sách",Toast.LENGTH_LONG).show() }
-    }
-    val filteredOrders = remember(orders, keyword) { val q=keyword.trim(); if(q.isBlank()) orders else orders.filter { it.code.contains(q,true)||it.customer.contains(q,true)||it.phone.contains(q,true)||it.address.contains(q,true) } }
-    LaunchedEffect(focusOrderCode, filteredOrders) {
-        val code = focusOrderCode ?: return@LaunchedEffect
-        val index = filteredOrders.indexOfFirst { it.code == code }
-        if (index >= 0) listState.scrollToItem(index)
+    val q = keyword.trim()
+    fun matches(g: DeliveryGroup): Boolean = q.isBlank() || g.orders.any { o -> o.code.contains(q,true)||o.customer.contains(q,true)||o.phone.contains(q,true)||o.address.contains(q,true) } || (g.customer?.name?.contains(q,true)==true)
+    val visibleGroups = (activeGroups.filter(::matches) + deliveredGroups.filter(::matches))
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(focusOrderCode, visibleGroups) {
+        val code=focusOrderCode ?: return@LaunchedEffect
+        val i=visibleGroups.indexOfFirst { g -> g.orders.any { it.code==code } }
+        if(i>=0) listState.scrollToItem(i)
         onFocusConsumed()
     }
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-            Spacer(Modifier.height(6.dp))
-            SearchBox(keyword,{keyword=it},{keyword=""}) { scanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES); setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung"); setBeepEnabled(false); setCaptureActivity(PortraitCaptureActivity::class.java); setOrientationLocked(true); setBarcodeImageEnabled(false) }) }
-            Spacer(Modifier.height(6.dp)); Text("Tổng số: ${filteredOrders.size} đơn", color=Navy,fontSize=20.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(6.dp))
-            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick,onNumberClick={ onNumberClick(order) }) } }
-        }
-        FloatingActionButton(onClick={showTools=true}, modifier=Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp), containerColor=Orange) { Icon(Icons.Default.Edit,"Công cụ đơn",tint=Color.White) }
-        DropdownMenu(expanded=showTools,onDismissRequest={showTools=false}, modifier=Modifier.align(Alignment.BottomStart)) {
-            DropdownMenuItem(text={Text("Xuất danh sách đơn")},leadingIcon={Icon(Icons.Default.FileDownload,null)},onClick={showTools=false;exportLauncher.launch("giaohangpro_orders.csv")})
-            DropdownMenuItem(text={Text("Sửa đơn hàng")},leadingIcon={Icon(Icons.Default.Edit,null)},onClick={showTools=false;editPicker=true})
-            DropdownMenuItem(text={Text("Xóa đơn hàng")},leadingIcon={Icon(Icons.Default.Delete,null)},onClick={showTools=false;deleteMode=true})
+
+    Column(Modifier.fillMaxSize().padding(horizontal=6.dp)) {
+        Spacer(Modifier.height(6.dp))
+        SearchBox(keyword,{keyword=it},{keyword=""}) {}
+        Spacer(Modifier.height(6.dp))
+        Text("${activeGroups.size} điểm giao • ${vm.orders.size} MVĐ",color=Navy,fontSize=18.sp,fontWeight=FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        LazyColumn(state=listState,verticalArrangement=Arrangement.spacedBy(6.dp),contentPadding=PaddingValues(bottom=62.dp)) {
+            items(visibleGroups,key={it.key}) { group ->
+                val delivered=group.orders.all { it.status.equals("Đã giao",true) }
+                val routeStt=if(delivered) null else activeGroups.indexOfFirst { it.key==group.key }.takeIf { it>=0 }?.plus(1)
+                DeliveryGroupCard(
+                    routeStt=routeStt,
+                    group=group,
+                    delivered=delivered,
+                    onNumberClick={ group.orders.firstOrNull()?.let(onNumberClick) },
+                    onCustomerClick={ group.orders.firstOrNull()?.let(onCustomerClick) },
+                    onDelivered={ group.orders.firstOrNull()?.let { vm.markDeliveredGroup(it.code) } }
+                )
+            }
         }
     }
-    if(editPicker) AlertDialog(onDismissRequest={editPicker=false},title={Text("Chọn đơn cần sửa")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{editOrder=o;editPicker=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Text(o.customer,fontSize=11.sp,color=TextGray)} }}},confirmButton={},dismissButton={TextButton(onClick={editPicker=false}){Text("ĐÓNG")}})
-    editOrder?.let { original ->
-        var customer by remember(original.code){mutableStateOf(original.customer)}; var phone by remember(original.code){mutableStateOf(original.phone)}; var address by remember(original.code){mutableStateOf(original.address)}; var amount by remember(original.code){mutableStateOf(original.amount)}
-        var shop by remember(original.code){mutableStateOf(original.shop)}; var item by remember(original.code){mutableStateOf(original.item)}; var service by remember(original.code){mutableStateOf(original.tags.joinToString(" "))}
-        AlertDialog(onDismissRequest={editOrder=null},title={Text("Sửa ${original.code}")},text={Column(Modifier.heightIn(max=460.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)){OutlinedTextField(shop,{shop=it},label={Text("Tên shop")});OutlinedTextField(customer,{customer=it},label={Text("Tên khách")});OutlinedTextField(phone,{phone=it},label={Text("SĐT")});OutlinedTextField(address,{address=it},label={Text("Địa chỉ")});OutlinedTextField(item,{item=it},label={Text("Hàng hóa")});OutlinedTextField(service,{service=it},label={Text("Dịch vụ")});OutlinedTextField(amount,{amount=it},label={Text("COD")})}},confirmButton={TextButton(onClick={val tags=service.split(',', ';', ' ', '|').map(String::trim).filter(String::isNotBlank).distinct();vm.updateOrder(original.copy(shop=shop,customer=customer,phone=phone,address=address,item=item,tags=tags,amount=amount));editOrder=null}){Text("LƯU")}},dismissButton={TextButton(onClick={editOrder=null}){Text("HỦY")}})
-    }
-    if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit, onNumberClick: () -> Unit = {}) {
-    val context = LocalContext.current
-    var infoPopup by remember(order.code) { mutableStateOf<Pair<String,String>?>(null) }
+private fun DeliveryGroupCard(
+    routeStt: Int?,
+    group: DeliveryGroup,
+    delivered: Boolean,
+    onNumberClick: () -> Unit,
+    onCustomerClick: () -> Unit,
+    onDelivered: () -> Unit
+) {
+    val context=LocalContext.current
+    val primary=group.orders.first()
+    val customer=group.customer
+    val phone=(customer?.phone ?: primary.phone).filter(Char::isDigit)
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        modifier=Modifier.fillMaxWidth(),
+        shape=RoundedCornerShape(14.dp),
+        colors=CardDefaults.cardColors(containerColor=if(delivered) Color(0xFFE4F5E8) else Color.White),
+        border=androidx.compose.foundation.BorderStroke(1.dp,if(delivered) Color(0xFF9DCEA8) else Border),
+        elevation=CardDefaults.cardElevation(defaultElevation=1.dp)
     ) {
         Column(Modifier.padding(7.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(30.dp).clip(CircleShape).clickable { onNumberClick() }, contentAlignment = Alignment.Center) {
-                    NumberCircle(index, selected = true)
-                }
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                if(routeStt!=null) Box(Modifier.size(30.dp).clip(CircleShape).clickable{onNumberClick()},contentAlignment=Alignment.Center){ NumberCircle(routeStt,true) }
+                else Icon(Icons.Default.CheckCircle,"Đã giao",tint=Color(0xFF2E7D32),modifier=Modifier.size(30.dp))
                 Spacer(Modifier.width(8.dp))
-                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-                Text(order.code,color=Navy,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,
-                    modifier=Modifier.combinedClickable(onClick={},onLongClick={
-                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(order.code))
-                        Toast.makeText(context,"Đã copy MVĐ ${order.code}",Toast.LENGTH_SHORT).show()
-                    }))
-                Spacer(Modifier.width(10.dp))
-                Text(order.status.ifBlank{"—"},color=Navy,fontSize=15.sp,fontWeight=FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                Text(order.amount,color=MoneyGreen,fontSize=13.sp,fontWeight=FontWeight.Bold)
+                Column(Modifier.weight(1f)) {
+                    Text(customer?.name ?: primary.customer,color=Navy,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Text("${group.orders.size} MVĐ",color=TextGray,fontSize=11.sp)
+                }
+                Text(groupMoneyText(group),color=MoneyGreen,fontSize=14.sp,fontWeight=FontWeight.Bold)
             }
-            Spacer(Modifier.height(4.dp))
-            OrderInfoRow(Icons.Default.Store,order.shop.ifBlank{order.customer}){infoPopup="SHOP" to order.shop.ifBlank{order.customer}}
-            OrderInfoRow(Icons.Default.Person,"${order.customer} - ${order.phone}",onClick={onCustomerClick(order)})
-            OrderInfoRow(Icons.Default.LocationOn,order.address){infoPopup="ĐỊA CHỈ" to order.address}
-            OrderInfoRow(Icons.Default.Inventory2,order.item){infoPopup="HÀNG HÓA" to order.item}
             Spacer(Modifier.height(5.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){order.tags.forEach{Tag(it)}}
+            group.orders.forEach { o ->
+                Row(Modifier.fillMaxWidth().padding(vertical=2.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Text(o.code,Modifier.weight(1f),color=Navy,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
+                    Text(o.amount,color=MoneyGreen,fontSize=12.sp)
+                }
+            }
+            OrderInfoRow(Icons.Default.Person,"${customer?.name ?: primary.customer} - ${customer?.phone ?: primary.phone}",onClick=onCustomerClick)
+            OrderInfoRow(Icons.Default.LocationOn,customer?.address?.takeIf(String::isNotBlank) ?: primary.address)
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
-                ActionButton("Đã giao",Icons.Default.CheckCircle,filled=true)
-                ActionButton("Bank",Icons.Default.AccountBalance)
-                ActionButton("Zalo",Icons.Default.Chat)
-                ActionButton("SMS",Icons.Default.Sms)
-                ActionButton("Gọi",Icons.Default.Call)
+            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                ActionButton("Đã giao",Icons.Default.CheckCircle,filled=true,onClick=onDelivered)
+                ActionButton("Bank",Icons.Default.AccountBalance,onClick={})
+                ActionButton("Zalo",Icons.Default.Chat,onClick={
+                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://zalo.me/$phone"))) }
+                })
+                ActionButton("SMS",Icons.Default.Sms,onClick={
+                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO,android.net.Uri.parse("smsto:$phone"))) }
+                })
+                ActionButton("Gọi",Icons.Default.Call,onClick={
+                    if(phone.isNotBlank()) runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.parse("tel:$phone"))) }
+                })
             }
         }
-    }
-    infoPopup?.let{(title,value)->
-        AlertDialog(onDismissRequest={infoPopup=null},title={Text(title,fontWeight=FontWeight.Bold)},text={Text(value.ifBlank{"—"})},confirmButton={TextButton(onClick={infoPopup=null}){Text("ĐÓNG")}})
     }
 }
 
@@ -3473,6 +3513,23 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+
+    fun markDeliveredGroup(code: String) {
+        val base = orderState.firstOrNull { it.code == code } ?: return
+        val customer = findCustomerByPhone(base.phone)
+        if (customer == null) {
+            val i = orderState.indexOfFirst { it.code == code }
+            if (i >= 0) orderState[i] = orderState[i].copy(status = "Đã giao")
+        } else {
+            val keys = (listOf(customer.phone) + customer.extraPhones.map { it.number }).map(::normalizeCustomerPhone).filter(String::isNotBlank).toSet()
+            orderState.indices.forEach { i ->
+                if (normalizeCustomerPhone(orderState[i].phone) in keys) orderState[i] = orderState[i].copy(status = "Đã giao")
+            }
+        }
+        savePersistentData()
+    }
+
+
 
     fun reorderOrders(codes: List<String>) {
         val rank = codes.withIndex().associate { it.value to it.index }
