@@ -21,9 +21,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -358,6 +355,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -375,35 +373,20 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             topBar = { TopHeader(onSettingsClick = { screen = AppScreen.SETTINGS }) },
             bottomBar = { BottomTabs(selected = tab, onSelected = { tab = it }) }
         ) { padding ->
-            var swipeDx by remember { mutableFloatStateOf(0f) }
-            Box(
-                Modifier.fillMaxSize().padding(padding).background(Background)
-                    .draggable(
-                        orientation = Orientation.Horizontal,
-                        state = rememberDraggableState { delta -> swipeDx += delta },
-                        onDragStarted = { swipeDx = 0f },
-                        onDragStopped = {
-                            val tabs = listOf(Tab.MAP, Tab.ORDERS, Tab.CUSTOMERS)
-                            val i = tabs.indexOf(tab)
-                            if (swipeDx < -120f && i < tabs.lastIndex) tab = tabs[i + 1]
-                            if (swipeDx > 120f && i > 0) tab = tabs[i - 1]
-                            swipeDx = 0f
-                        }
-                    )
-            ) {
-                androidx.compose.animation.Crossfade(
-                    targetState = tab,
-                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 170),
-                    label = "main-tabs"
-                ) { activeTab ->
-                    when (activeTab) {
-                        Tab.MAP -> MapScreen(
-                            vm = vm,
-                            focusOrderCode = mapFocusOrderCode,
-                            onFocusConsumed = { mapFocusOrderCode = null },
-                            onOpenOrder = { code -> returnOrderCode = code; tab = Tab.ORDERS }
-                        )
-                        Tab.ORDERS -> OrderListScreen(
+            // MapScreen luôn được giữ trong composition để MapView không bị tạo lại khi đổi tab.
+            // Các tab khác chỉ phủ một lớp giao diện lên trên; vì vậy đổi tab không còn reload bản đồ.
+            Box(Modifier.fillMaxSize().padding(padding).background(Background)) {
+                MapScreen(
+                    vm = vm,
+                    focusOrderCode = mapFocusOrderCode,
+                    onFocusConsumed = { mapFocusOrderCode = null },
+                    onOpenOrder = { code -> returnOrderCode = code; tab = Tab.ORDERS }
+                )
+
+                when (tab) {
+                    Tab.MAP -> Unit
+                    Tab.ORDERS -> Box(Modifier.fillMaxSize().background(Background)) {
+                        OrderListScreen(
                             vm = vm,
                             focusOrderCode = returnOrderCode,
                             onFocusConsumed = { returnOrderCode = null },
@@ -431,7 +414,9 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                                 }
                             }
                         )
-                        Tab.CUSTOMERS -> CustomerListScreen(
+                    }
+                    Tab.CUSTOMERS -> Box(Modifier.fillMaxSize().background(Background)) {
+                        CustomerListScreen(
                             customers = vm.customers,
                             onCustomerClick = {
                                 returnOrderCode = null
@@ -471,6 +456,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1224,6 +1211,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2807,6 +2795,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
