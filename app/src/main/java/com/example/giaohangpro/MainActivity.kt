@@ -379,6 +379,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -479,6 +480,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1280,6 +1283,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2685,11 +2689,24 @@ fun OrderListScreen(
             }
         }
 
-        FloatingActionButton(
-            onClick = { showTools = true },
-            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp),
-            containerColor = Orange
-        ) { Icon(Icons.Default.Edit, "Công cụ đơn", tint = Color.White) }
+        val orderListScope = rememberCoroutineScope()
+        Column(
+            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FloatingActionButton(
+                onClick = { orderListScope.launch { listState.animateScrollToItem(0) } },
+                modifier = Modifier.size(44.dp),
+                containerColor = Color.White,
+                contentColor = Orange
+            ) { Icon(Icons.Default.KeyboardArrowUp, "Về đầu danh sách") }
+
+            FloatingActionButton(
+                onClick = { showTools = true },
+                modifier = Modifier.size(44.dp),
+                containerColor = Orange
+            ) { Icon(Icons.Default.Edit, "Công cụ đơn", tint = Color.White) }
+        }
 
         DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.align(Alignment.BottomStart)) {
             DropdownMenuItem(
@@ -3056,6 +3073,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
