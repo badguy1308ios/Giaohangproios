@@ -38,6 +38,7 @@ jobs:
           python3 tools/add_order_info_popup_20260913.py
           python3 tools/add_main_tab_swipe_20260913.py
           python3 tools/fix_customer_picker_focus_20260913.py
+          python3 tools/add_direct_stt_inline_edit_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
