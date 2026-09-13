@@ -45,6 +45,7 @@ jobs:
           python3 tools/restore_order_tab_features_20260913.py
           python3 tools/add_anchor_route_learning_20260913.py
           python3 tools/fix_anchor_settings_scope_20260913.py
+          python3 tools/fix_route_viewmodel_methods_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
