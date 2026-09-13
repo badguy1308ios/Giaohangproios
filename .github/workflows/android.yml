@@ -42,6 +42,7 @@ jobs:
           python3 tools/group_customer_orders_actions_20260913.py
           python3 tools/fix_grouped_actions_compile_20260913.py
           python3 tools/apply_approved_grouped_order_ui_20260913.py
+          python3 tools/restore_order_tab_features_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
