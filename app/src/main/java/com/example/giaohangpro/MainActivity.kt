@@ -326,6 +326,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -418,6 +419,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1136,6 +1139,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1255,69 +1259,133 @@ private fun openGoogleNavigation(context: android.content.Context, point: MapPoi
 @Composable
 fun MapScreen(vm: MainViewModel) {
     val context = LocalContext.current
-    var menu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf(vm.orders.map { it.code }) }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
-            val csv = buildString { append("STT,MVĐ\n"); vm.orders.forEachIndexed { i,o -> append("${i+1},${csvCell(o.code)}\n") } }
+            val csv = buildString {
+                append("STT,MVĐ\n")
+                vm.orders.forEachIndexed { i, o -> append("${i + 1},${csvCell(o.code)}\n") }
+            }
             context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(csv) }
-        }.onSuccess { Toast.makeText(context,"Đã xuất thứ tự ${vm.orders.size} MVĐ",Toast.LENGTH_SHORT).show() }
-         .onFailure { Toast.makeText(context,"Không xuất được STT",Toast.LENGTH_LONG).show() }
+        }.onSuccess {
+            Toast.makeText(context, "Đã xuất thứ tự ${vm.orders.size} MVĐ", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "Không xuất được STT", Toast.LENGTH_LONG).show()
+        }
     }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
-            val text=context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val codes=text.lineSequence().drop(1).mapNotNull { line -> line.substringAfter(',',"").trim().trim('"').takeIf(String::isNotBlank) }.toList()
+            val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val codes = text.lineSequence().drop(1).mapNotNull { line ->
+                line.substringAfter(',', "").trim().trim('"').takeIf(String::isNotBlank)
+            }.toList()
             vm.reorderOrders(codes)
-            Toast.makeText(context,"Đã nhập STT cho ${codes.size} MVĐ",Toast.LENGTH_SHORT).show()
-        }.onFailure { Toast.makeText(context,"Không đọc được file STT",Toast.LENGTH_LONG).show() }
-    }
-    Box(Modifier.fillMaxSize()) {
-        BaseMapScreen(vm.orders, vm.customers)
-        FloatingActionButton(
-            onClick = { if(editing) confirmSave=true else menu=true },
-            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(44.dp),
-            containerColor = Orange
-        ) { Icon(if(editing) Icons.Default.Save else Icons.Default.KeyboardArrowUp, if(editing) "Lưu tuyến" else "Công cụ tuyến", tint=Color.White) }
-        DropdownMenu(expanded=menu,onDismissRequest={menu=false},modifier=Modifier.align(Alignment.TopEnd)) {
-            DropdownMenuItem(text={Text("Tạo tuyến")},leadingIcon={Icon(Icons.Default.Route,null)},onClick={
-                menu=false
-                val sorted=vm.orders.sortedWith(compareBy<Order> { it.latitude.toDoubleOrNull() ?: 999.0 }.thenBy { it.longitude.toDoubleOrNull() ?: 999.0 }).map { it.code }
-                vm.reorderOrders(sorted); Toast.makeText(context,"Đã tạo tuyến theo vị trí",Toast.LENGTH_SHORT).show()
-            })
-            DropdownMenuItem(text={Text("Sửa tuyến")},leadingIcon={Icon(Icons.Default.Edit,null)},onClick={menu=false;draft=vm.orders.map{it.code};editing=true})
-            DropdownMenuItem(text={Text("Xuất STT")},leadingIcon={Icon(Icons.Default.FileDownload,null)},onClick={menu=false;exportLauncher.launch("giaohangpro_thu_tu_mvd.csv")})
-            DropdownMenuItem(text={Text("Nhập STT")},leadingIcon={Icon(Icons.Default.FileOpen,null)},onClick={menu=false;importLauncher.launch("text/*")})
+            Toast.makeText(context, "Đã nhập STT cho ${codes.size} MVĐ", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "Không đọc được file STT", Toast.LENGTH_LONG).show()
         }
     }
-    if(editing) Dialog(onDismissRequest={editing=false}) {
-        Card(Modifier.fillMaxWidth().heightIn(max=560.dp),colors=CardDefaults.cardColors(containerColor=Color.White)) {
+
+    BaseMapScreen(
+        orders = vm.orders,
+        customers = vm.customers,
+        onCreateRoute = {
+            val sorted = vm.orders.sortedWith(
+                compareBy<Order> { it.latitude.toDoubleOrNull() ?: 999.0 }
+                    .thenBy { it.longitude.toDoubleOrNull() ?: 999.0 }
+            ).map { it.code }
+            vm.reorderOrders(sorted)
+            Toast.makeText(context, "Đã tạo tuyến theo vị trí", Toast.LENGTH_SHORT).show()
+        },
+        onEditRoute = {
+            draft = vm.orders.map { it.code }
+            editing = true
+        },
+        onExportStt = { exportLauncher.launch("giaohangpro_thu_tu_mvd.csv") },
+        onImportStt = { importLauncher.launch("text/*") }
+    )
+
+    if (editing) Dialog(onDismissRequest = { editing = false }) {
+        Card(
+            Modifier.fillMaxWidth().heightIn(max = 560.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
             Column(Modifier.padding(10.dp)) {
-                Text("SỬA TUYẾN",fontWeight=FontWeight.Bold,fontSize=16.sp)
+                Text("SỬA TUYẾN", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(6.dp))
-                LazyColumn(Modifier.weight(1f,false)) {
+                LazyColumn(Modifier.weight(1f, false)) {
                     itemsIndexed(draft) { index, code ->
-                        Row(Modifier.fillMaxWidth().padding(vertical=3.dp),verticalAlignment=Alignment.CenterVertically) {
-                            Text("${index+1}.",Modifier.width(34.dp),fontWeight=FontWeight.Bold)
-                            Text(code,Modifier.weight(1f))
-                            IconButton(onClick={ if(index>0){ val m=draft.toMutableList(); val x=m[index-1];m[index-1]=m[index];m[index]=x;draft=m } }){Icon(Icons.Default.KeyboardArrowUp,"Lên")}
-                            IconButton(onClick={ if(index<draft.lastIndex){ val m=draft.toMutableList(); val x=m[index+1];m[index+1]=m[index];m[index]=x;draft=m } }){Icon(Icons.Default.KeyboardArrowDown,"Xuống")}
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${index + 1}.", Modifier.width(34.dp), fontWeight = FontWeight.Bold)
+                            Text(code, Modifier.weight(1f))
+                            IconButton(onClick = {
+                                if (index > 0) {
+                                    val m = draft.toMutableList()
+                                    val x = m[index - 1]
+                                    m[index - 1] = m[index]
+                                    m[index] = x
+                                    draft = m
+                                }
+                            }) { Icon(Icons.Default.KeyboardArrowUp, "Lên") }
+                            IconButton(onClick = {
+                                if (index < draft.lastIndex) {
+                                    val m = draft.toMutableList()
+                                    val x = m[index + 1]
+                                    m[index + 1] = m[index]
+                                    m[index] = x
+                                    draft = m
+                                }
+                            }) { Icon(Icons.Default.KeyboardArrowDown, "Xuống") }
                         }
                     }
                 }
-                Text("Bấm nút Lưu ở góc phải để lưu tuyến.",fontSize=11.sp,color=TextGray)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { editing = false }) { Text("HỦY") }
+                    Spacer(Modifier.width(6.dp))
+                    Button(onClick = { confirmSave = true }) {
+                        Icon(Icons.Default.Save, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("LƯU")
+                    }
+                }
             }
         }
     }
-    if(confirmSave) AlertDialog(onDismissRequest={confirmSave=false},title={Text("Lưu tuyến")},text={Text("Xác nhận lưu thứ tự tuyến hiện tại?")},confirmButton={TextButton(onClick={vm.reorderOrders(draft);confirmSave=false;editing=false}){Text("LƯU")}},dismissButton={TextButton(onClick={confirmSave=false}){Text("HỦY")}})
+
+    if (confirmSave) AlertDialog(
+        onDismissRequest = { confirmSave = false },
+        title = { Text("Lưu tuyến") },
+        text = { Text("Xác nhận lưu thứ tự tuyến hiện tại?") },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.reorderOrders(draft)
+                confirmSave = false
+                editing = false
+            }) { Text("LƯU") }
+        },
+        dismissButton = { TextButton(onClick = { confirmSave = false }) { Text("HỦY") } }
+    )
 }
 
 @Composable
-private fun BaseMapScreen(orders: List<Order>, customers: List<Customer>) {
+private fun BaseMapScreen(
+    orders: List<Order>,
+    customers: List<Customer>,
+    onCreateRoute: () -> Unit,
+    onEditRoute: () -> Unit,
+    onExportStt: () -> Unit,
+    onImportStt: () -> Unit
+) {
     val context = LocalContext.current
     val driverLocation by rememberDriverLocation()
     var selectedMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
@@ -1360,7 +1428,11 @@ private fun BaseMapScreen(orders: List<Order>, customers: List<Customer>) {
                         } else {
                             Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
                         }
-                    }
+                    },
+                    onCreateRoute = onCreateRoute,
+                    onEditRoute = onEditRoute,
+                    onExportStt = onExportStt,
+                    onImportStt = onImportStt
                 )
             }
         }
@@ -1373,8 +1445,13 @@ private fun BoxScope.MapOrderBottomSheet(
     orders: List<MapOrderMarker>, // Danh sách đơn đã gắn số thứ tự marker.
     selectedNumber: Int?, // Số thứ tự đang được chọn để tô nổi dòng tương ứng.
     onOrderClick: (MapOrderMarker) -> Unit, // Bấm dòng để focus marker trên bản đồ.
-    onNavigate: (MapOrderMarker) -> Unit // Bấm biểu tượng dẫn đường để mở Google Maps.
+    onNavigate: (MapOrderMarker) -> Unit, // Bấm biểu tượng dẫn đường để mở Google Maps.
+    onCreateRoute: () -> Unit,
+    onEditRoute: () -> Unit,
+    onExportStt: () -> Unit,
+    onImportStt: () -> Unit
 ) {
+    var routeMenuExpanded by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1415,7 +1492,44 @@ private fun BoxScope.MapOrderBottomSheet(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Thu gọn danh sách", tint = Orange, modifier = Modifier.size(26.dp))
+                Box {
+                    IconButton(
+                        onClick = { routeMenuExpanded = true },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Công cụ tuyến",
+                            tint = Orange,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = routeMenuExpanded,
+                        onDismissRequest = { routeMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Tạo tuyến") },
+                            leadingIcon = { Icon(Icons.Default.Route, null) },
+                            onClick = { routeMenuExpanded = false; onCreateRoute() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Sửa tuyến") },
+                            leadingIcon = { Icon(Icons.Default.Edit, null) },
+                            onClick = { routeMenuExpanded = false; onEditRoute() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Xuất STT") },
+                            leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                            onClick = { routeMenuExpanded = false; onExportStt() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Nhập STT") },
+                            leadingIcon = { Icon(Icons.Default.FileOpen, null) },
+                            onClick = { routeMenuExpanded = false; onImportStt() }
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(10.dp))
