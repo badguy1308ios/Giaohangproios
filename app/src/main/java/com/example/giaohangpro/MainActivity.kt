@@ -371,6 +371,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -471,6 +472,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1359,6 +1362,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1695,6 +1699,7 @@ private fun BaseMapScreen(
     onOpenOrder: (String) -> Unit,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
+    onClearRoute: () -> Unit,
     onSaveRoute: () -> Unit,
     onEditStt: (MapOrderMarker, Boolean) -> Unit,
     editingCode: String?,
@@ -1862,6 +1867,11 @@ private fun BoxScope.MapOrderBottomSheet(
                                 text = { Text("Sửa STT") },
                                 leadingIcon = { Icon(Icons.Default.Edit, null) },
                                 onClick = { routeMenuExpanded = false; onEditRoute() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Xóa STT") },
+                                leadingIcon = { Icon(Icons.Default.DeleteSweep, null) },
+                                onClick = { routeMenuExpanded = false; onClearRoute() }
                             )
                             DropdownMenuItem(
                                 text = { Text("Xuất STT") },
@@ -3033,6 +3043,7 @@ fun RowScope.ActionButton(
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
+            .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
             .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
@@ -3975,6 +3986,11 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     fun enableRouteNumbering() {
         routeNumberingEnabled = true
         prefs.edit().putBoolean("route_numbering_enabled_v1", true).apply()
+    }
+
+    fun clearRouteNumbering() {
+        routeNumberingEnabled = false
+        prefs.edit().putBoolean("route_numbering_enabled_v1", false).apply()
     }
 
     fun learnRoutePattern(points: List<MapPoint>) {
