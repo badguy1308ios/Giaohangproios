@@ -123,7 +123,14 @@ private fun CustomerCoordinateMapPicker(
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = Background) {
+        // Dialog tạo cửa sổ riêng nên phải tự chừa vùng status/navigation bar.
+        // Quy tắc này giữ mọi nút trong màn hình picker nằm giữa thanh thông báo và thanh điều hướng.
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+            color = Background
+        ) {
             Column(Modifier.fillMaxSize()) {
                 CustomerPageHeader(title = "CHỌN TỌA ĐỘ TRÊN BẢN ĐỒ", onBack = onDismiss)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -215,19 +222,19 @@ private fun CustomerCoordinateMapPicker(
                 }
 
                 Row(
-                    Modifier.fillMaxWidth().background(Color.White).padding(16.dp),
+                    Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f).height(56.dp)
+                        modifier = Modifier.weight(1f).height(52.dp)
                     ) {
                         Text("HỦY", fontWeight = FontWeight.Bold)
                     }
                     Button(
                         onClick = { selectedPoint?.let(onSavePoint) },
                         enabled = selectedPoint != null,
-                        modifier = Modifier.weight(1f).height(56.dp),
+                        modifier = Modifier.weight(1f).height(52.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Blue)
                     ) {
                         Text("LƯU", fontWeight = FontWeight.Bold)
@@ -253,4 +260,4 @@ for start, end in reversed(function_spans(s, 'CoordinatePickerMap')):
     s = s[:start] + s[end:]
 
 p.write_text(s)
-print('customer coordinate picker finalized: one implementation, one-shot customer/GPS focus, no overlapping old map helper')
+print('customer coordinate picker finalized: one implementation, one-shot focus, safe system insets')
