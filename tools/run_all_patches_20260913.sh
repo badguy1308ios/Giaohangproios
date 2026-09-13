@@ -32,3 +32,4 @@ python3 tools/fix_anchor_settings_scope_20260913.py
 python3 tools/fix_route_viewmodel_methods_20260913.py
 python3 tools/keep_map_alive_remove_tab_swipe_20260913.py
 python3 tools/final_customer_picker_focus_20260913.py
+python3 tools/final_order_edit_and_waiting_circle_20260913.py
