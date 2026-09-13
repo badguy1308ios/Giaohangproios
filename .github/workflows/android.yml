@@ -47,6 +47,7 @@ jobs:
           python3 tools/fix_anchor_settings_scope_20260913.py
           python3 tools/fix_route_viewmodel_methods_20260913.py
           python3 tools/keep_map_alive_remove_tab_swipe_20260913.py
+          python3 tools/final_customer_picker_focus_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
