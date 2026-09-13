@@ -34,6 +34,10 @@ jobs:
           python3 tools/fix_order_csv_compile_20260912.py
           python3 tools/move_route_menu_to_sheet_arrow_20260913.py
           python3 tools/improve_map_stt_edit_focus_20260913.py
+          python3 tools/add_cross_tab_order_map_nav_20260913.py
+          python3 tools/add_order_info_popup_20260913.py
+          python3 tools/add_main_tab_swipe_20260913.py
+          python3 tools/fix_customer_picker_focus_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
