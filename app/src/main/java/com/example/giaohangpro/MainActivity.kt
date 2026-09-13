@@ -343,6 +343,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -456,6 +457,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1212,6 +1215,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1387,6 +1391,26 @@ fun MapScreen(
     var draft by remember(activeGroups.map { it.key }) { mutableStateOf(activeGroups.map { it.key }) }
     var editMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
     var editNumberText by remember { mutableStateOf("") }
+    var editOnMap by remember { mutableStateOf(false) }
+
+    fun commitGroupedDirectStt() {
+        val marker = editMarker ?: return
+        val maxStt = draft.size.coerceAtLeast(1)
+        val target = editNumberText.toIntOrNull()?.coerceIn(1, maxStt) ?: return
+        val groupKey = activeGroups.firstOrNull { g -> g.orders.any { it.code == marker.order.code } }?.key ?: return
+        val current = draft.indexOf(groupKey)
+        if (current >= 0) {
+            val next = draft.toMutableList()
+            val moving = next.removeAt(current)
+            next.add((target - 1).coerceIn(0, next.size), moving)
+            draft = next
+            val byKey = activeGroups.associateBy { it.key }
+            vm.reorderOrders(next.mapNotNull(byKey::get).flatMap { it.orders.map(Order::code) })
+        }
+        editMarker = null
+        editNumberText = ""
+        editOnMap = false
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -1436,18 +1460,34 @@ fun MapScreen(
             editing = true
             Toast.makeText(context, "Chạm STT để nhập số mới trực tiếp", Toast.LENGTH_SHORT).show()
         },
-        onSaveRoute = { confirmSave = true },
-        onEditStt = { marker ->
+        onSaveRoute = {
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
+            editing = false
+        },
+        onEditStt = { marker, fromMap ->
             if (editing) {
                 editMarker = marker
                 editNumberText = marker.number.toString()
+                editOnMap = fromMap
             }
+        },
+        editingCode = editMarker?.order?.code,
+        editingNumberText = editNumberText,
+        editingOnMap = editOnMap,
+        onEditingNumberChange = { editNumberText = it.filter(Char::isDigit).take(4) },
+        onCommitEdit = { commitGroupedDirectStt() },
+        onCancelEdit = {
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
         },
         onExportStt = { exportLauncher.launch("giaohangpro_thu_tu_mvd.csv") },
         onImportStt = { importLauncher.launch("text/*") }
     )
 
-    editMarker?.let { marker ->
+    if (false) editMarker?.let { marker ->
         val maxStt = draft.size.coerceAtLeast(1)
         AlertDialog(
             onDismissRequest = { editMarker = null },
@@ -2310,13 +2350,15 @@ fun Tag(text: String) {
 fun RowScope.ActionButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    filled: Boolean = false
+    filled: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
     Box(
         Modifier
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
             .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
