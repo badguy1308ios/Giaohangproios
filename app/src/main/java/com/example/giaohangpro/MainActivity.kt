@@ -347,6 +347,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -460,6 +461,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1152,6 +1155,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2482,6 +2486,7 @@ fun RowScope.ActionButton(
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
+            .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
             .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
@@ -3678,6 +3683,26 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+
+    fun markDeliveredGroup(code: String) {
+        val base = orderState.firstOrNull { it.code == code } ?: return
+        val customer = findCustomerByPhone(base.phone)
+        if (customer == null) {
+            val i = orderState.indexOfFirst { it.code == code }
+            if (i >= 0) orderState[i] = orderState[i].copy(status = "Đã giao")
+        } else {
+            val customerPhones = (listOf(customer.phone) + customer.extraPhones.map { it.number })
+                .map(::normalizeCustomerPhone)
+                .filter(String::isNotBlank)
+                .toSet()
+            orderState.indices.forEach { i ->
+                if (normalizeCustomerPhone(orderState[i].phone) in customerPhones) {
+                    orderState[i] = orderState[i].copy(status = "Đã giao")
+                }
+            }
+        }
+        savePersistentData()
+    }
 
     fun reorderOrders(codes: List<String>) {
         val rank = codes.withIndex().associate { it.value to it.index }
