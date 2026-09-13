@@ -372,6 +372,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -472,6 +473,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1363,6 +1366,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1644,6 +1648,14 @@ fun MapScreen(
             editing = true
             Toast.makeText(context, "Chạm STT để nhập số mới trực tiếp", Toast.LENGTH_SHORT).show()
         },
+        onClearRoute = {
+            vm.clearRouteNumbering()
+            editing = false
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
+            Toast.makeText(context, "Đã xóa toàn bộ STT", Toast.LENGTH_SHORT).show()
+        },
         onSaveRoute = {
             val learnedPoints = draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key }?.let(::deliveryGroupPoint) }
             vm.learnRoutePattern(learnedPoints)
@@ -1782,6 +1794,7 @@ private fun BaseMapScreen(
                     },
                     onCreateRoute = onCreateRoute,
                     onEditRoute = onEditRoute,
+                    onClearRoute = onClearRoute,
                     onSaveRoute = onSaveRoute,
                     onExportStt = onExportStt,
                     onImportStt = onImportStt
@@ -1808,6 +1821,7 @@ private fun BoxScope.MapOrderBottomSheet(
     onNavigate: (MapOrderMarker) -> Unit,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
+    onClearRoute: () -> Unit,
     onSaveRoute: () -> Unit,
     onExportStt: () -> Unit,
     onImportStt: () -> Unit
@@ -3012,6 +3026,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
