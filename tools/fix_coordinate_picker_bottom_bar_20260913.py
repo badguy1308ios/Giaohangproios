@@ -21,7 +21,7 @@ old_row = '''                Row(
                     Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {'''
-new_row = '''                Row(
+old_row_previous = '''                Row(
                     Modifier
                         .fillMaxWidth()
                         .background(Color.White)
@@ -29,9 +29,19 @@ new_row = '''                Row(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {'''
-if old_row not in s:
+new_row = '''                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color.White)
+                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 58.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {'''
+if old_row in s:
+    s = s.replace(old_row, new_row, 1)
+elif old_row_previous in s:
+    s = s.replace(old_row_previous, new_row, 1)
+elif new_row not in s:
     raise SystemExit('coordinate picker action row anchor not found')
-s = s.replace(old_row, new_row, 1)
 
 p.write_text(s)
-print('coordinate picker bottom actions kept above navigation bar')
+print('coordinate picker HUY/LUU moved 58dp above system navigation')
