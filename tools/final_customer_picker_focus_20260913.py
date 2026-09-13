@@ -1,12 +1,59 @@
 from pathlib import Path
+import re
 
 p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
 s = p.read_text()
 
-start = s.index('@Composable\nprivate fun CustomerCoordinateMapPicker(')
-end = s.index('\n// ================================================================\n// 6. TAB CHI TIẾT ĐƠN', start)
 
-new = r'''@Composable
+def function_spans(text: str, name: str):
+    pattern = re.compile(r'@Composable\s+private fun\s+' + re.escape(name) + r'\s*\(')
+    spans = []
+    for match in list(pattern.finditer(text)):
+        brace = text.find('{', match.end())
+        if brace < 0:
+            continue
+        depth = 0
+        i = brace
+        in_string = False
+        triple = False
+        escaped = False
+        while i < len(text):
+            if triple:
+                if text.startswith('"""', i):
+                    triple = False
+                    i += 3
+                    continue
+                i += 1
+                continue
+            if in_string:
+                c = text[i]
+                if escaped:
+                    escaped = False
+                elif c == '\\':
+                    escaped = True
+                elif c == '"':
+                    in_string = False
+                i += 1
+                continue
+            if text.startswith('"""', i):
+                triple = True
+                i += 3
+                continue
+            c = text[i]
+            if c == '"':
+                in_string = True
+            elif c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    spans.append((match.start(), i + 1))
+                    break
+            i += 1
+    return spans
+
+
+canonical = r'''@Composable
 private fun CustomerCoordinateMapPicker(
     initialPoint: MapPoint?,
     focusUserLocation: Boolean = true,
@@ -17,13 +64,14 @@ private fun CustomerCoordinateMapPicker(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val driverLocation by rememberDriverLocation()
 
-    // Quy tắc focus duy nhất:
-    // 1) Khách đã có tọa độ thật -> focus đúng tọa độ khách MỘT LẦN khi mở.
-    // 2) Khách chưa có tọa độ -> khi GPS có dữ liệu, focus GPS MỘT LẦN khi mở.
-    // Sau lần focus đầu tiên, GPS cập nhật tiếp cũng KHÔNG được kéo bản đồ đi nữa.
+    // Hai quy tắc độc lập, không được chồng lên nhau:
+    // - Có tọa độ thật của khách: focus tọa độ khách đúng 1 lần khi mở.
+    // - Chưa có tọa độ thật: lấy GPS người dùng đúng 1 lần đầu khi GPS sẵn sàng.
+    // Sau lần focus đầu tiên, các bản tin GPS tiếp theo chỉ là dữ liệu vị trí,
+    // tuyệt đối không tự kéo camera và không ghi đè điểm khách đã chọn.
     var selectedPoint by remember(initialPoint) { mutableStateOf(initialPoint) }
     var initialFocusDone by remember(initialPoint, focusUserLocation) {
-        mutableStateOf(initialPoint != null || !focusUserLocation)
+        mutableStateOf(!focusUserLocation && initialPoint == null)
     }
 
     val mapView = remember(context) {
@@ -50,8 +98,7 @@ private fun CustomerCoordinateMapPicker(
         }
     }
 
-    // Chỉ dành cho khách CHƯA có tọa độ thật. Khi GPS trả dữ liệu lần đầu,
-    // lấy đó làm điểm đang chọn + focus đúng một lần rồi khóa auto-focus.
+    // Chỉ chạy cho trường hợp khách CHƯA có tọa độ và GPS chưa sẵn sàng lúc style vừa mở.
     LaunchedEffect(driverLocation, map, styleReady, initialPoint, focusUserLocation, initialFocusDone) {
         if (initialPoint == null && focusUserLocation && !initialFocusDone) {
             val gps = driverLocation ?: return@LaunchedEffect
@@ -89,13 +136,34 @@ private fun CustomerCoordinateMapPicker(
                                         map = readyMap
                                         styleReady = true
 
-                                        // Tọa độ thật của khách luôn thắng GPS.
-                                        // Chỉ set camera ở đây đúng lần khởi tạo style.
-                                        val startPoint = initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT
-                                        readyMap.cameraPosition = CameraPosition.Builder()
-                                            .target(LatLng(startPoint.latitude, startPoint.longitude))
-                                            .zoom(if (initialPoint != null) 16.0 else 15.0)
-                                            .build()
+                                        when {
+                                            initialPoint != null -> {
+                                                // Mệnh đề 1: tọa độ thật của khách luôn thắng GPS.
+                                                selectedPoint = initialPoint
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(initialPoint.latitude, initialPoint.longitude))
+                                                    .zoom(16.0)
+                                                    .build()
+                                                initialFocusDone = true
+                                            }
+                                            focusUserLocation && driverLocation != null -> {
+                                                // Mệnh đề 2: nếu GPS đã có ngay lúc mở, dùng đúng lần này rồi khóa auto-focus.
+                                                val gps = driverLocation!!
+                                                selectedPoint = gps
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(gps.latitude, gps.longitude))
+                                                    .zoom(16.0)
+                                                    .build()
+                                                initialFocusDone = true
+                                            }
+                                            else -> {
+                                                // Chờ GPS đầu tiên; không tự coi điểm mặc định là tọa độ khách.
+                                                readyMap.cameraPosition = CameraPosition.Builder()
+                                                    .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
+                                                    .zoom(15.0)
+                                                    .build()
+                                            }
+                                        }
 
                                         selectedPoint?.let { point ->
                                             readyMap.clear()
@@ -105,9 +173,6 @@ private fun CustomerCoordinateMapPicker(
                                                     .title("Vị trí đang chọn")
                                             )
                                         }
-
-                                        // Nếu đã có tọa độ thật, lần focus đầu đã hoàn tất ngay khi mở.
-                                        if (initialPoint != null) initialFocusDone = true
 
                                         readyMap.addOnMapClickListener { tapped ->
                                             selectedPoint = MapPoint(tapped.latitude, tapped.longitude)
@@ -171,9 +236,21 @@ private fun CustomerCoordinateMapPicker(
             }
         }
     }
-}
-'''
+}'''
 
-s = s[:start] + new + s[end:]
+# Gom toàn bộ implementation CustomerCoordinateMapPicker về đúng MỘT hàm canonical.
+spans = function_spans(s, 'CustomerCoordinateMapPicker')
+if not spans:
+    raise SystemExit('CustomerCoordinateMapPicker not found')
+first_start, first_end = spans[0]
+s = s[:first_start] + canonical + s[first_end:]
+for start, end in reversed(function_spans(s, 'CustomerCoordinateMapPicker')[1:]):
+    s = s[:start] + s[end:]
+
+# CoordinatePickerMap là implementation cũ gây logic focus GPS chồng chéo.
+# Sau khi picker canonical tự quản MapView, helper cũ không còn được dùng và được xóa sạch.
+for start, end in reversed(function_spans(s, 'CoordinatePickerMap')):
+    s = s[:start] + s[end:]
+
 p.write_text(s)
-print('final customer coordinate picker focus behavior applied')
+print('customer coordinate picker finalized: one implementation, one-shot customer/GPS focus, no overlapping old map helper')
