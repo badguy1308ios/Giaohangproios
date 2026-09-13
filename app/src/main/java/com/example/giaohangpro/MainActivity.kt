@@ -351,6 +351,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -517,6 +518,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -595,6 +598,11 @@ fun TopHeader(onSettingsClick: () -> Unit = {}) {
 @Composable
 private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtmanExport: () -> Unit, onCustomerBackup: () -> Unit) {
     val context = LocalContext.current
+    val routePrefs = remember { context.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE) }
+    var showRouteSettings by remember { mutableStateOf(false) }
+    var showAnchorPicker by remember { mutableStateOf(false) }
+    var anchorLat by remember { mutableStateOf(routePrefs.getString("route_anchor_lat_v1", "").orEmpty()) }
+    var anchorLng by remember { mutableStateOf(routePrefs.getString("route_anchor_lng_v1", "").orEmpty()) }
     Scaffold(
         topBar = {
             Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(OrangeDark, Orange))).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -612,7 +620,7 @@ private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtma
             SettingsSection("VẬN HÀNH") {
                 SettingsItem(Icons.Default.Inventory2, "XỬ LÝ ĐƠN") { Toast.makeText(context,"Xử lý đơn",Toast.LENGTH_SHORT).show() }
                 SettingsDivider()
-                SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { Toast.makeText(context,"Tuyến giao hàng",Toast.LENGTH_SHORT).show() }
+                SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { showRouteSettings = true }
             }
             SettingsSection("TÀI CHÍNH") {
                 SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
@@ -1137,6 +1145,40 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
             Text("• SĐT trùng → cập nhật/gộp vào khách hiện có.\n• Tên hoặc biệt danh mới → thêm vào tên phụ.\n• SĐT mới → thêm SĐT phụ.\n• Địa chỉ mới → thêm địa chỉ phụ.\n• Địa chỉ đã có nhưng thiếu tọa độ → bổ sung tọa độ.\n• Ảnh cổng trong ZIP → lưu vào đúng địa chỉ tương ứng.\n• Không tự xóa dữ liệu đang có.", color = TextGray, fontSize = 12.sp)
         }
     }
+
+
+    if (showRouteSettings) {
+        AlertDialog(
+            onDismissRequest = { showRouteSettings = false },
+            title = { Text("Tuyến giao hàng") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (anchorLat.isBlank() || anchorLng.isBlank()) "Chưa có Điểm Neo" else "Điểm Neo: $anchorLat, $anchorLng", color = TextGray, fontSize = 12.sp)
+                    Button(onClick = { showRouteSettings = false; showAnchorPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Place, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("ĐIỂM NEO")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showRouteSettings = false }) { Text("ĐÓNG") } }
+        )
+    }
+
+    if (showAnchorPicker) {
+        CustomerCoordinateMapPicker(
+            initialPoint = pointFromStrings(anchorLat, anchorLng),
+            focusUserLocation = true,
+            onDismiss = { showAnchorPicker = false },
+            onSavePoint = { point ->
+                anchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
+                anchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
+                routePrefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
+                showAnchorPicker = false
+                Toast.makeText(context, "Đã lưu Điểm Neo", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 }
 
 @Composable
@@ -1164,6 +1206,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -1352,6 +1395,26 @@ private fun uiNormPhone(raw: String): String {
 
 private data class DeliveryGroup(val key: String, val customer: Customer?, val orders: List<Order>)
 
+private fun deliveryGroupPoint(group: DeliveryGroup): MapPoint? {
+    group.orders.firstNotNullOfOrNull { pointFromStrings(it.latitude, it.longitude) }?.let { return it }
+    val c = group.customer ?: return null
+    pointFromStrings(c.latitude, c.longitude)?.let { return it }
+    c.extraAddresses.firstNotNullOfOrNull { pointFromStrings(it.latitude, it.longitude) }?.let { return it }
+    return null
+}
+
+private fun deliveryGroupHasCoordinate(group: DeliveryGroup): Boolean = deliveryGroupPoint(group) != null
+
+private fun straightDistanceMeters(a: MapPoint, b: MapPoint): Double {
+    val r = 6371000.0
+    val p1 = Math.toRadians(a.latitude)
+    val p2 = Math.toRadians(b.latitude)
+    val dp = Math.toRadians(b.latitude - a.latitude)
+    val dl = Math.toRadians(b.longitude - a.longitude)
+    val h = kotlin.math.sin(dp / 2) * kotlin.math.sin(dp / 2) + kotlin.math.cos(p1) * kotlin.math.cos(p2) * kotlin.math.sin(dl / 2) * kotlin.math.sin(dl / 2)
+    return r * 2 * kotlin.math.atan2(kotlin.math.sqrt(h), kotlin.math.sqrt(1 - h))
+}
+
 private fun buildDeliveryGroups(orders: List<Order>, customers: List<Customer>): List<DeliveryGroup> {
     val customerByPhone = mutableMapOf<String, Customer>()
     customers.forEach { c ->
@@ -1475,17 +1538,29 @@ fun MapScreen(
     BaseMapScreen(
         orders = displayOrders,
         customers = vm.customers,
+        anchorPoint = vm.routeAnchorPoint(),
+        routeNumberingEnabled = vm.routeNumberingEnabled,
         editingStt = editing,
         focusOrderCode = focusOrderCode,
         onFocusConsumed = onFocusConsumed,
         onOpenOrder = onOpenOrder,
         onCreateRoute = {
-            val sortedGroups = activeGroups.sortedWith(compareBy<DeliveryGroup> {
-                val r = groupRepresentative(it); r.latitude.toDoubleOrNull() ?: 999.0
-            }.thenBy {
-                val r = groupRepresentative(it); r.longitude.toDoubleOrNull() ?: 999.0
-            })
+            val located = activeGroups.filter { deliveryGroupPoint(it) != null }.toMutableList()
+            val pending = activeGroups.filter { deliveryGroupPoint(it) == null }
+            val sortedGroups = mutableListOf<DeliveryGroup>()
+            var current = vm.routeAnchorPoint() ?: located.firstOrNull()?.let(::deliveryGroupPoint) ?: DEFAULT_MAP_POINT
+            while (located.isNotEmpty()) {
+                val next = located.minByOrNull { g ->
+                    val p = deliveryGroupPoint(g) ?: return@minByOrNull Double.MAX_VALUE
+                    straightDistanceMeters(current, p) - vm.learnedRouteWeight(current, p) * 60.0
+                } ?: break
+                sortedGroups += next
+                current = deliveryGroupPoint(next) ?: current
+                located.remove(next)
+            }
+            sortedGroups += pending
             vm.reorderOrders(sortedGroups.flatMap { it.orders.map(Order::code) })
+            vm.enableRouteNumbering()
             Toast.makeText(context, "Đã tạo tuyến theo ${sortedGroups.size} điểm giao", Toast.LENGTH_SHORT).show()
         },
         onEditRoute = {
@@ -1494,6 +1569,8 @@ fun MapScreen(
             Toast.makeText(context, "Chạm STT để nhập số mới trực tiếp", Toast.LENGTH_SHORT).show()
         },
         onSaveRoute = {
+            val learnedPoints = draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key }?.let(::deliveryGroupPoint) }
+            vm.learnRoutePattern(learnedPoints)
             editMarker = null
             editNumberText = ""
             editOnMap = false
@@ -1556,6 +1633,8 @@ fun MapScreen(
 private fun BaseMapScreen(
     orders: List<Order>,
     customers: List<Customer>,
+    anchorPoint: MapPoint?,
+    routeNumberingEnabled: Boolean,
     editingStt: Boolean,
     focusOrderCode: String?,
     onFocusConsumed: () -> Unit,
@@ -1578,7 +1657,7 @@ private fun BaseMapScreen(
     var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
 
-    val mappedOrders = remember(orders, customers, driverLocation) {
+    val mappedOrders = remember(orders, customers, driverLocation, anchorPoint, routeNumberingEnabled) {
         orders.mapIndexed { index, order ->
             val orderPoint = pointFromStrings(order.latitude, order.longitude)
             val customerPoint = customers.firstOrNull {
@@ -1587,8 +1666,8 @@ private fun BaseMapScreen(
                     it.address.equals(order.address, ignoreCase = true)
             }?.let { pointFromStrings(it.latitude, it.longitude) }
             val realPoint = orderPoint ?: customerPoint
-            val displayPoint = realPoint ?: driverLocation ?: DEFAULT_MAP_POINT
-            MapOrderMarker(order, displayPoint, index + 1, realPoint != null)
+            val displayPoint = realPoint ?: anchorPoint ?: driverLocation ?: DEFAULT_MAP_POINT
+            MapOrderMarker(order, displayPoint, index + 1, realPoint != null, routeNumberingEnabled && realPoint != null)
         }
     }
     val selectedMarker = mappedOrders.firstOrNull { it.order.code == selectedOrderCode }
@@ -1832,7 +1911,7 @@ private fun MapOrderListRow(
                         .clickable { onNumberClick() },
                     contentAlignment = Alignment.Center
                 ) {
-                    NumberCircle(marker.number, selected = selected || editingStt)
+                    RouteStateCircle(if (marker.showNumber) marker.number else null, marker.hasRealCoordinate, selected || editingStt)
                 }
             }
             Spacer(Modifier.width(4.dp))
@@ -1863,9 +1942,11 @@ private fun MapOrderListRow(
 
 // Tạo Drawable marker kiểu bong bóng bằng Canvas Android để OSMDroid có thể hiển thị số thứ tự ở giữa.
 private fun createNumberBubbleDrawable(
-    context: android.content.Context, // Context dùng để lấy density màn hình.
-    number: Int, // Số thứ tự sẽ được vẽ trong bong bóng.
-    isPending: Boolean // true = đơn chưa có tọa độ thật, dùng màu xám để phân biệt với điểm giao thật.
+    context: android.content.Context,
+    number: Int,
+    isPending: Boolean,
+    showNumber: Boolean = true,
+    selected: Boolean = false
 ): android.graphics.drawable.Drawable {
     val density = context.resources.displayMetrics.density // Quy đổi dp sang pixel.
     val width = (34 * density).toInt() // Chiều rộng bong bóng.
@@ -1873,7 +1954,11 @@ private fun createNumberBubbleDrawable(
     val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888) // Tạo vùng ảnh trong suốt.
     val canvas = android.graphics.Canvas(bitmap) // Canvas Android để tự vẽ marker.
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG) // Bật khử răng cưa cho hình tròn/chữ.
-    val bubbleColor = if (isPending) android.graphics.Color.rgb(117, 132, 153) else android.graphics.Color.rgb(227, 75, 10) // Xám = chờ tọa độ, cam = tọa độ thật.
+    val bubbleColor = when {
+        selected -> android.graphics.Color.rgb(22, 141, 226)
+        isPending -> android.graphics.Color.rgb(117, 132, 153)
+        else -> android.graphics.Color.rgb(227, 75, 10)
+    }
     paint.color = bubbleColor // Áp dụng màu nền bong bóng.
 
     val bodyBottom = (32 * density) // Đáy phần thân trước mũi nhọn.
@@ -1894,7 +1979,7 @@ private fun createNumberBubbleDrawable(
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD // Chữ đậm.
     paint.textAlign = android.graphics.Paint.Align.CENTER // Căn giữa theo chiều ngang.
     val textY = bodyBottom / 2f - (paint.ascent() + paint.descent()) / 2f // Căn giữa theo chiều dọc.
-    canvas.drawText(number.toString(), width / 2f, textY, paint) // Vẽ số thứ tự vào giữa bong bóng.
+    if (showNumber) canvas.drawText(number.toString(), width / 2f, textY, paint)
 
     return android.graphics.drawable.BitmapDrawable(context.resources, bitmap) // Trả về Drawable cho OSMDroid Marker.icon.
 }
@@ -1931,7 +2016,8 @@ data class MapOrderMarker(
     val order: Order,
     val point: MapPoint,
     val number: Int,
-    val hasRealCoordinate: Boolean
+    val hasRealCoordinate: Boolean,
+    val showNumber: Boolean = true
 )
 
 private fun goongStyle(context: android.content.Context): String =
@@ -2095,7 +2181,7 @@ private fun GoongOrderMap(
             val drawOrders = if (selectedOrderNumber == null) orders else orders.sortedBy { it.number == selectedOrderNumber }
             drawOrders.forEach { markerData ->
                 val order = markerData.order
-                val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate) as android.graphics.drawable.BitmapDrawable).bitmap
+                val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate, markerData.showNumber, markerData.number == selectedOrderNumber) as android.graphics.drawable.BitmapDrawable).bitmap
                 val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
                 readyMap.addMarker(
                     MarkerOptions()
@@ -2378,7 +2464,7 @@ fun OrderListScreen(
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
                         val delivered = group.orders.all { it.status.equals("Đã giao", true) }
-                        val routeStt = if (delivered) null else activeGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
+                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else activeGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
                         DeliveryGroupCard(
                             routeStt = routeStt,
                             group = group,
@@ -2527,13 +2613,12 @@ private fun DeliveryGroupCard(
                     modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (routeStt != null) {
-                        Box(
-                            Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() },
-                            contentAlignment = Alignment.Center
-                        ) { NumberCircle(routeStt, selected = true) }
-                    } else {
+                    if (delivered) {
                         Icon(Icons.Default.CheckCircle, "Đã giao", tint = Color(0xFF2E7D32), modifier = Modifier.size(38.dp))
+                    } else {
+                        Box(Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() }, contentAlignment = Alignment.Center) {
+                            RouteStateCircle(routeStt, deliveryGroupHasCoordinate(group), false)
+                        }
                     }
                     Spacer(Modifier.width(9.dp))
                     Text("${group.orders.size} đơn", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
@@ -2698,6 +2783,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
@@ -3744,6 +3830,22 @@ fun SearchBox(value:String,onValueChange:(String)->Unit,onClear:()->Unit,onQrCli
 }
 
 @Composable
+private fun RouteStateCircle(number: Int?, hasCoordinate: Boolean, selected: Boolean) {
+    Box(
+        Modifier.size(28.dp).clip(CircleShape).background(
+            when {
+                selected -> Color(0xFF168DE2)
+                hasCoordinate -> Orange
+                else -> Color(0xFF8995A5)
+            }
+        ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (number != null) Text(number.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+@Composable
 fun NumberCircle(number: Int, selected: Boolean) {
     Box(
         Modifier
@@ -3766,6 +3868,44 @@ fun NumberCircle(number: Int, selected: Boolean) {
 // ================================================================
 class MainViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE)
+    var routeNumberingEnabled by mutableStateOf(prefs.getBoolean("route_numbering_enabled_v1", false))
+        private set
+    private var anchorLat by mutableStateOf(prefs.getString("route_anchor_lat_v1", "").orEmpty())
+    private var anchorLng by mutableStateOf(prefs.getString("route_anchor_lng_v1", "").orEmpty())
+
+    fun routeAnchorPoint(): MapPoint? = pointFromStrings(anchorLat, anchorLng)
+
+    fun setRouteAnchor(point: MapPoint) {
+        anchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
+        anchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
+        prefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
+    }
+
+    fun enableRouteNumbering() {
+        routeNumberingEnabled = true
+        prefs.edit().putBoolean("route_numbering_enabled_v1", true).apply()
+    }
+
+    fun learnRoutePattern(points: List<MapPoint>) {
+        if (points.size < 2) return
+        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
+        fun cell(p: MapPoint): String {
+            val scale = 500.0
+            return "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
+        }
+        for (i in 0 until points.lastIndex) {
+            val key = "${cell(points[i])}>${cell(points[i + 1])}"
+            obj.put(key, obj.optDouble(key, 0.0) + 1.0)
+        }
+        prefs.edit().putString("route_learning_v1", obj.toString()).apply()
+    }
+
+    fun learnedRouteWeight(from: MapPoint, to: MapPoint): Double {
+        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
+        val scale = 500.0
+        fun cell(p: MapPoint) = "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
+        return obj.optDouble("${cell(from)}>${cell(to)}", 0.0)
+    }
     private val orderState = mutableStateListOf<Order>()
     val orders: List<Order> get() = orderState
     private val customerState = mutableStateListOf<Customer>()
