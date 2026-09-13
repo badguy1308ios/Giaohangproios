@@ -338,6 +338,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -451,6 +452,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1127,6 +1130,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2016,6 +2020,7 @@ fun OrderListScreen(
     vm: MainViewModel,
     focusOrderCode: String? = null,
     onFocusConsumed: () -> Unit = {},
+    onNumberClick: (Order) -> Unit = {},
     onCustomerClick: (Order) -> Unit
 ) {
     val context = LocalContext.current
@@ -2046,7 +2051,7 @@ fun OrderListScreen(
             Spacer(Modifier.height(6.dp))
             SearchBox(keyword,{keyword=it},{keyword=""}) { scanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES); setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung"); setBeepEnabled(false); setCaptureActivity(PortraitCaptureActivity::class.java); setOrientationLocked(true); setBarcodeImageEnabled(false) }) }
             Spacer(Modifier.height(6.dp)); Text("Tổng số: ${filteredOrders.size} đơn", color=Navy,fontSize=20.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(6.dp))
-            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick) } }
+            LazyColumn(state=listState, verticalArrangement=Arrangement.spacedBy(6.dp), contentPadding=PaddingValues(bottom=62.dp)) { itemsIndexed(filteredOrders) { index, order -> OrderCard(index+1,order,onCustomerClick,onNumberClick={ onNumberClick(order) }) } }
         }
         FloatingActionButton(onClick={showTools=true}, modifier=Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp), containerColor=Orange) { Icon(Icons.Default.Edit,"Công cụ đơn",tint=Color.White) }
         DropdownMenu(expanded=showTools,onDismissRequest={showTools=false}, modifier=Modifier.align(Alignment.BottomStart)) {
@@ -2064,6 +2069,7 @@ fun OrderListScreen(
     if(deleteMode) AlertDialog(onDismissRequest={deleteMode=false},title={Text("Xóa đơn hàng")},text={Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){filteredOrders.forEach { o -> Row(Modifier.fillMaxWidth().clickable{vm.deleteOrder(o.code);deleteMode=false}.padding(10.dp)){Text(o.code,Modifier.weight(1f));Icon(Icons.Default.Delete,null,tint=Color(0xFFE21B1B))} }}},confirmButton={},dismissButton={TextButton(onClick={deleteMode=false}){Text("ĐÓNG")}})
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit, onNumberClick: () -> Unit = {}) {
     val context = LocalContext.current
@@ -3359,6 +3365,14 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+
+    fun reorderOrders(codes: List<String>) {
+        val rank = codes.withIndex().associate { it.value to it.index }
+        val old = orderState.toList()
+        orderState.clear()
+        orderState.addAll(old.sortedWith(compareBy<Order> { rank[it.code] ?: Int.MAX_VALUE }.thenBy { old.indexOf(it) }))
+        savePersistentData()
+    }
 
     fun importVtmanRecords(records: List<com.example.giaohangpro.vtman.VtmanOrderRecord>) {
         var changed=false
