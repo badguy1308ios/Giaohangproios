@@ -353,6 +353,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -523,6 +524,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -631,6 +634,40 @@ private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtma
                 SettingsItem(Icons.Default.AccountBalance, "CHECK CHUYỂN KHOẢN") { Toast.makeText(context,"Check chuyển khoản",Toast.LENGTH_SHORT).show() }
             }
         }
+    }
+
+
+    if (showRouteSettings) {
+        AlertDialog(
+            onDismissRequest = { showRouteSettings = false },
+            title = { Text("Tuyến giao hàng") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (anchorLat.isBlank() || anchorLng.isBlank()) "Chưa có Điểm Neo" else "Điểm Neo: $anchorLat, $anchorLng", color = TextGray, fontSize = 12.sp)
+                    Button(onClick = { showRouteSettings = false; showAnchorPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Place, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("ĐIỂM NEO")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showRouteSettings = false }) { Text("ĐÓNG") } }
+        )
+    }
+
+    if (showAnchorPicker) {
+        CustomerCoordinateMapPicker(
+            initialPoint = pointFromStrings(anchorLat, anchorLng),
+            focusUserLocation = true,
+            onDismiss = { showAnchorPicker = false },
+            onSavePoint = { point ->
+                anchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
+                anchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
+                routePrefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
+                showAnchorPicker = false
+                Toast.makeText(context, "Đã lưu Điểm Neo", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 }
 
@@ -1175,6 +1212,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2753,6 +2791,7 @@ fun RowScope.ActionButton(
             .height(36.dp)
             .weight(1f)
             .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
