@@ -55,4 +55,4 @@ if 'fun routeAnchorPoint()' not in s:
     s = s.replace(needle, needle + addition, 1)
 
 p.write_text(s)
-print('route ViewModel state/methods ensured')
+print('route ViewModel state/methods ensured v2')
