@@ -21,6 +21,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -306,6 +309,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
     var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
     var formIsNew by remember { mutableStateOf(false) }
     var returnOrderCode by remember { mutableStateOf<String?>(null) }
+    var mapFocusOrderCode by remember { mutableStateOf<String?>(null) }
     val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)
     val context = LocalContext.current
     var lastBackPressAt by remember { mutableLongStateOf(0L) }
@@ -320,6 +324,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.SETTINGS -> screen = AppScreen.MAIN
             AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
             AppScreen.VTMAN_EXPORT -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
@@ -349,18 +354,39 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             topBar = { TopHeader(onSettingsClick = { screen = AppScreen.SETTINGS }) },
             bottomBar = { BottomTabs(selected = tab, onSelected = { tab = it }) }
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding).background(Background)) {
+            var swipeDx by remember { mutableFloatStateOf(0f) }
+            Box(
+                Modifier.fillMaxSize().padding(padding).background(Background)
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta -> swipeDx += delta },
+                        onDragStarted = { swipeDx = 0f },
+                        onDragStopped = {
+                            val tabs = listOf(Tab.MAP, Tab.ORDERS, Tab.CUSTOMERS)
+                            val i = tabs.indexOf(tab)
+                            if (swipeDx < -120f && i < tabs.lastIndex) tab = tabs[i + 1]
+                            if (swipeDx > 120f && i > 0) tab = tabs[i - 1]
+                            swipeDx = 0f
+                        }
+                    )
+            ) {
                 androidx.compose.animation.Crossfade(
                     targetState = tab,
                     animationSpec = androidx.compose.animation.core.tween(durationMillis = 170),
                     label = "main-tabs"
                 ) { activeTab ->
                     when (activeTab) {
-                        Tab.MAP -> MapScreen(vm)
+                        Tab.MAP -> MapScreen(
+                            vm = vm,
+                            focusOrderCode = mapFocusOrderCode,
+                            onFocusConsumed = { mapFocusOrderCode = null },
+                            onOpenOrder = { code -> returnOrderCode = code; tab = Tab.ORDERS }
+                        )
                         Tab.ORDERS -> OrderListScreen(
                             vm = vm,
                             focusOrderCode = returnOrderCode,
                             onFocusConsumed = { returnOrderCode = null },
+                            onNumberClick = { order -> mapFocusOrderCode = order.code; tab = Tab.MAP },
                             onCustomerClick = { order ->
                                 returnOrderCode = order.code
                                 fun normalizedPhone(raw: String): String {
@@ -424,6 +450,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1160,6 +1188,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1277,7 +1306,12 @@ private fun openGoogleNavigation(context: android.content.Context, point: MapPoi
 // Tab bản đồ hiển thị tất cả đơn hàng bằng marker kiểu bong bóng có đánh số thứ tự.
 // Nếu đơn hàng/khách chưa có tọa độ, marker vẫn xuất hiện tạm tại vị trí GPS tài xế để người dùng biết đơn đó đang chờ bổ sung tọa độ.
 @Composable
-fun MapScreen(vm: MainViewModel) {
+fun MapScreen(
+    vm: MainViewModel,
+    focusOrderCode: String? = null,
+    onFocusConsumed: () -> Unit = {},
+    onOpenOrder: (String) -> Unit = {}
+) {
     val context = LocalContext.current
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
@@ -1324,6 +1358,9 @@ fun MapScreen(vm: MainViewModel) {
         orders = displayOrders,
         customers = vm.customers,
         editingStt = editing,
+        focusOrderCode = focusOrderCode,
+        onFocusConsumed = onFocusConsumed,
+        onOpenOrder = onOpenOrder,
         onCreateRoute = {
             val sorted = vm.orders.sortedWith(
                 compareBy<Order> { it.latitude.toDoubleOrNull() ?: 999.0 }
@@ -1405,6 +1442,9 @@ private fun BaseMapScreen(
     orders: List<Order>,
     customers: List<Customer>,
     editingStt: Boolean,
+    focusOrderCode: String?,
+    onFocusConsumed: () -> Unit,
+    onOpenOrder: (String) -> Unit,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
     onSaveRoute: () -> Unit,
@@ -1432,6 +1472,12 @@ private fun BaseMapScreen(
     }
     val selectedMarker = mappedOrders.firstOrNull { it.order.code == selectedOrderCode }
 
+    LaunchedEffect(focusOrderCode, mappedOrders) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        if (mappedOrders.any { it.order.code == code }) selectedOrderCode = code
+        onFocusConsumed()
+    }
+
     Column(Modifier.fillMaxSize().background(Background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GoongOrderMap(
@@ -1451,7 +1497,7 @@ private fun BaseMapScreen(
                     orders = mappedOrders,
                     selectedNumber = selectedMarker?.number,
                     editingStt = editingStt,
-                    onOrderClick = { selectedOrderCode = it.order.code },
+                    onOrderClick = { marker -> if (!editingStt) onOpenOrder(marker.order.code) },
                     onNumberClick = { marker ->
                         selectedOrderCode = marker.order.code
                         if (editingStt) onEditStt(marker)
@@ -1490,6 +1536,12 @@ private fun BoxScope.MapOrderBottomSheet(
     onImportStt: () -> Unit
 ) {
     var routeMenuExpanded by remember { mutableStateOf(false) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(selectedNumber, orders) {
+        val n = selectedNumber ?: return@LaunchedEffect
+        val i = orders.indexOfFirst { it.number == n }
+        if (i >= 0) listState.animateScrollToItem(i)
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
@@ -1558,6 +1610,7 @@ private fun BoxScope.MapOrderBottomSheet(
             }
             Spacer(Modifier.height(if (editingStt) 4.dp else 10.dp))
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
                 contentPadding = PaddingValues(bottom = 4.dp)
@@ -1957,6 +2010,7 @@ fun OrderListScreen(
     vm: MainViewModel,
     focusOrderCode: String? = null,
     onFocusConsumed: () -> Unit = {},
+    onNumberClick: (Order) -> Unit = {},
     onCustomerClick: (Order) -> Unit
 ) {
     val context=LocalContext.current
@@ -1993,7 +2047,7 @@ fun OrderListScreen(
                 itemsIndexed(filtered){index,o->
                     Row(verticalAlignment=Alignment.Top){
                         if(deleteMode)Checkbox(checked=o.code in selected,onCheckedChange={ck->selected=if(ck)selected+o.code else selected-o.code})
-                        Box(Modifier.weight(1f)){OrderCard(index+1,o,onCustomerClick)}
+                        Box(Modifier.weight(1f)){OrderCard(index+1,o,onCustomerClick,onNumberClick={onNumberClick(o)})}
                     }
                 }
             }
@@ -2013,8 +2067,9 @@ fun OrderListScreen(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
+fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit, onNumberClick: () -> Unit = {}) {
     val context = LocalContext.current
+    var infoPopup by remember(order.code) { mutableStateOf<Pair<String,String>?>(null) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -2024,67 +2079,40 @@ fun OrderCard(index: Int, order: Order, onCustomerClick: (Order) -> Unit) {
     ) {
         Column(Modifier.padding(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                NumberCircle(index, selected = true)
-
+                Box(Modifier.size(30.dp).clip(CircleShape).clickable { onNumberClick() }, contentAlignment = Alignment.Center) {
+                    NumberCircle(index, selected = true)
+                }
                 Spacer(Modifier.width(8.dp))
-
                 val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-                Text(
-                    order.code,
-                    color = Navy,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.combinedClickable(
-                        onClick = {},
-                        onLongClick = {
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(order.code))
-                            Toast.makeText(context, "Đã copy MVĐ ${order.code}", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                )
-
+                Text(order.code,color=Navy,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,
+                    modifier=Modifier.combinedClickable(onClick={},onLongClick={
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(order.code))
+                        Toast.makeText(context,"Đã copy MVĐ ${order.code}",Toast.LENGTH_SHORT).show()
+                    }))
                 Spacer(Modifier.width(10.dp))
-
-                Text(
-                    order.status.ifBlank { "—" },
-                    color = Navy,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
+                Text(order.status.ifBlank{"—"},color=Navy,fontSize=15.sp,fontWeight=FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-
-                                Text(
-                    order.amount,
-                    color = MoneyGreen,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(order.amount,color=MoneyGreen,fontSize=13.sp,fontWeight=FontWeight.Bold)
             }
-
             Spacer(Modifier.height(4.dp))
-
-            OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
-            OrderInfoRow(Icons.Default.Person, "${order.customer} - ${order.phone}", onClick = { onCustomerClick(order) })
-            OrderInfoRow(Icons.Default.LocationOn, order.address)
-            OrderInfoRow(Icons.Default.Inventory2, order.item)
-
+            OrderInfoRow(Icons.Default.Store,order.shop.ifBlank{order.customer}){infoPopup="SHOP" to order.shop.ifBlank{order.customer}}
+            OrderInfoRow(Icons.Default.Person,"${order.customer} - ${order.phone}",onClick={onCustomerClick(order)})
+            OrderInfoRow(Icons.Default.LocationOn,order.address){infoPopup="ĐỊA CHỈ" to order.address}
+            OrderInfoRow(Icons.Default.Inventory2,order.item){infoPopup="HÀNG HÓA" to order.item}
             Spacer(Modifier.height(5.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                order.tags.forEach { Tag(it) }
-            }
-
+            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){order.tags.forEach{Tag(it)}}
             Spacer(Modifier.height(6.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true)
-                ActionButton("Bank", Icons.Default.AccountBalance)
-                ActionButton("Zalo", Icons.Default.Chat)
-                ActionButton("SMS", Icons.Default.Sms)
-                ActionButton("Gọi", Icons.Default.Call)
+            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
+                ActionButton("Đã giao",Icons.Default.CheckCircle,filled=true)
+                ActionButton("Bank",Icons.Default.AccountBalance)
+                ActionButton("Zalo",Icons.Default.Chat)
+                ActionButton("SMS",Icons.Default.Sms)
+                ActionButton("Gọi",Icons.Default.Call)
             }
         }
+    }
+    infoPopup?.let{(title,value)->
+        AlertDialog(onDismissRequest={infoPopup=null},title={Text(title,fontWeight=FontWeight.Bold)},text={Text(value.ifBlank{"—"})},confirmButton={TextButton(onClick={infoPopup=null}){Text("ĐÓNG")}})
     }
 }
 
@@ -2976,11 +3004,15 @@ private fun CustomerCoordinateMapPicker(
 ) {
     val driverLocation by rememberDriverLocation()
     var selected by remember { mutableStateOf(initialPoint ?: driverLocation ?: DEFAULT_MAP_POINT) }
-    val start = if (focusUserLocation) (driverLocation ?: initialPoint ?: DEFAULT_MAP_POINT) else (initialPoint ?: DEFAULT_MAP_POINT)
+    val start = initialPoint ?: (if (focusUserLocation) driverLocation else null) ?: DEFAULT_MAP_POINT
+    var didInitialGpsFocus by remember { mutableStateOf(initialPoint != null || !focusUserLocation) }
 
-    // GPS thường trả về sau khi dialog đã mở. Khi có vị trí thật, chọn và focus ngay vào người dùng.
-    LaunchedEffect(driverLocation, focusUserLocation) {
-        if (focusUserLocation) driverLocation?.let { selected = it }
+    // Chỉ focus GPS đúng một lần khi khách chưa có tọa độ.
+    LaunchedEffect(driverLocation, focusUserLocation, initialPoint) {
+        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation && driverLocation != null) {
+            selected = driverLocation
+            didInitialGpsFocus = true
+        }
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
