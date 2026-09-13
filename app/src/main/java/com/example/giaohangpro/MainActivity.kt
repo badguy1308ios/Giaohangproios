@@ -327,6 +327,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -419,6 +420,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1140,6 +1143,7 @@ private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 
 
 
 
+
 private val DEFAULT_MAP_POINT = MapPoint(17.4689, 106.6220) // Đồng Hới, Quảng Bình.
 
 // Chuyển text Latitude/Longitude thành MapPoint an toàn; dữ liệu sai sẽ trả null.
@@ -1262,6 +1266,8 @@ fun MapScreen(vm: MainViewModel) {
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf(vm.orders.map { it.code }) }
+    var editMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
+    var editNumberText by remember { mutableStateOf("") }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -1292,9 +1298,16 @@ fun MapScreen(vm: MainViewModel) {
         }
     }
 
+    val displayOrders = if (editing) {
+        draft.mapNotNull { code -> vm.orders.firstOrNull { it.code == code } }
+    } else {
+        vm.orders.toList()
+    }
+
     BaseMapScreen(
-        orders = vm.orders,
+        orders = displayOrders,
         customers = vm.customers,
+        editingStt = editing,
         onCreateRoute = {
             val sorted = vm.orders.sortedWith(
                 compareBy<Order> { it.latitude.toDoubleOrNull() ?: 999.0 }
@@ -1306,66 +1319,60 @@ fun MapScreen(vm: MainViewModel) {
         onEditRoute = {
             draft = vm.orders.map { it.code }
             editing = true
+            Toast.makeText(context, "Bấm STT trên bản đồ hoặc danh sách để đổi số", Toast.LENGTH_SHORT).show()
+        },
+        onSaveRoute = { confirmSave = true },
+        onEditStt = { marker ->
+            if (editing) {
+                editMarker = marker
+                editNumberText = marker.number.toString()
+            }
         },
         onExportStt = { exportLauncher.launch("giaohangpro_thu_tu_mvd.csv") },
         onImportStt = { importLauncher.launch("text/*") }
     )
 
-    if (editing) Dialog(onDismissRequest = { editing = false }) {
-        Card(
-            Modifier.fillMaxWidth().heightIn(max = 560.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
-        ) {
-            Column(Modifier.padding(10.dp)) {
-                Text("SỬA TUYẾN", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.height(6.dp))
-                LazyColumn(Modifier.weight(1f, false)) {
-                    itemsIndexed(draft) { index, code ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${index + 1}.", Modifier.width(34.dp), fontWeight = FontWeight.Bold)
-                            Text(code, Modifier.weight(1f))
-                            IconButton(onClick = {
-                                if (index > 0) {
-                                    val m = draft.toMutableList()
-                                    val x = m[index - 1]
-                                    m[index - 1] = m[index]
-                                    m[index] = x
-                                    draft = m
-                                }
-                            }) { Icon(Icons.Default.KeyboardArrowUp, "Lên") }
-                            IconButton(onClick = {
-                                if (index < draft.lastIndex) {
-                                    val m = draft.toMutableList()
-                                    val x = m[index + 1]
-                                    m[index + 1] = m[index]
-                                    m[index] = x
-                                    draft = m
-                                }
-                            }) { Icon(Icons.Default.KeyboardArrowDown, "Xuống") }
+    editMarker?.let { marker ->
+        val maxStt = draft.size.coerceAtLeast(1)
+        AlertDialog(
+            onDismissRequest = { editMarker = null },
+            title = { Text("Đổi STT đơn ${marker.order.code}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("STT hiện tại: ${marker.number} • Nhập vị trí mới từ 1 đến $maxStt", color = TextGray, fontSize = 12.sp)
+                    OutlinedTextField(
+                        value = editNumberText,
+                        onValueChange = { value -> editNumberText = value.filter(Char::isDigit).take(4) },
+                        label = { Text("STT mới") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = editNumberText.toIntOrNull()?.coerceIn(1, maxStt)
+                    if (target != null) {
+                        val movingCode = marker.order.code
+                        val current = draft.indexOf(movingCode)
+                        if (current >= 0) {
+                            val next = draft.toMutableList()
+                            next.removeAt(current)
+                            next.add((target - 1).coerceIn(0, next.size), movingCode)
+                            draft = next
                         }
+                        editMarker = null
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { editing = false }) { Text("HỦY") }
-                    Spacer(Modifier.width(6.dp))
-                    Button(onClick = { confirmSave = true }) {
-                        Icon(Icons.Default.Save, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("LƯU")
-                    }
-                }
-            }
-        }
+                }) { Text("ÁP DỤNG") }
+            },
+            dismissButton = { TextButton(onClick = { editMarker = null }) { Text("HỦY") } }
+        )
     }
 
     if (confirmSave) AlertDialog(
         onDismissRequest = { confirmSave = false },
-        title = { Text("Lưu tuyến") },
-        text = { Text("Xác nhận lưu thứ tự tuyến hiện tại?") },
+        title = { Text("Lưu STT tuyến") },
+        text = { Text("Xác nhận lưu thứ tự mới? Dãy STT sẽ luôn liên tục từ 1 đến ${draft.size}.") },
         confirmButton = {
             TextButton(onClick = {
                 vm.reorderOrders(draft)
@@ -1381,14 +1388,17 @@ fun MapScreen(vm: MainViewModel) {
 private fun BaseMapScreen(
     orders: List<Order>,
     customers: List<Customer>,
+    editingStt: Boolean,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
+    onSaveRoute: () -> Unit,
+    onEditStt: (MapOrderMarker) -> Unit,
     onExportStt: () -> Unit,
     onImportStt: () -> Unit
 ) {
     val context = LocalContext.current
     val driverLocation by rememberDriverLocation()
-    var selectedMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
+    var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
 
     val mappedOrders = remember(orders, customers, driverLocation) {
@@ -1404,6 +1414,7 @@ private fun BaseMapScreen(
             MapOrderMarker(order, displayPoint, index + 1, realPoint != null)
         }
     }
+    val selectedMarker = mappedOrders.firstOrNull { it.order.code == selectedOrderCode }
 
     Column(Modifier.fillMaxSize().background(Background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -1413,15 +1424,22 @@ private fun BaseMapScreen(
                 driverLocation = driverLocation,
                 selectedOrderNumber = selectedMarker?.number,
                 expanded = mapExpanded,
+                editingStt = editingStt,
                 onToggleExpand = { mapExpanded = !mapExpanded },
-                onOrderSelected = { selectedMarker = it }
+                onOrderSelected = { selectedOrderCode = it.order.code },
+                onEditStt = onEditStt
             )
 
             if (!mapExpanded) {
                 MapOrderBottomSheet(
                     orders = mappedOrders,
                     selectedNumber = selectedMarker?.number,
-                    onOrderClick = { selectedMarker = it },
+                    editingStt = editingStt,
+                    onOrderClick = { selectedOrderCode = it.order.code },
+                    onNumberClick = { marker ->
+                        selectedOrderCode = marker.order.code
+                        if (editingStt) onEditStt(marker)
+                    },
                     onNavigate = { marker ->
                         if (marker.hasRealCoordinate) {
                             openGoogleNavigation(context, marker.point)
@@ -1431,6 +1449,7 @@ private fun BaseMapScreen(
                     },
                     onCreateRoute = onCreateRoute,
                     onEditRoute = onEditRoute,
+                    onSaveRoute = onSaveRoute,
                     onExportStt = onExportStt,
                     onImportStt = onImportStt
                 )
@@ -1442,51 +1461,39 @@ private fun BaseMapScreen(
 // Bottom sheet dạng danh sách đơn hàng giống hình tham chiếu: số thứ tự, nút dẫn đường, mã đơn, tên khách và số tiền.
 @Composable
 private fun BoxScope.MapOrderBottomSheet(
-    orders: List<MapOrderMarker>, // Danh sách đơn đã gắn số thứ tự marker.
-    selectedNumber: Int?, // Số thứ tự đang được chọn để tô nổi dòng tương ứng.
-    onOrderClick: (MapOrderMarker) -> Unit, // Bấm dòng để focus marker trên bản đồ.
-    onNavigate: (MapOrderMarker) -> Unit, // Bấm biểu tượng dẫn đường để mở Google Maps.
+    orders: List<MapOrderMarker>,
+    selectedNumber: Int?,
+    editingStt: Boolean,
+    onOrderClick: (MapOrderMarker) -> Unit,
+    onNumberClick: (MapOrderMarker) -> Unit,
+    onNavigate: (MapOrderMarker) -> Unit,
     onCreateRoute: () -> Unit,
     onEditRoute: () -> Unit,
+    onSaveRoute: () -> Unit,
     onExportStt: () -> Unit,
     onImportStt: () -> Unit
 ) {
     var routeMenuExpanded by remember { mutableStateOf(false) }
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .align(Alignment.BottomCenter),
+        modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         color = Color.White.copy(alpha = 0.98f),
         tonalElevation = 8.dp,
         shadowElevation = 12.dp
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 185.dp, max = 250.dp)
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 185.dp, max = 250.dp).padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
-            // Tay nắm nhỏ giúp giao diện có cảm giác bottom sheet giống hình mẫu.
             Box(
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .width(42.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF9BA8B8))
+                Modifier.align(Alignment.CenterHorizontally).width(42.dp).height(3.dp)
+                    .clip(RoundedCornerShape(50)).background(Color(0xFF9BA8B8))
             )
-
             Spacer(Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Inventory2, contentDescription = null, tint = Orange, modifier = Modifier.size(24.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Inventory2, null, tint = Orange, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "${orders.size} đơn hàng",
+                    if (editingStt) "Sửa STT • ${orders.size} đơn" else "${orders.size} đơn hàng",
                     color = Navy,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -1494,56 +1501,58 @@ private fun BoxScope.MapOrderBottomSheet(
                 )
                 Box {
                     IconButton(
-                        onClick = { routeMenuExpanded = true },
+                        onClick = { if (editingStt) onSaveRoute() else routeMenuExpanded = true },
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            Icons.Default.KeyboardArrowUp,
-                            contentDescription = "Công cụ tuyến",
+                            if (editingStt) Icons.Default.Save else Icons.Default.KeyboardArrowUp,
+                            if (editingStt) "Lưu STT" else "Công cụ tuyến",
                             tint = Orange,
                             modifier = Modifier.size(26.dp)
                         )
                     }
-                    DropdownMenu(
-                        expanded = routeMenuExpanded,
-                        onDismissRequest = { routeMenuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Tạo tuyến") },
-                            leadingIcon = { Icon(Icons.Default.Route, null) },
-                            onClick = { routeMenuExpanded = false; onCreateRoute() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Sửa tuyến") },
-                            leadingIcon = { Icon(Icons.Default.Edit, null) },
-                            onClick = { routeMenuExpanded = false; onEditRoute() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Xuất STT") },
-                            leadingIcon = { Icon(Icons.Default.FileDownload, null) },
-                            onClick = { routeMenuExpanded = false; onExportStt() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Nhập STT") },
-                            leadingIcon = { Icon(Icons.Default.FileOpen, null) },
-                            onClick = { routeMenuExpanded = false; onImportStt() }
-                        )
+                    if (!editingStt) {
+                        DropdownMenu(expanded = routeMenuExpanded, onDismissRequest = { routeMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Tạo tuyến") },
+                                leadingIcon = { Icon(Icons.Default.Route, null) },
+                                onClick = { routeMenuExpanded = false; onCreateRoute() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Sửa STT") },
+                                leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                onClick = { routeMenuExpanded = false; onEditRoute() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Xuất STT") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                                onClick = { routeMenuExpanded = false; onExportStt() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Nhập STT") },
+                                leadingIcon = { Icon(Icons.Default.FileOpen, null) },
+                                onClick = { routeMenuExpanded = false; onImportStt() }
+                            )
+                        }
                     }
                 }
             }
-
-            Spacer(Modifier.height(10.dp))
-
+            if (editingStt) {
+                Text("Chạm vào vòng tròn STT hoặc bong bóng trên bản đồ để đổi vị trí.", color = TextGray, fontSize = 10.sp)
+            }
+            Spacer(Modifier.height(if (editingStt) 4.dp else 10.dp))
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                items(orders, key = { it.order.code + it.number }) { marker ->
+                items(orders, key = { it.order.code }) { marker ->
                     MapOrderListRow(
                         marker = marker,
                         selected = marker.number == selectedNumber,
+                        editingStt = editingStt,
                         onClick = { onOrderClick(marker) },
+                        onNumberClick = { onNumberClick(marker) },
                         onNavigate = { onNavigate(marker) }
                     )
                 }
@@ -1552,20 +1561,18 @@ private fun BoxScope.MapOrderBottomSheet(
     }
 }
 
-// Một dòng đơn hàng trong danh sách tab Bản đồ.
 @Composable
 private fun MapOrderListRow(
     marker: MapOrderMarker,
     selected: Boolean,
+    editingStt: Boolean,
     onClick: () -> Unit,
+    onNumberClick: () -> Unit,
     onNavigate: () -> Unit
 ) {
     val order = marker.order
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(62.dp)
-            .clickable { onClick() },
+        modifier = Modifier.fillMaxWidth().height(62.dp).clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) OrangeLight else Color.White),
         border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Orange else Border),
@@ -1575,37 +1582,36 @@ private fun MapOrderListRow(
             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            NumberCircle(marker.number, selected = selected)
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .clickable { onNumberClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                NumberCircle(marker.number, selected = selected || editingStt)
+            }
             Spacer(Modifier.width(4.dp))
             Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
+                modifier = Modifier.size(28.dp).clip(CircleShape)
                     .background(if (marker.hasRealCoordinate) Blue else Color(0xFFB6C0CC))
                     .clickable(enabled = marker.hasRealCoordinate) { onNavigate() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Navigation,
-                    contentDescription = "Dẫn đường",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
+                Icon(Icons.Default.Navigation, "Dẫn đường", tint = Color.White, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
                 Text(order.code, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
                 Text(order.customer, color = TextGray, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!marker.hasRealCoordinate) {
-                    Text("Chưa có tọa độ", color = OrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-                }
+                if (!marker.hasRealCoordinate) Text("Chưa có tọa độ", color = OrangeDark, fontSize = 10.sp, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.width(5.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(order.amount, color = MoneyGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
-                Icon(Icons.Default.ChevronRight, contentDescription = "Xem đơn", tint = TextGray, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.ChevronRight, "Xem đơn", tint = TextGray, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -1695,8 +1701,10 @@ private fun GoongOrderMap(
     driverLocation: MapPoint?,
     selectedOrderNumber: Int?,
     expanded: Boolean,
+    editingStt: Boolean,
     onToggleExpand: () -> Unit,
-    onOrderSelected: (MapOrderMarker) -> Unit
+    onOrderSelected: (MapOrderMarker) -> Unit,
+    onEditStt: (MapOrderMarker) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -1738,8 +1746,12 @@ private fun GoongOrderMap(
                                 .zoom(14.0).build()
                             readyMap.setOnMarkerClickListener { clicked ->
                                 val number = clicked.title?.substringAfter("Đơn #")?.substringBefore(" ")?.toIntOrNull()
-                                orders.firstOrNull { it.number == number }?.let(onOrderSelected)
-                                false
+                                val marker = orders.firstOrNull { it.number == number }
+                                if (marker != null) {
+                                    onOrderSelected(marker)
+                                    if (editingStt) onEditStt(marker)
+                                    true
+                                } else false
                             }
                         }
                     }
@@ -1753,19 +1765,11 @@ private fun GoongOrderMap(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             MapControlButton(Icons.Default.MyLocation, "Vị trí của tôi") {
-                driverLocation?.let { point ->
-                    map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
-                }
+                driverLocation?.let { point -> map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0)) }
             }
-            MapControlButton(Icons.Default.Add, "Phóng to") {
-                map?.animateCamera(CameraUpdateFactory.zoomBy(1.0))
-            }
-            MapControlButton(Icons.Default.Remove, "Thu nhỏ") {
-                map?.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
-            }
-            MapControlButton(if (expanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Mở rộng bản đồ") {
-                onToggleExpand()
-            }
+            MapControlButton(Icons.Default.Add, "Phóng to") { map?.animateCamera(CameraUpdateFactory.zoomBy(1.0)) }
+            MapControlButton(Icons.Default.Remove, "Thu nhỏ") { map?.animateCamera(CameraUpdateFactory.zoomBy(-1.0)) }
+            MapControlButton(if (expanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Mở rộng bản đồ") { onToggleExpand() }
         }
     }
 
@@ -1778,21 +1782,20 @@ private fun GoongOrderMap(
         }
     }
 
-    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber) {
+    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber, editingStt) {
         map?.let { readyMap ->
             readyMap.clear()
             driverLocation?.let { point ->
-                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
-                    .fromBitmap(createDriverMotorbikeBitmap(context))
+                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(createDriverMotorbikeBitmap(context))
                 readyMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(point.latitude, point.longitude))
-                        .icon(driverIcon)
-                        .title("🛵 Vị trí hiện tại của tài xế")
-                        .snippet("GPS đang cập nhật")
+                    MarkerOptions().position(LatLng(point.latitude, point.longitude)).icon(driverIcon)
+                        .title("🛵 Vị trí hiện tại của tài xế").snippet("GPS đang cập nhật")
                 )
             }
-            orders.forEach { markerData ->
+
+            // Vẽ marker đang chọn cuối cùng để luôn nằm trên các bong bóng gần kề.
+            val drawOrders = if (selectedOrderNumber == null) orders else orders.sortedBy { it.number == selectedOrderNumber }
+            drawOrders.forEach { markerData ->
                 val order = markerData.order
                 val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate) as android.graphics.drawable.BitmapDrawable).bitmap
                 val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
@@ -1801,9 +1804,10 @@ private fun GoongOrderMap(
                         .position(LatLng(markerData.point.latitude, markerData.point.longitude))
                         .icon(numberIcon)
                         .title("Đơn #${markerData.number} • ${order.code}")
-                        .snippet(if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
+                        .snippet(if (editingStt) "Chạm để đổi STT" else if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
                 )
             }
+
             selectedOrderNumber?.let { number ->
                 orders.firstOrNull { it.number == number }?.let { selected ->
                     readyMap.animateCamera(
