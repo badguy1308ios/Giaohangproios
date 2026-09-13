@@ -90,7 +90,7 @@ if start >= 0 and end > start:
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val tags = services.split(Regex("[\\s,;]+" )).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                    val tags = services.split(Regex("[\\\\s,;]+" )).map { it.trim() }.filter { it.isNotBlank() }.distinct()
                     vm.updateOrder(original.copy(
                         shop = shop,
                         customer = customer,
