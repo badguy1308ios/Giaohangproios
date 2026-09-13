@@ -46,6 +46,7 @@ jobs:
           python3 tools/add_anchor_route_learning_20260913.py
           python3 tools/fix_anchor_settings_scope_20260913.py
           python3 tools/fix_route_viewmodel_methods_20260913.py
+          python3 tools/keep_map_alive_remove_tab_swipe_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -66,8 +67,8 @@ jobs:
           VERSION="1.0.${GITHUB_RUN_NUMBER}"
           APK_NAME="GiaoHangPro-v${VERSION}.apk"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
-          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_ENV"
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_OUTPUT"
       - name: Use persistent debug signing key
         run: |
           mkdir -p "$HOME/.android"
