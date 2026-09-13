@@ -35,3 +35,4 @@ python3 tools/final_customer_picker_focus_20260913.py
 python3 tools/final_order_edit_and_waiting_circle_20260913.py
 python3 tools/add_order_code_long_press_copy_20260913.py
 python3 tools/add_clear_route_stt_20260913.py
+python3 tools/pending_orders_first_20260913.py
