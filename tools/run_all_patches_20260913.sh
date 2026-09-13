@@ -38,3 +38,4 @@ python3 tools/add_clear_route_stt_20260913.py
 python3 tools/pending_orders_first_20260913.py
 python3 tools/fix_coordinate_picker_bottom_bar_20260913.py
 python3 tools/add_order_scroll_to_top_20260914.py
+python3 tools/fix_customer_coordinate_text_input_20260914.py
