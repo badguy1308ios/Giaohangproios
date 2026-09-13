@@ -14,13 +14,25 @@ new='''    var selected by remember { mutableStateOf(initialPoint ?: driverLocat
 
     // Chỉ focus GPS đúng một lần khi khách chưa có tọa độ.
     LaunchedEffect(driverLocation, focusUserLocation, initialPoint) {
-        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation && driverLocation != null) {
-            selected = driverLocation
-            didInitialGpsFocus = true
+        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation) {
+            driverLocation?.let { gps ->
+                selected = gps
+                didInitialGpsFocus = true
+            }
         }
     }'''
-if old not in s:
-    raise SystemExit('picker GPS block not found')
-s=s.replace(old,new,1)
+if old in s:
+    s=s.replace(old,new,1)
+else:
+    # Source may already contain the one-shot focus patch from a previous workflow run.
+    s=s.replace('''        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation && driverLocation != null) {
+            selected = driverLocation
+            didInitialGpsFocus = true
+        }''','''        if (!didInitialGpsFocus && initialPoint == null && focusUserLocation) {
+            driverLocation?.let { gps ->
+                selected = gps
+                didInitialGpsFocus = true
+            }
+        }''',1)
 p.write_text(s)
 print('customer picker focus fixed')
