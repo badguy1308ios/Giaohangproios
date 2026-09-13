@@ -33,6 +33,7 @@ jobs:
           python3 tools/add_order_bulk_route_tools_20260912.py
           python3 tools/fix_order_csv_compile_20260912.py
           python3 tools/move_route_menu_to_sheet_arrow_20260913.py
+          python3 tools/improve_map_stt_edit_focus_20260913.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
