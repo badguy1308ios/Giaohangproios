@@ -16,38 +16,7 @@ jobs:
           fetch-depth: 0
       - name: Clean and repair app UI
         run: |
-          python3 tools/cleanup_money_ledger_duplicates_20260911.py
-          python3 tools/fix_money_ledger_inputs_20260911.py || true
-          python3 tools/fix_header_and_money_compile_20260911.py
-          python3 tools/fix_money_cursor_bank_fee_cod_20260911.py
-          python3 tools/fix_back_and_order_customer_20260911.py
-          python3 tools/add_safe_customer_import_20260912.py
-          python3 tools/integrate_vtman_export_20260912.py
-          python3 tools/fix_vtman_import_customer_conflict_20260912.py
-          python3 tools/add_csv_and_order_tools_20260912.py
-          python3 tools/fix_vtman_scan_copy_20260912.py
-          python3 tools/add_vtman_clear_queue_20260912.py
-          python3 tools/update_vtman_layout_20260912.py
-          python3 tools/finalize_vtman_ui_scanner_20260912.py
-          python3 tools/add_customer_backup_import_export_20260912.py
-          python3 tools/add_order_bulk_route_tools_20260912.py
-          python3 tools/fix_order_csv_compile_20260912.py
-          python3 tools/move_route_menu_to_sheet_arrow_20260913.py
-          python3 tools/improve_map_stt_edit_focus_20260913.py
-          python3 tools/add_cross_tab_order_map_nav_20260913.py
-          python3 tools/add_order_info_popup_20260913.py
-          python3 tools/add_main_tab_swipe_20260913.py
-          python3 tools/fix_customer_picker_focus_20260913.py
-          python3 tools/add_direct_stt_inline_edit_20260913.py
-          python3 tools/group_customer_orders_actions_20260913.py
-          python3 tools/fix_grouped_actions_compile_20260913.py
-          python3 tools/apply_approved_grouped_order_ui_20260913.py
-          python3 tools/restore_order_tab_features_20260913.py
-          python3 tools/add_anchor_route_learning_20260913.py
-          python3 tools/fix_anchor_settings_scope_20260913.py
-          python3 tools/fix_route_viewmodel_methods_20260913.py
-          python3 tools/keep_map_alive_remove_tab_swipe_20260913.py
-          python3 tools/final_customer_picker_focus_20260913.py
+          bash tools/run_all_patches_20260913.sh
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -68,8 +37,8 @@ jobs:
           VERSION="1.0.${GITHUB_RUN_NUMBER}"
           APK_NAME="GiaoHangPro-v${VERSION}.apk"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "apk_name=$APK_NAME" >> "$GITHUB_ENV"
-          echo "APK_NAME=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
       - name: Use persistent debug signing key
         run: |
           mkdir -p "$HOME/.android"
