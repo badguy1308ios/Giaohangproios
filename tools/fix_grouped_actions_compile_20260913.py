@@ -99,5 +99,37 @@ new='''        Modifier
 if old in s:
     s=s.replace(old,new,1)
 
+# 3) Ensure the grouped "Đã giao" action exists in MainViewModel.
+# It marks every MVĐ linked to the same Customer ID as delivered; map/list route filtering
+# then removes that whole stop while the order tab keeps the delivered block at the bottom.
+if 'fun markDeliveredGroup(code: String)' not in s:
+    anchor='''    fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+'''
+    addition='''    fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
+
+    fun markDeliveredGroup(code: String) {
+        val base = orderState.firstOrNull { it.code == code } ?: return
+        val customer = findCustomerByPhone(base.phone)
+        if (customer == null) {
+            val i = orderState.indexOfFirst { it.code == code }
+            if (i >= 0) orderState[i] = orderState[i].copy(status = "Đã giao")
+        } else {
+            val customerPhones = (listOf(customer.phone) + customer.extraPhones.map { it.number })
+                .map(::normalizeCustomerPhone)
+                .filter(String::isNotBlank)
+                .toSet()
+            orderState.indices.forEach { i ->
+                if (normalizeCustomerPhone(orderState[i].phone) in customerPhones) {
+                    orderState[i] = orderState[i].copy(status = "Đã giao")
+                }
+            }
+        }
+        savePersistentData()
+    }
+'''
+    if anchor not in s:
+        raise SystemExit('deleteOrder anchor missing while adding markDeliveredGroup')
+    s=s.replace(anchor,addition,1)
+
 p.write_text(s)
 print('grouped delivery compile/direct STT fixes applied')
