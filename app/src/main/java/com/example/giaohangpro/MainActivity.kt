@@ -352,6 +352,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -465,6 +466,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         )
         AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
@@ -1145,40 +1148,6 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
             Text("• SĐT trùng → cập nhật/gộp vào khách hiện có.\n• Tên hoặc biệt danh mới → thêm vào tên phụ.\n• SĐT mới → thêm SĐT phụ.\n• Địa chỉ mới → thêm địa chỉ phụ.\n• Địa chỉ đã có nhưng thiếu tọa độ → bổ sung tọa độ.\n• Ảnh cổng trong ZIP → lưu vào đúng địa chỉ tương ứng.\n• Không tự xóa dữ liệu đang có.", color = TextGray, fontSize = 12.sp)
         }
     }
-
-
-    if (showRouteSettings) {
-        AlertDialog(
-            onDismissRequest = { showRouteSettings = false },
-            title = { Text("Tuyến giao hàng") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(if (anchorLat.isBlank() || anchorLng.isBlank()) "Chưa có Điểm Neo" else "Điểm Neo: $anchorLat, $anchorLng", color = TextGray, fontSize = 12.sp)
-                    Button(onClick = { showRouteSettings = false; showAnchorPicker = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Place, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("ĐIỂM NEO")
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showRouteSettings = false }) { Text("ĐÓNG") } }
-        )
-    }
-
-    if (showAnchorPicker) {
-        CustomerCoordinateMapPicker(
-            initialPoint = pointFromStrings(anchorLat, anchorLng),
-            focusUserLocation = true,
-            onDismiss = { showAnchorPicker = false },
-            onSavePoint = { point ->
-                anchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
-                anchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
-                routePrefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
-                showAnchorPicker = false
-                Toast.makeText(context, "Đã lưu Điểm Neo", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
 }
 
 @Composable
@@ -1206,6 +1175,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 @Composable
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
+
 
 
 
@@ -2792,6 +2762,7 @@ fun RowScope.ActionButton(
             .clickable { onClick() }
             .clickable { onClick() }
             .clickable { onClick() }
+            .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
             .border(1.dp, Orange, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
@@ -3868,44 +3839,6 @@ fun NumberCircle(number: Int, selected: Boolean) {
 // ================================================================
 class MainViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE)
-    var routeNumberingEnabled by mutableStateOf(prefs.getBoolean("route_numbering_enabled_v1", false))
-        private set
-    private var anchorLat by mutableStateOf(prefs.getString("route_anchor_lat_v1", "").orEmpty())
-    private var anchorLng by mutableStateOf(prefs.getString("route_anchor_lng_v1", "").orEmpty())
-
-    fun routeAnchorPoint(): MapPoint? = pointFromStrings(anchorLat, anchorLng)
-
-    fun setRouteAnchor(point: MapPoint) {
-        anchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
-        anchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
-        prefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
-    }
-
-    fun enableRouteNumbering() {
-        routeNumberingEnabled = true
-        prefs.edit().putBoolean("route_numbering_enabled_v1", true).apply()
-    }
-
-    fun learnRoutePattern(points: List<MapPoint>) {
-        if (points.size < 2) return
-        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
-        fun cell(p: MapPoint): String {
-            val scale = 500.0
-            return "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
-        }
-        for (i in 0 until points.lastIndex) {
-            val key = "${cell(points[i])}>${cell(points[i + 1])}"
-            obj.put(key, obj.optDouble(key, 0.0) + 1.0)
-        }
-        prefs.edit().putString("route_learning_v1", obj.toString()).apply()
-    }
-
-    fun learnedRouteWeight(from: MapPoint, to: MapPoint): Double {
-        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
-        val scale = 500.0
-        fun cell(p: MapPoint) = "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
-        return obj.optDouble("${cell(from)}>${cell(to)}", 0.0)
-    }
     private val orderState = mutableStateListOf<Order>()
     val orders: List<Order> get() = orderState
     private val customerState = mutableStateListOf<Customer>()
