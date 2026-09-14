@@ -13,3 +13,4 @@ python3 tools/isolate_route_stt_mutation_20260914.py
 python3 tools/map_list_to_order_group_search_20260914.py
 python3 tools/focus_map_list_by_order_code_20260914.py
 python3 tools/fix_single_order_stt_click_20260914.py
+python3 tools/fix_edit_stt_focus_isolation_20260914.py
