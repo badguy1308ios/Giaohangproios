@@ -10,3 +10,4 @@ python3 tools/preserve_route_stt_after_delivery_20260914.py
 python3 tools/show_user_location_in_customer_picker_20260914.py
 python3 tools/fix_duplicate_route_numbering_20260914.py
 python3 tools/isolate_route_stt_mutation_20260914.py
+python3 tools/map_list_to_order_group_search_20260914.py
