@@ -329,6 +329,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
     var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
     var formIsNew by remember { mutableStateOf(false) }
     var returnOrderCode by remember { mutableStateOf<String?>(null) }
+    var returnOrderCustomerId by remember { mutableStateOf<Long?>(null) }
     var mapFocusOrderCode by remember { mutableStateOf<String?>(null) }
     val selectedCustomer = selectedCustomerId?.let(vm::findCustomer)
     val context = LocalContext.current
@@ -369,7 +370,13 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                     vm = vm,
                     focusOrderCode = mapFocusOrderCode,
                     onFocusConsumed = { mapFocusOrderCode = null },
-                    onOpenOrder = { code -> returnOrderCode = code; tab = Tab.ORDERS }
+                    onOpenOrder = { code ->
+                        returnOrderCode = code
+                        returnOrderCustomerId = buildDeliveryGroups(vm.orders, vm.customers)
+                            .firstOrNull { group -> group.orders.any { it.code == code } }
+                            ?.customer?.id
+                        tab = Tab.ORDERS
+                    }
                 )
 
                 when (tab) {
@@ -378,7 +385,11 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                         OrderListScreen(
                             vm = vm,
                             focusOrderCode = returnOrderCode,
-                            onFocusConsumed = { returnOrderCode = null },
+                            focusCustomerId = returnOrderCustomerId,
+                            onFocusConsumed = {
+                                returnOrderCode = null
+                                returnOrderCustomerId = null
+                            },
                             onNumberClick = { order -> mapFocusOrderCode = order.code; tab = Tab.MAP },
                             onDeliveryFocusNext = { order -> mapFocusOrderCode = order.code },
                             onCustomerClick = { order ->
@@ -2405,6 +2416,7 @@ private fun CustomerCoordinateMapPicker(
 fun OrderListScreen(
     vm: MainViewModel,
     focusOrderCode: String? = null,
+    focusCustomerId: Long? = null,
     onFocusConsumed: () -> Unit = {},
     onNumberClick: (Order) -> Unit = {},
     onDeliveryFocusNext: (Order) -> Unit = {},
@@ -2421,6 +2433,7 @@ fun OrderListScreen(
         g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
     }
     var keyword by remember { mutableStateOf("") }
+    var mapCustomerFilterId by remember { mutableStateOf<Long?>(null) }
     var showTools by remember { mutableStateOf(false) }
     var showAddOrder by remember { mutableStateOf(false) }
     var editPicker by remember { mutableStateOf(false) }
@@ -2432,12 +2445,19 @@ fun OrderListScreen(
     var deliveryFocusCode by remember { mutableStateOf<String?>(null) }
     val q = keyword.trim()
 
-    fun matches(g: DeliveryGroup): Boolean = q.isBlank() ||
+    LaunchedEffect(focusOrderCode, focusCustomerId) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        keyword = code
+        mapCustomerFilterId = focusCustomerId
+    }
+
+    fun matches(g: DeliveryGroup): Boolean =
+        mapCustomerFilterId?.let { wantedId -> g.customer?.id == wantedId } ?: (q.isBlank() ||
         g.orders.any { o ->
             o.code.contains(q, true) || o.customer.contains(q, true) ||
                 o.phone.contains(q, true) || o.address.contains(q, true) ||
                 o.shop.contains(q, true) || o.item.contains(q, true)
-        } || (g.customer?.name?.contains(q, true) == true)
+        } || (g.customer?.name?.contains(q, true) == true))
 
     // Tab Chi tiết đơn: các điểm CHƯA có tọa độ thật luôn nằm đầu danh sách.
     // Chỉ đổi thứ tự hiển thị; activeGroups vẫn giữ thứ tự tuyến gốc để STT đã tạo không bị lệch.
@@ -2452,7 +2472,10 @@ fun OrderListScreen(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let { keyword = it }
+        result.contents?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            keyword = it
+            mapCustomerFilterId = null
+        }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -2493,7 +2516,17 @@ fun OrderListScreen(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
             Spacer(Modifier.height(6.dp))
-            SearchBox(keyword, { keyword = it }, { keyword = "" }) {
+            SearchBox(
+                keyword,
+                { value ->
+                    keyword = value
+                    mapCustomerFilterId = null
+                },
+                {
+                    keyword = ""
+                    mapCustomerFilterId = null
+                }
+            ) {
                 scanLauncher.launch(ScanOptions().apply {
                     setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
                     setPrompt("Đưa mã QR hoặc mã vạch vào giữa khung")
