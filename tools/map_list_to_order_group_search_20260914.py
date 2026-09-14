@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Build trigger: grouped map -> order detail search behavior.
 p = Path('app/src/main/java/com/example/giaohangpro/MainActivity.kt')
 s = p.read_text()
 
