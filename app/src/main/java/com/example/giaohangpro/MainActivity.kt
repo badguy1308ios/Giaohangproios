@@ -2966,7 +2966,7 @@ private fun DeliveryGroupCard(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } } } } }
+                    if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } } } } } }
                     ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                     ActionButton("Zalo", Icons.Default.Chat, onClick = { openZalo() })
                     ActionButton("SMS", Icons.Default.Sms, onClick = { openSms() })
@@ -3088,7 +3088,7 @@ private fun SingleOrderDetailCard(
             }
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } } } } }
+                if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } } } } } }
                 ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                 ActionButton("Zalo", Icons.Default.Chat, onClick = onZalo)
                 ActionButton("SMS", Icons.Default.Sms, onClick = onSms)
