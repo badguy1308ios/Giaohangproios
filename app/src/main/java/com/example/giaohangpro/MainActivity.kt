@@ -146,7 +146,8 @@ data class Order(
     val shop: String = "",
     val status: String = "TT500", // Chỉ dùng TT500, TT506, TT507, TT508, TT505 hoặc TT515.
     val latitude: String = "", // Vĩ độ điểm giao; marker chỉ hiện khi tọa độ hợp lệ.
-    val longitude: String = "" // Kinh độ điểm giao; dùng cùng với latitude để dẫn đường.
+    val longitude: String = "", // Kinh độ điểm giao; dùng cùng với latitude để dẫn đường.
+    val locallyDelivered: Boolean = false // Dấu cục bộ, được xóa khi nhập lại MVĐ; không phải trạng thái VTMan.
 )
 
 // Mỗi khách hàng có một id ổn định để khi sửa/xóa không bị nhầm khách có cùng tên.
@@ -157,7 +158,6 @@ private fun normalizeOrderStatus(raw: String): String {
     val clean = raw.trim().uppercase()
     return when {
         clean in AllowedOrderStatuses -> clean
-        raw.trim().equals("Đã giao", ignoreCase = true) -> "TT505"
         else -> "TT500"
     }
 }
@@ -1363,8 +1363,13 @@ private fun buildDeliveryGroups(orders: List<Order>, customers: List<Customer>):
             normalizedPhone.isNotBlank() -> "P:$normalizedPhone"
             else -> "O:${order.code}"
         }
-        grouped.getOrPut(key) { mutableListOf() }.add(order)
-        customerForKey[key] = customer
+        val displayKey = when {
+            order.locallyDelivered -> "$key:LOCAL"
+            isTerminalOrderStatus(order.status) -> "$key:TERMINAL"
+            else -> key
+        }
+        grouped.getOrPut(displayKey) { mutableListOf() }.add(order)
+        customerForKey[displayKey] = customer
     }
     return grouped.map { (key, list) -> DeliveryGroup(key, customerForKey[key], list) }
 }
@@ -1412,7 +1417,7 @@ fun MapScreen(
     onOpenOrder: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { isTerminalOrderStatus(it.status) }, vm.customers)
+    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { it.locallyDelivered || isTerminalOrderStatus(it.status) }, vm.customers)
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
     var draft by remember(activeGroups.map { it.key }) { mutableStateOf(activeGroups.map { it.key }) }
@@ -2359,8 +2364,9 @@ fun OrderListScreen(
 ) {
     val context = LocalContext.current
     val allGroups = buildDeliveryGroups(vm.orders, vm.customers)
-    val activeGroups = allGroups.filterNot { g -> g.orders.all { isTerminalOrderStatus(it.status) } }
-    val deliveredGroups = allGroups.filter { g -> g.orders.all { isTerminalOrderStatus(it.status) } }
+    val activeGroups = allGroups.filterNot { g -> g.orders.all { it.locallyDelivered || isTerminalOrderStatus(it.status) } }
+    val deliveredGroups = allGroups.filter { g -> g.orders.all { it.locallyDelivered } }
+    val terminalGroups = allGroups.filter { g -> g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) } }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var editPicker by remember { mutableStateOf(false) }
@@ -2383,7 +2389,7 @@ fun OrderListScreen(
     val matchedActiveGroups = activeGroups.filter(::matches)
     val pendingGroups = matchedActiveGroups.filterNot(::deliveryGroupHasCoordinate)
     val locatedGroups = matchedActiveGroups.filter(::deliveryGroupHasCoordinate)
-    val visibleGroups = pendingGroups + locatedGroups + deliveredGroups.filter(::matches)
+    val visibleGroups = pendingGroups + locatedGroups + deliveredGroups.filter(::matches) + terminalGroups.filter(::matches)
     val filteredOrders = if (q.isBlank()) vm.orders else vm.orders.filter { o ->
         o.code.contains(q, true) || o.customer.contains(q, true) || o.phone.contains(q, true) ||
             o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true)
@@ -2498,7 +2504,7 @@ fun OrderListScreen(
                     contentPadding = PaddingValues(bottom = 62.dp)
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
-                        val delivered = group.orders.all { isTerminalOrderStatus(it.status) }
+                        val delivered = group.orders.all { it.locallyDelivered }
                         val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else activeGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
                         DeliveryGroupCard(
                             routeStt = routeStt,
@@ -2560,13 +2566,13 @@ fun OrderListScreen(
         val firstCode = group.orders.firstOrNull()?.code.orEmpty()
         AlertDialog(
             onDismissRequest = { pendingDeliveredGroup = null },
-            title = { Text("Xác nhận cập nhật TT505?") },
+            title = { Text("Xác nhận giao?") },
             text = {
                 Text(
                     if (group.orders.size > 1)
-                        "Cập nhật toàn bộ ${group.orders.size} MVĐ của điểm giao này thành TT505?"
+                        "Ghi nhớ tạm thao tác giao cho ${group.orders.size} MVĐ? Nạp lại từng MVĐ sẽ xóa dấu này."
                     else
-                        "Cập nhật MVĐ $firstCode thành TT505?"
+                        "Ghi nhớ tạm thao tác giao cho MVĐ $firstCode? Nạp lại MVĐ sẽ xóa dấu này."
                 )
             },
             confirmButton = {
@@ -2718,9 +2724,7 @@ private fun DeliveryGroupCard(
                     modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (delivered) {
-                        Icon(Icons.Default.CheckCircle, "TT505 hoặc TT515", tint = Color(0xFFD32F2F), modifier = Modifier.size(38.dp))
-                    } else {
+                    if (!delivered && group.orders.any { !isTerminalOrderStatus(it.status) }) {
                         Box(Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() }, contentAlignment = Alignment.Center) {
                             RouteStateCircle(routeStt, deliveryGroupHasCoordinate(group), false)
                         }
@@ -2802,7 +2806,7 @@ private fun GroupedOrderDetail(
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CopyableWaybillCode(order.code, Modifier.weight(1f))
-            Text(normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(if (delivered) "" else normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
@@ -2839,7 +2843,7 @@ private fun SingleOrderDetailCard(
     ) {
         Column(Modifier.padding(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!delivered) {
+                if (!delivered && !isTerminalOrderStatus(order.status)) {
                     Box(
                         Modifier.size(38.dp).clip(CircleShape).clickable { },
                         contentAlignment = Alignment.Center
@@ -2847,7 +2851,7 @@ private fun SingleOrderDetailCard(
                     Spacer(Modifier.width(7.dp))
                 }
                 CopyableWaybillCode(order.code, Modifier.weight(1f))
-                Text(normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(if (delivered) "" else normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
                 Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
@@ -3952,7 +3956,8 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                     code=optString(o,"code"), customer=optString(o,"customer"), phone=optString(o,"phone"),
                     address=optString(o,"address"), item=optString(o,"item"), amount=optString(o,"amount"), tags=tags,
                     shop=optString(o,"shop"), status=normalizeOrderStatus(optString(o,"status")),
-                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude")
+                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude"),
+                    locallyDelivered=o.optBoolean("locallyDelivered", false) || optString(o,"status").equals("Đã giao", true)
                 ))
             }
         }
@@ -3995,6 +4000,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 put("code",o.code); put("customer",o.customer); put("phone",o.phone); put("address",o.address); put("item",o.item)
                 put("amount",o.amount); put("tags",org.json.JSONArray(o.tags)); put("shop",o.shop); put("status",o.status)
                 put("latitude",o.latitude); put("longitude",o.longitude)
+                put("locallyDelivered",o.locallyDelivered)
             })
         }
         val customersArr=org.json.JSONArray()
@@ -4106,17 +4112,13 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
 
     fun markDeliveredGroup(code: String) {
         val base = orderState.firstOrNull { it.code == code } ?: return
-        val customer = findCustomerByPhone(base.phone)
-        val basePhone = normalizeCustomerPhone(base.phone)
-        val customerPhones = if (customer != null) {
-            (listOf(customer.phone) + customer.extraPhones.map { it.number })
-                .map(::normalizeCustomerPhone).filter(String::isNotBlank).toSet()
-        } else {
-            setOf(basePhone).filter(String::isNotBlank).toSet()
-        }
+        if (base.locallyDelivered || isTerminalOrderStatus(base.status)) return
+        val group = buildDeliveryGroups(orderState, customerState)
+            .firstOrNull { g -> g.orders.any { it.code == code } } ?: return
+        val codes = group.orders.map { it.code }.toSet()
         orderState.indices.forEach { i ->
-            if (normalizeCustomerPhone(orderState[i].phone) in customerPhones) {
-                orderState[i] = orderState[i].copy(status = "TT505")
+            if (orderState[i].code in codes) {
+                orderState[i] = orderState[i].copy(locallyDelivered = true)
             }
         }
         savePersistentData()
