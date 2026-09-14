@@ -144,12 +144,34 @@ data class Order(
     val amount: String,
     val tags: List<String>,
     val shop: String = "",
-    val status: String = "Chưa giao", // Trạng thái đơn hàng.
+    val status: String = "TT500", // Chỉ dùng TT500, TT506, TT507, TT508, TT505 hoặc TT515.
     val latitude: String = "", // Vĩ độ điểm giao; marker chỉ hiện khi tọa độ hợp lệ.
     val longitude: String = "" // Kinh độ điểm giao; dùng cùng với latitude để dẫn đường.
 )
 
 // Mỗi khách hàng có một id ổn định để khi sửa/xóa không bị nhầm khách có cùng tên.
+private val AllowedOrderStatuses = setOf("TT500", "TT506", "TT507", "TT508", "TT505", "TT515")
+private val TerminalOrderStatuses = setOf("TT505", "TT515")
+
+private fun normalizeOrderStatus(raw: String): String {
+    val clean = raw.trim().uppercase()
+    return when {
+        clean in AllowedOrderStatuses -> clean
+        raw.trim().equals("Đã giao", ignoreCase = true) -> "TT505"
+        else -> "TT500"
+    }
+}
+
+private fun isTerminalOrderStatus(status: String): Boolean =
+    normalizeOrderStatus(status) in TerminalOrderStatuses
+
+private fun orderStatusColor(status: String): Color = when (normalizeOrderStatus(status)) {
+    "TT500" -> Color(0xFF1976D2)
+    "TT506", "TT507", "TT508" -> Color(0xFFF57C00)
+    "TT505", "TT515" -> Color(0xFFD32F2F)
+    else -> Color(0xFF1976D2)
+}
+
 data class Customer(
     val id: Long, // Mã định danh nội bộ của khách hàng.
     val name: String, // Tên chính hiển thị trong danh sách và màn hình chi tiết.
@@ -1390,7 +1412,7 @@ fun MapScreen(
     onOpenOrder: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { it.status.equals("Đã giao", true) }, vm.customers)
+    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { isTerminalOrderStatus(it.status) }, vm.customers)
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
     var draft by remember(activeGroups.map { it.key }) { mutableStateOf(activeGroups.map { it.key }) }
@@ -2337,8 +2359,8 @@ fun OrderListScreen(
 ) {
     val context = LocalContext.current
     val allGroups = buildDeliveryGroups(vm.orders, vm.customers)
-    val activeGroups = allGroups.filterNot { g -> g.orders.all { it.status.equals("Đã giao", true) } }
-    val deliveredGroups = allGroups.filter { g -> g.orders.all { it.status.equals("Đã giao", true) } }
+    val activeGroups = allGroups.filterNot { g -> g.orders.all { isTerminalOrderStatus(it.status) } }
+    val deliveredGroups = allGroups.filter { g -> g.orders.all { isTerminalOrderStatus(it.status) } }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var editPicker by remember { mutableStateOf(false) }
@@ -2476,7 +2498,7 @@ fun OrderListScreen(
                     contentPadding = PaddingValues(bottom = 62.dp)
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
-                        val delivered = group.orders.all { it.status.equals("Đã giao", true) }
+                        val delivered = group.orders.all { isTerminalOrderStatus(it.status) }
                         val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else activeGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
                         DeliveryGroupCard(
                             routeStt = routeStt,
@@ -2538,13 +2560,13 @@ fun OrderListScreen(
         val firstCode = group.orders.firstOrNull()?.code.orEmpty()
         AlertDialog(
             onDismissRequest = { pendingDeliveredGroup = null },
-            title = { Text("Xác nhận đã giao?") },
+            title = { Text("Xác nhận cập nhật TT505?") },
             text = {
                 Text(
                     if (group.orders.size > 1)
-                        "Đánh dấu toàn bộ ${group.orders.size} MVĐ của điểm giao này là Đã giao?"
+                        "Cập nhật toàn bộ ${group.orders.size} MVĐ của điểm giao này thành TT505?"
                     else
-                        "Đánh dấu MVĐ $firstCode là Đã giao?"
+                        "Cập nhật MVĐ $firstCode thành TT505?"
                 )
             },
             confirmButton = {
@@ -2697,7 +2719,7 @@ private fun DeliveryGroupCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (delivered) {
-                        Icon(Icons.Default.CheckCircle, "Đã giao", tint = Color(0xFF2E7D32), modifier = Modifier.size(38.dp))
+                        Icon(Icons.Default.CheckCircle, "TT505 hoặc TT515", tint = Color(0xFFD32F2F), modifier = Modifier.size(38.dp))
                     } else {
                         Box(Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() }, contentAlignment = Alignment.Center) {
                             RouteStateCircle(routeStt, deliveryGroupHasCoordinate(group), false)
@@ -2712,9 +2734,9 @@ private fun DeliveryGroupCard(
                 // Cụm nút thao tác dùng chung cho tất cả MVĐ trong Customer ID này.
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, onClick = onDelivered)
+                    ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered)
                     ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                     ActionButton("Zalo", Icons.Default.Chat, onClick = { openZalo() })
                     ActionButton("SMS", Icons.Default.Sms, onClick = { openSms() })
@@ -2780,7 +2802,7 @@ private fun GroupedOrderDetail(
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CopyableWaybillCode(order.code, Modifier.weight(1f))
-            Text(order.status.ifBlank { if (delivered) "Đã giao" else "—" }, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
@@ -2825,7 +2847,7 @@ private fun SingleOrderDetailCard(
                     Spacer(Modifier.width(7.dp))
                 }
                 CopyableWaybillCode(order.code, Modifier.weight(1f))
-                Text(order.status.ifBlank { if (delivered) "Đã giao" else "—" }, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
                 Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
@@ -2839,8 +2861,8 @@ private fun SingleOrderDetailCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { order.tags.forEach { Tag(it) } }
             }
             Spacer(Modifier.height(7.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, onClick = onDelivered)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered)
                 ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                 ActionButton("Zalo", Icons.Default.Chat, onClick = onZalo)
                 ActionButton("SMS", Icons.Default.Sms, onClick = onSms)
@@ -2893,12 +2915,13 @@ fun RowScope.ActionButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     filled: Boolean = false,
+    buttonWeight: Float = 1f,
     onClick: () -> Unit = {}
 ) {
     Box(
         Modifier
             .height(36.dp)
-            .weight(1f)
+            .weight(buttonWeight)
             .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() }
             .background(if (filled) Orange else OrangeLight)
@@ -2917,7 +2940,9 @@ fun RowScope.ActionButton(
                 text,
                 color = if (filled) Color.White else Navy,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -3926,7 +3951,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 orderState.add(Order(
                     code=optString(o,"code"), customer=optString(o,"customer"), phone=optString(o,"phone"),
                     address=optString(o,"address"), item=optString(o,"item"), amount=optString(o,"amount"), tags=tags,
-                    shop=optString(o,"shop"), status=optString(o,"status").ifBlank { "Chưa giao" },
+                    shop=optString(o,"shop"), status=normalizeOrderStatus(optString(o,"status")),
                     latitude=optString(o,"latitude"), longitude=optString(o,"longitude")
                 ))
             }
@@ -4057,7 +4082,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 val o = Order(
                     code, g(iname), g(ip), g(ia), g(ii), g(icod),
                     g(isv).split(' ', ';', ',', '|').map(String::trim).filter(String::isNotBlank),
-                    shop = g(ishop), status = g(ist).ifBlank { "Chưa giao" }
+                    shop = g(ishop), status = normalizeOrderStatus(g(ist))
                 )
                 val k = orderState.indexOfFirst { it.code.equals(code, true) }
                 if (k >= 0) orderState[k] = o else orderState.add(o)
@@ -4091,7 +4116,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         }
         orderState.indices.forEach { i ->
             if (normalizeCustomerPhone(orderState[i].phone) in customerPhones) {
-                orderState[i] = orderState[i].copy(status = "Đã giao")
+                orderState[i] = orderState[i].copy(status = "TT505")
             }
         }
         savePersistentData()
@@ -4109,7 +4134,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         var changed=false
         records.forEach { r ->
             val order=Order(code=r.waybill,customer=r.customer,phone=r.phone,address=r.address,item=r.goods,amount=r.cod,
-                tags=r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),shop=r.shop,status=r.status)
+                tags=r.service.split(',', ' ').map(String::trim).filter(String::isNotBlank),shop=r.shop,status=normalizeOrderStatus(r.status))
             val index=orderState.indexOfFirst { it.code==r.waybill }
             if(index>=0) orderState[index]=order else orderState.add(order)
             ensureCustomerFromImportedOrder(r.customer,r.phone,r.address)
