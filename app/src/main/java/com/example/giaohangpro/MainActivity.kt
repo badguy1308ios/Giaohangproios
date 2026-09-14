@@ -380,6 +380,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                             focusOrderCode = returnOrderCode,
                             onFocusConsumed = { returnOrderCode = null },
                             onNumberClick = { order -> mapFocusOrderCode = order.code; tab = Tab.MAP },
+                            onDeliveryFocusNext = { order -> mapFocusOrderCode = order.code },
                             onCustomerClick = { order ->
                                 returnOrderCode = order.code
                                 fun normalizedPhone(raw: String): String {
@@ -1417,7 +1418,16 @@ fun MapScreen(
     onOpenOrder: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val activeGroups = buildDeliveryGroups(vm.orders.filterNot { it.locallyDelivered || isTerminalOrderStatus(it.status) }, vm.customers)
+    // Locally delivered stops stay in the numbering base so later STT values never collapse upward.
+    // They are removed only from the visible/active map route.
+    val numberedRouteGroups = buildDeliveryGroups(
+        vm.orders.filterNot { isTerminalOrderStatus(it.status) },
+        vm.customers
+    )
+    val activeGroups = numberedRouteGroups.filterNot { g -> g.orders.all { it.locallyDelivered } }
+    val stableRouteNumbers = numberedRouteGroups.flatMapIndexed { index, group ->
+        group.orders.map { it.code to (index + 1) }
+    }.toMap()
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
     var draft by remember(activeGroups.map { it.key }) { mutableStateOf(activeGroups.map { it.key }) }
@@ -1476,6 +1486,7 @@ fun MapScreen(
         customers = vm.customers,
         anchorPoint = vm.routeAnchorPoint(),
         routeNumberingEnabled = vm.routeNumberingEnabled,
+        stableRouteNumbers = stableRouteNumbers,
         editingStt = editing,
         focusOrderCode = focusOrderCode,
         onFocusConsumed = onFocusConsumed,
@@ -1561,6 +1572,7 @@ private fun BaseMapScreen(
     customers: List<Customer>,
     anchorPoint: MapPoint?,
     routeNumberingEnabled: Boolean,
+    stableRouteNumbers: Map<String, Int>,
     editingStt: Boolean,
     focusOrderCode: String?,
     onFocusConsumed: () -> Unit,
@@ -1584,7 +1596,7 @@ private fun BaseMapScreen(
     var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
 
-    val mappedOrders = remember(orders, customers, driverLocation, anchorPoint, routeNumberingEnabled) {
+    val mappedOrders = remember(orders, customers, driverLocation, anchorPoint, routeNumberingEnabled, stableRouteNumbers) {
         orders.mapIndexed { index, order ->
             val orderPoint = pointFromStrings(order.latitude, order.longitude)
             val customerPoint = customers.firstOrNull {
@@ -1594,7 +1606,13 @@ private fun BaseMapScreen(
             }?.let { pointFromStrings(it.latitude, it.longitude) }
             val realPoint = orderPoint ?: customerPoint
             val displayPoint = realPoint ?: anchorPoint ?: driverLocation ?: DEFAULT_MAP_POINT
-            MapOrderMarker(order, displayPoint, index + 1, realPoint != null, routeNumberingEnabled && realPoint != null)
+            MapOrderMarker(
+                order,
+                displayPoint,
+                stableRouteNumbers[order.code] ?: (index + 1),
+                realPoint != null,
+                routeNumberingEnabled && realPoint != null
+            )
         }
     }
     val selectedMarker = mappedOrders.firstOrNull { it.order.code == selectedOrderCode }
@@ -2360,6 +2378,7 @@ fun OrderListScreen(
     focusOrderCode: String? = null,
     onFocusConsumed: () -> Unit = {},
     onNumberClick: (Order) -> Unit = {},
+    onDeliveryFocusNext: (Order) -> Unit = {},
     onCustomerClick: (Order) -> Unit
 ) {
     val context = LocalContext.current
@@ -2367,6 +2386,11 @@ fun OrderListScreen(
     val activeGroups = allGroups.filterNot { g -> g.orders.all { it.locallyDelivered || isTerminalOrderStatus(it.status) } }
     val deliveredGroups = allGroups.filter { g -> g.orders.all { it.locallyDelivered } }
     val terminalGroups = allGroups.filter { g -> g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) } }
+    // Numbering base = active + locally delivered route stops, in original route order.
+    // Terminal VTMan statuses never consume a route STT.
+    val numberedRouteGroups = allGroups.filterNot { g ->
+        g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
+    }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var showAddOrder by remember { mutableStateOf(false) }
@@ -2376,6 +2400,7 @@ fun OrderListScreen(
     var selected by remember { mutableStateOf(setOf<String>()) }
     var confirmDelete by remember { mutableStateOf(false) }
     var pendingDeliveredGroup by remember { mutableStateOf<DeliveryGroup?>(null) }
+    var deliveryFocusCode by remember { mutableStateOf<String?>(null) }
     val q = keyword.trim()
 
     fun matches(g: DeliveryGroup): Boolean = q.isBlank() ||
@@ -2427,6 +2452,13 @@ fun OrderListScreen(
         val i = visibleGroups.indexOfFirst { g -> g.orders.any { it.code == code } }
         if (i >= 0) listState.scrollToItem(i)
         onFocusConsumed()
+    }
+
+    LaunchedEffect(deliveryFocusCode, visibleGroups) {
+        val code = deliveryFocusCode ?: return@LaunchedEffect
+        val i = visibleGroups.indexOfFirst { g -> g.orders.any { it.code == code } }
+        if (i >= 0) listState.animateScrollToItem(i)
+        deliveryFocusCode = null
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -2506,7 +2538,7 @@ fun OrderListScreen(
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
                         val delivered = group.orders.all { it.locallyDelivered }
-                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else activeGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
+                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else numberedRouteGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
                         DeliveryGroupCard(
                             routeStt = routeStt,
                             group = group,
@@ -2583,8 +2615,18 @@ fun OrderListScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    val currentIndex = numberedRouteGroups.indexOfFirst { it.key == group.key }
+                    val nextOrder = if (currentIndex >= 0) {
+                        numberedRouteGroups.drop(currentIndex + 1)
+                            .firstOrNull { next -> next.orders.any { !it.locallyDelivered && !isTerminalOrderStatus(it.status) } }
+                            ?.orders?.firstOrNull()
+                    } else null
                     group.orders.firstOrNull()?.let { vm.markDeliveredGroup(it.code) }
                     pendingDeliveredGroup = null
+                    nextOrder?.let { next ->
+                        deliveryFocusCode = next.code
+                        onDeliveryFocusNext(next)
+                    }
                 }) { Text("XÁC NHẬN", fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
