@@ -15,3 +15,4 @@ python3 tools/focus_map_list_by_order_code_20260914.py
 python3 tools/fix_single_order_stt_click_20260914.py
 python3 tools/fix_edit_stt_focus_isolation_20260914.py
 python3 tools/hide_delivered_button_20260914.py
+python3 tools/clear_stt_memory_on_select_all_delete_20260914.py
