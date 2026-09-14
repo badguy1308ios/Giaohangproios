@@ -1671,6 +1671,7 @@ private fun BaseMapScreen(
                 MapOrderBottomSheet(
                     orders = mappedOrders,
                     selectedNumber = selectedMarker?.number,
+                    selectedOrderCode = selectedOrderCode,
                     editingStt = editingStt,
                     onOrderClick = { marker -> if (!editingStt) onOpenOrder(marker.order.code) },
                     onNumberClick = { marker ->
@@ -1707,6 +1708,7 @@ private fun BaseMapScreen(
 private fun BoxScope.MapOrderBottomSheet(
     orders: List<MapOrderMarker>,
     selectedNumber: Int?,
+    selectedOrderCode: String?,
     editingStt: Boolean,
     onOrderClick: (MapOrderMarker) -> Unit,
     onNumberClick: (MapOrderMarker) -> Unit,
@@ -1726,9 +1728,12 @@ private fun BoxScope.MapOrderBottomSheet(
 ) {
     var routeMenuExpanded by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(selectedNumber, orders) {
-        val n = selectedNumber ?: return@LaunchedEffect
-        val i = orders.indexOfFirst { it.number == n }
+    LaunchedEffect(selectedOrderCode, selectedNumber, orders) {
+        val i = selectedOrderCode
+            ?.let { code -> orders.indexOfFirst { it.order.code == code } }
+            ?.takeIf { it >= 0 }
+            ?: selectedNumber?.let { n -> orders.indexOfFirst { it.number == n } }?.takeIf { it >= 0 }
+            ?: -1
         if (i >= 0) listState.animateScrollToItem(i)
     }
     Surface(
