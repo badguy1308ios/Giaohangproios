@@ -2972,6 +2972,7 @@ private fun DeliveryGroupCard(
             routeStt = routeStt,
             hasRealCoordinate = deliveryGroupHasCoordinate(group),
             delivered = delivered,
+            onNumberClick = onNumberClick,
             onCustomerClick = onCustomerClick,
             onDelivered = onDelivered,
             onZalo = { openZalo() },
@@ -3032,6 +3033,7 @@ private fun SingleOrderDetailCard(
     routeStt: Int?,
     hasRealCoordinate: Boolean,
     delivered: Boolean,
+    onNumberClick: () -> Unit,
     onCustomerClick: () -> Unit,
     onDelivered: () -> Unit,
     onZalo: () -> Unit,
@@ -3049,7 +3051,7 @@ private fun SingleOrderDetailCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!delivered && !isTerminalOrderStatus(order.status)) {
                     Box(
-                        Modifier.size(38.dp).clip(CircleShape).clickable { },
+                        Modifier.size(38.dp).clip(CircleShape).clickable { onNumberClick() },
                         contentAlignment = Alignment.Center
                     ) { RouteStateCircle(routeStt, hasRealCoordinate, false) }
                     Spacer(Modifier.width(7.dp))
