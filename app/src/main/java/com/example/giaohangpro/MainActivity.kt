@@ -2888,16 +2888,17 @@ fun OrderInfoRow(
         .padding(vertical = 1.dp)
     Row(
         rowModifier,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
-        Icon(icon, null, tint = Navy, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = Navy, modifier = Modifier.size(20.dp).padding(top = 1.dp))
         Spacer(Modifier.width(7.dp))
         Text(
             text,
+            modifier = Modifier.weight(1f),
             color = Navy,
             fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            lineHeight = 19.sp,
+            softWrap = true
         )
     }
 }
