@@ -1643,7 +1643,10 @@ private fun BaseMapScreen(
 
     LaunchedEffect(focusOrderCode, mappedOrders) {
         val code = focusOrderCode ?: return@LaunchedEffect
-        if (mappedOrders.any { it.order.code == code }) selectedOrderCode = code
+        if (mappedOrders.any { it.order.code == code }) {
+            mapExpanded = false
+            selectedOrderCode = code
+        }
         onFocusConsumed()
     }
 
