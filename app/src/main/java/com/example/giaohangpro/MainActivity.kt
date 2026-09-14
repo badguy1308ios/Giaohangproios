@@ -2450,6 +2450,7 @@ fun OrderListScreen(
     var editOrder by remember { mutableStateOf<Order?>(null) }
     var deleteMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<String>()) }
+    var deleteAllWasChosen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var pendingDeliveredGroup by remember { mutableStateOf<DeliveryGroup?>(null) }
     var deliveryFocusCode by remember { mutableStateOf<String?>(null) }
@@ -2553,10 +2554,17 @@ fun OrderListScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = allVisibleSelected,
-                        onCheckedChange = { all -> selected = if (all) filteredOrders.map { it.code }.toSet() else emptySet() }
+                        onCheckedChange = { all ->
+                            deleteAllWasChosen = all
+                            selected = if (all) filteredOrders.map { it.code }.toSet() else emptySet()
+                        }
                     )
                     Text("Chọn tất cả", Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Navy)
-                    TextButton(onClick = { deleteMode = false; selected = emptySet() }) { Text("HỦY") }
+                    TextButton(onClick = {
+                        deleteMode = false
+                        selected = emptySet()
+                        deleteAllWasChosen = false
+                    }) { Text("HỦY") }
                     Button(
                         onClick = { if (selected.isNotEmpty()) confirmDelete = true },
                         enabled = selected.isNotEmpty()
@@ -2590,6 +2598,7 @@ fun OrderListScreen(
                                 Checkbox(
                                     checked = order.code in selected,
                                     onCheckedChange = { checked ->
+                                        deleteAllWasChosen = false
                                         selected = if (checked) selected + order.code else selected - order.code
                                     }
                                 )
@@ -2672,7 +2681,12 @@ fun OrderListScreen(
             DropdownMenuItem(
                 text = { Text("Xóa đơn hàng") },
                 leadingIcon = { Icon(Icons.Default.Delete, null) },
-                onClick = { showTools = false; selected = emptySet(); deleteMode = true }
+                onClick = {
+                    showTools = false
+                    selected = emptySet()
+                    deleteAllWasChosen = false
+                    deleteMode = true
+                }
             )
         }
     }
@@ -2876,8 +2890,11 @@ fun OrderListScreen(
         text = { Text("Xác nhận xóa ${selected.size} đơn đã chọn?") },
         confirmButton = {
             TextButton(onClick = {
+                val clearAllRouteMemory = deleteAllWasChosen && selected.isNotEmpty()
                 vm.deleteOrders(selected)
+                if (clearAllRouteMemory) vm.clearRouteNumbering()
                 selected = emptySet()
+                deleteAllWasChosen = false
                 confirmDelete = false
                 deleteMode = false
             }) { Text("XÓA", color = Color(0xFFE21B1B)) }
@@ -2949,7 +2966,7 @@ private fun DeliveryGroupCard(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) }
+                    if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } }
                     ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                     ActionButton("Zalo", Icons.Default.Chat, onClick = { openZalo() })
                     ActionButton("SMS", Icons.Default.Sms, onClick = { openSms() })
@@ -3071,7 +3088,7 @@ private fun SingleOrderDetailCard(
             }
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) }
+                if (!delivered) { if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) } }
                 ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                 ActionButton("Zalo", Icons.Default.Chat, onClick = onZalo)
                 ActionButton("SMS", Icons.Default.Sms, onClick = onSms)
