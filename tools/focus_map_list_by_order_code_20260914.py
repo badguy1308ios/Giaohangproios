@@ -53,5 +53,26 @@ if old in s:
 elif 'LaunchedEffect(selectedOrderCode, selectedNumber, orders)' not in s:
     raise SystemExit('MapOrderBottomSheet scroll effect anchor not found')
 
+# An external focus (for example tapping the STT circle in Order Detail) must
+# keep the map's order list visible, select the exact marker, then let the list
+# effect above scroll to the same order code.
+old = '''    LaunchedEffect(focusOrderCode, mappedOrders) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        if (mappedOrders.any { it.order.code == code }) selectedOrderCode = code
+        onFocusConsumed()
+    }'''
+new = '''    LaunchedEffect(focusOrderCode, mappedOrders) {
+        val code = focusOrderCode ?: return@LaunchedEffect
+        if (mappedOrders.any { it.order.code == code }) {
+            mapExpanded = false
+            selectedOrderCode = code
+        }
+        onFocusConsumed()
+    }'''
+if old in s:
+    s = s.replace(old, new, 1)
+elif 'mapExpanded = false\n            selectedOrderCode = code' not in s:
+    raise SystemExit('external map focus effect anchor not found')
+
 p.write_text(s)
-print('map bottom list now focuses exact order code first, then falls back to STT')
+print('STT click now keeps map list visible and focuses exact order on map and list')
