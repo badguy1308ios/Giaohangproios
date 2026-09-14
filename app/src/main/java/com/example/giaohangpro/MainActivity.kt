@@ -2369,6 +2369,7 @@ fun OrderListScreen(
     val terminalGroups = allGroups.filter { g -> g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) } }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
+    var showAddOrder by remember { mutableStateOf(false) }
     var editPicker by remember { mutableStateOf(false) }
     var editOrder by remember { mutableStateOf<Order?>(null) }
     var deleteMode by remember { mutableStateOf(false) }
@@ -2540,6 +2541,11 @@ fun OrderListScreen(
 
         DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.align(Alignment.BottomStart)) {
             DropdownMenuItem(
+                text = { Text("Thêm Đơn Hàng") },
+                leadingIcon = { Icon(Icons.Default.Add, null) },
+                onClick = { showTools = false; showAddOrder = true }
+            )
+            DropdownMenuItem(
                 text = { Text("Nhập danh sách đơn") },
                 leadingIcon = { Icon(Icons.Default.FileOpen, null) },
                 onClick = { showTools = false; importLauncher.launch("text/*") }
@@ -2615,6 +2621,89 @@ fun OrderListScreen(
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { editPicker = false }) { Text("ĐÓNG") } }
+        )
+    }
+
+    if (showAddOrder) {
+        var code by remember { mutableStateOf("") }
+        var shop by remember { mutableStateOf("") }
+        var phone by remember { mutableStateOf("") }
+        var goods by remember { mutableStateOf("") }
+        var status by remember { mutableStateOf("TT500") }
+        var cod by remember { mutableStateOf("") }
+        var services by remember { mutableStateOf("") }
+        var statusMenu by remember { mutableStateOf(false) }
+        var error by remember { mutableStateOf("") }
+        val matchedCustomer = vm.findCustomerByPhone(phone)
+        AlertDialog(
+            onDismissRequest = { showAddOrder = false },
+            title = { Text("Thêm Đơn Hàng") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(code, { code = it; error = "" }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Mã Vận Đơn *") }, singleLine = true)
+                    OutlinedTextField(shop, { shop = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Tên Shop") }, singleLine = true)
+                    OutlinedTextField(phone, { phone = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Số điện thoại") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                    matchedCustomer?.let {
+                        Text("Khách: ${it.name}\n${it.address}", color = TextGray, fontSize = 12.sp)
+                    }
+                    OutlinedTextField(goods, { goods = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Hàng hóa") })
+                    Box {
+                        OutlinedButton(onClick = { statusMenu = true }) { Text("TT: $status") }
+                        DropdownMenu(expanded = statusMenu, onDismissRequest = { statusMenu = false }) {
+                            AllowedOrderStatuses.forEach { value ->
+                                DropdownMenuItem(
+                                    text = { Text(value, color = orderStatusColor(value)) },
+                                    onClick = { status = value; statusMenu = false }
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(cod, { cod = it; error = "" }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("COD (đ)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(services, { services = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Dịch vụ") }, placeholder = { Text("COD, PXD, XMG") })
+                    if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cleanCode = code.trim()
+                    val cleanCod = cod.trim()
+                    val digits = cleanCod.filter { it in '0'..'9' }
+                    when {
+                        cleanCode.isBlank() -> error = "Vui lòng nhập mã vận đơn."
+                        cleanCode.any(Char::isWhitespace) -> error = "Mã vận đơn không được chứa khoảng trắng."
+                        cleanCod.isNotBlank() && (cleanCod.any { it !in "0123456789., " } ||
+                            digits.toLongOrNull() == null) -> error = "COD phải là số tiền nguyên không âm, ví dụ 132000."
+                        else -> {
+                            val customer = vm.findCustomerByPhone(phone)
+                            val order = Order(
+                                code = cleanCode, shop = shop.trim(), phone = phone.trim(),
+                                customer = customer?.name.orEmpty(), address = customer?.address.orEmpty(),
+                                item = goods.trim(), amount = (digits.ifBlank { "0" }.toLong()).toString() + "đ",
+                                status = status,
+                                tags = services.split(',', ';', '|', ' ', '\n', '\t')
+                                    .map(String::trim).filter(String::isNotBlank).distinct()
+                            )
+                            if (vm.addManualOrder(order)) {
+                                keyword = ""
+                                showAddOrder = false
+                                Toast.makeText(context, "Đã thêm MVĐ $cleanCode", Toast.LENGTH_SHORT).show()
+                            } else error = "Mã vận đơn này đã có. Hãy dùng Sửa đơn hàng."
+                        }
+                    }
+                }) { Text("LƯU") }
+            },
+            dismissButton = { TextButton(onClick = { showAddOrder = false }) { Text("HỦY") } }
         )
     }
 
@@ -4128,6 +4217,14 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
 
     fun deleteOrders(codes: Set<String>) {
         if (orderState.removeAll { it.code in codes }) savePersistentData()
+    }
+
+    fun addManualOrder(order: Order): Boolean {
+        val code = order.code.trim()
+        if (code.isBlank() || orderState.any { it.code.equals(code, ignoreCase = true) }) return false
+        orderState.add(order.copy(code = code, status = normalizeOrderStatus(order.status), locallyDelivered = false))
+        savePersistentData()
+        return true
     }
 
     fun updateOrder(updated: Order) {
