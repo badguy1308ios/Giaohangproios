@@ -29,9 +29,10 @@ object VtmanFixedBlockParser {
             .mapNotNull { statusRegex.find(it)?.value?.replace(" ", "") }
             .firstOrNull().orEmpty()
 
-        // COD chỉ được lấy từ dòng có nhãn COD hoặc một dòng tiền độc lập.
-        // Không quét số tiền ở giữa chuỗi hàng hóa để tránh nhầm các mặt hàng bắt đầu bằng số.
-        val cod = findCod(block)
+        // VTMan có thể expose cả MVĐ + trạng thái + COD trên cùng một Accessibility node.
+        // Vì vậy ưu tiên lấy tiền trên đúng dòng chứa MVĐ/trạng thái của đơn hiện tại.
+        // Cách này vẫn tránh nhầm số nằm trong tên hàng hóa ở các dòng phía dưới.
+        val cod = findCod(block, expectedWaybill)
 
         val content = block.drop(1)
         val service = content.asSequence()
@@ -59,8 +60,7 @@ object VtmanFixedBlockParser {
         val address = if (addressIndex >= 0) content.subList(addressIndex, addressEnd + 1).joinToString(" ") else ""
         val goodsStart = if (addressIndex >= 0) addressEnd + 1 else beforeAddress.size
 
-        // Hàng hóa luôn được coi là TEXT. Dòng bắt đầu bằng số vẫn giữ nguyên.
-        // Chỉ loại các dòng chắc chắn là trạng thái/COD/dịch vụ/nhiễu giao diện.
+        // Hàng hóa luôn là text; bắt đầu bằng số vẫn được giữ nguyên.
         val goods = content.drop(goodsStart)
             .filterNot {
                 it in serviceLines ||
@@ -84,13 +84,30 @@ object VtmanFixedBlockParser {
         )
     }
 
-    private fun findCod(block: List<String>): String {
+    private fun findCod(block: List<String>, expectedWaybill: String): String {
+        // 1) Chính xác nhất: tiền nằm trên dòng chứa đúng MVĐ hiện tại.
+        val onWaybillRow = block.asSequence()
+            .filter { containsExpectedWaybill(it, expectedWaybill) }
+            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .firstOrNull()
+        if (!onWaybillRow.isNullOrBlank()) return onWaybillRow
+
+        // 2) Một số layout tách MVĐ nhưng vẫn gộp TT + COD trên cùng node gần đầu block.
+        val onStatusRow = block.asSequence()
+            .take(4)
+            .filter { statusRegex.containsMatchIn(it) }
+            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .firstOrNull()
+        if (!onStatusRow.isNullOrBlank()) return onStatusRow
+
+        // 3) Dòng có nhãn COD và số tiền.
         val labeled = block.asSequence()
             .filter(::looksLikeCodLine)
             .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
             .firstOrNull()
         if (!labeled.isNullOrBlank()) return labeled
 
+        // 4) Fallback cũ: một dòng chỉ chứa số tiền.
         return block.asSequence()
             .map(String::trim)
             .filter(standaloneMoneyRegex::matches)
