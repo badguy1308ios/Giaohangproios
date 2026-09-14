@@ -5,3 +5,4 @@ set -euo pipefail
 # Re-running them on every push caused duplicate branches/modifiers.
 # Keep only the idempotent cleanup guard so existing features stay intact.
 python3 tools/dedupe_generated_mainactivity_20260914.py
+python3 tools/fix_order_detail_multiline_rows_20260914.py
