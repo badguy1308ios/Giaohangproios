@@ -454,7 +454,8 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         }
         AppScreen.CUSTOMER_FORM -> CustomerFormScreen(
             customer = if (formIsNew) null else selectedCustomer,
-            streetNameOptions = vm.customers.map { it.streetName },
+            streetNameOptions = vm.streetNames,
+            onStreetNameCreated = vm::addStreetName,
             onBack = { screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL },
             onSave = { edited ->
                 selectedCustomerId = if (formIsNew) vm.addCustomer(edited) else { vm.updateCustomer(edited); edited.id }
@@ -600,10 +601,7 @@ private fun SettingsScreen(
 @Composable
 private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
-    val streetNames = vm.customers
-        .map { it.streetName.trim() }
-        .filter(String::isNotBlank)
-        .distinctBy { it.lowercase(java.util.Locale.getDefault()) }
+    val streetNames = vm.streetNames
         .sortedBy { it.lowercase(java.util.Locale.getDefault()) }
 
     Column(Modifier.fillMaxSize().background(Background)) {
@@ -3958,6 +3956,7 @@ private data class AddressDraft(val address: String, val latitude: String, val l
 fun CustomerFormScreen(
     customer: Customer?,
     streetNameOptions: List<String> = emptyList(),
+    onStreetNameCreated: (String) -> Unit = {},
     onBack: () -> Unit,
     onSave: (Customer) -> Unit
 ) {
@@ -4040,7 +4039,8 @@ fun CustomerFormScreen(
             StreetNameDropdown(
                 value = streetName,
                 onValueChange = { streetName = it },
-                options = streetNameOptions
+                options = streetNameOptions,
+                onCreate = onStreetNameCreated
             )
             addresses.forEachIndexed { index, item ->
                 Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
@@ -4142,7 +4142,8 @@ fun CustomerFormScreen(
 private fun StreetNameDropdown(
     value: String,
     onValueChange: (String) -> Unit,
-    options: List<String>
+    options: List<String>,
+    onCreate: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val typed = value.trim()
@@ -4176,6 +4177,7 @@ private fun StreetNameDropdown(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = {
                 onValueChange(typed)
+                if (typed.isNotBlank() && !hasExactMatch) onCreate(typed)
                 expanded = false
             })
         )
@@ -4200,6 +4202,7 @@ private fun StreetNameDropdown(
                     text = { Text("+ Tạo \"$typed\"", color = Orange, fontWeight = FontWeight.Bold) },
                     onClick = {
                         onValueChange(typed)
+                        onCreate(typed)
                         expanded = false
                     }
                 )
@@ -4447,6 +4450,20 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     val orders: List<Order> get() = orderState
     private val customerState = mutableStateListOf<Customer>()
     val customers: List<Customer> get() = customerState
+    private val streetNameState = mutableStateListOf<String>().apply {
+        val stored = prefs.getString("street_names_v1", null)
+        if (!stored.isNullOrBlank()) {
+            runCatching {
+                val array = org.json.JSONArray(stored)
+                for (index in 0 until array.length()) {
+                    array.optString(index).trim().takeIf(String::isNotBlank)?.let { name ->
+                        if (none { it.equals(name, ignoreCase = true) }) add(name)
+                    }
+                }
+            }
+        }
+    }
+    val streetNames: List<String> get() = streetNameState
 
     init {
         val loaded = loadPersistentData()
@@ -4455,6 +4472,14 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             customerState.addAll(sampleCustomers)
             savePersistentData()
         }
+        var streetNamesChanged = false
+        customerState.map { it.streetName.trim() }.filter(String::isNotBlank).forEach { name ->
+            if (streetNameState.none { it.equals(name, ignoreCase = true) }) {
+                streetNameState.add(name)
+                streetNamesChanged = true
+            }
+        }
+        if (streetNamesChanged) persistStreetNames()
         if (routeNumberingEnabled) {
             val groups = buildDeliveryGroups(
                 orderState.filterNot { isTerminalOrderStatus(it.status) },
@@ -4570,14 +4595,30 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         customerState.add(created); savePersistentData(); return created
     }
 
+    private fun persistStreetNames() {
+        prefs.edit().putString("street_names_v1", org.json.JSONArray(streetNameState).toString()).apply()
+    }
+
+    fun addStreetName(streetName: String) {
+        val clean = streetName.trim()
+        if (clean.isBlank() || streetNameState.any { it.equals(clean, ignoreCase = true) }) return
+        streetNameState.add(clean)
+        persistStreetNames()
+    }
+
     fun addCustomer(customer: Customer): Long {
         val newId=(customerState.maxOfOrNull { it.id } ?: 0L)+1L
+        addStreetName(customer.streetName)
         customerState.add(customer.copy(id=newId)); savePersistentData(); return newId
     }
 
     fun updateCustomer(updatedCustomer: Customer) {
         val index=customerState.indexOfFirst { it.id==updatedCustomer.id }
-        if(index>=0){ customerState[index]=updatedCustomer; savePersistentData() }
+        if(index>=0){
+            addStreetName(updatedCustomer.streetName)
+            customerState[index]=updatedCustomer
+            savePersistentData()
+        }
     }
 
     fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
@@ -4585,15 +4626,17 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     fun deleteStreetName(streetName: String) {
         val target = streetName.trim()
         if (target.isBlank()) return
-        var changed = false
+        val registryChanged = streetNameState.removeAll { it.trim().equals(target, ignoreCase = true) }
+        var customerChanged = false
         customerState.indices.forEach { index ->
             val customer = customerState[index]
             if (customer.streetName.trim().equals(target, ignoreCase = true)) {
                 customerState[index] = customer.copy(streetName = "")
-                changed = true
+                customerChanged = true
             }
         }
-        if (changed) savePersistentData()
+        if (registryChanged) persistStreetNames()
+        if (customerChanged) savePersistentData()
     }
 
     fun importOrdersCsv(text: String): Int {
