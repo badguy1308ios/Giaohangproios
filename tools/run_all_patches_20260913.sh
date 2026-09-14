@@ -7,3 +7,4 @@ set -euo pipefail
 python3 tools/dedupe_generated_mainactivity_20260914.py
 python3 tools/fix_order_detail_multiline_rows_20260914.py
 python3 tools/preserve_route_stt_after_delivery_20260914.py
+python3 tools/show_user_location_in_customer_picker_20260914.py
