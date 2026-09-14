@@ -1425,8 +1425,14 @@ fun MapScreen(
         vm.customers
     )
     val activeGroups = numberedRouteGroups.filterNot { g -> g.orders.all { it.locallyDelivered } }
+    LaunchedEffect(numberedRouteGroups.map { g -> g.orders.map(Order::code) }, vm.routeNumberingEnabled) {
+        if (vm.routeNumberingEnabled) {
+            vm.ensureRouteSttGroups(numberedRouteGroups.map { g -> g.orders.map(Order::code) })
+        }
+    }
     val stableRouteNumbers = numberedRouteGroups.flatMapIndexed { index, group ->
-        group.orders.map { it.code to (index + 1) }
+        val stableStt = vm.routeSttForGroup(group.orders.map(Order::code)) ?: (index + 1)
+        group.orders.map { it.code to stableStt }
     }.toMap()
     var editing by remember { mutableStateOf(false) }
     var confirmSave by remember { mutableStateOf(false) }
@@ -1447,7 +1453,9 @@ fun MapScreen(
             next.add((target - 1).coerceIn(0, next.size), moving)
             draft = next
             val byKey = activeGroups.associateBy { it.key }
-            vm.reorderOrders(next.mapNotNull(byKey::get).flatMap { it.orders.map(Order::code) })
+            val reorderedGroups = next.mapNotNull(byKey::get)
+            vm.reorderOrders(reorderedGroups.flatMap { it.orders.map(Order::code) })
+            vm.replaceRouteStt(reorderedGroups.map { it.orders.map(Order::code) })
         }
         editMarker = null
         editNumberText = ""
@@ -1472,9 +1480,11 @@ fun MapScreen(
             val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
             val codes = text.lineSequence().drop(1).mapNotNull { line -> line.substringAfter(',', "").trim().trim('"').split(' ').firstOrNull()?.takeIf(String::isNotBlank) }.toList()
             val byRep = activeGroups.associateBy { it.orders.first().code }
-            val ordered = codes.mapNotNull { byRep[it] }.flatMap { it.orders.map(Order::code) }
-            val remaining = activeGroups.filterNot { it.orders.first().code in codes }.flatMap { it.orders.map(Order::code) }
-            vm.reorderOrders(ordered + remaining)
+            val orderedGroups = codes.mapNotNull { byRep[it] }
+            val remainingGroups = activeGroups.filterNot { it.orders.first().code in codes }
+            val finalGroups = orderedGroups + remainingGroups
+            vm.reorderOrders(finalGroups.flatMap { it.orders.map(Order::code) })
+            vm.replaceRouteStt(finalGroups.map { it.orders.map(Order::code) })
         }.onFailure { Toast.makeText(context, "Không đọc được file STT", Toast.LENGTH_LONG).show() }
     }
 
@@ -1507,6 +1517,7 @@ fun MapScreen(
             }
             sortedGroups += pending
             vm.reorderOrders(sortedGroups.flatMap { it.orders.map(Order::code) })
+            vm.replaceRouteStt(sortedGroups.map { it.orders.map(Order::code) })
             vm.enableRouteNumbering()
             Toast.makeText(context, "Đã tạo tuyến theo ${sortedGroups.size} điểm giao", Toast.LENGTH_SHORT).show()
         },
@@ -1559,7 +1570,9 @@ fun MapScreen(
         text = { Text("Lưu thứ tự ${draft.size} điểm giao?") },
         confirmButton = { TextButton(onClick={
             val groupByKey=activeGroups.associateBy{it.key}
-            vm.reorderOrders(draft.mapNotNull(groupByKey::get).flatMap{it.orders.map(Order::code)})
+            val savedGroups = draft.mapNotNull(groupByKey::get)
+            vm.reorderOrders(savedGroups.flatMap{it.orders.map(Order::code)})
+            vm.replaceRouteStt(savedGroups.map { it.orders.map(Order::code) })
             confirmSave=false; editing=false
         }){Text("LƯU")} },
         dismissButton = { TextButton(onClick={confirmSave=false}){Text("HỦY")} }
@@ -2477,13 +2490,6 @@ fun OrderListScreen(
         deliveryFocusCode = null
     }
 
-    LaunchedEffect(deliveryFocusCode, visibleGroups) {
-        val code = deliveryFocusCode ?: return@LaunchedEffect
-        val i = visibleGroups.indexOfFirst { g -> g.orders.any { it.code == code } }
-        if (i >= 0) listState.animateScrollToItem(i)
-        deliveryFocusCode = null
-    }
-
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
             Spacer(Modifier.height(6.dp))
@@ -2561,7 +2567,12 @@ fun OrderListScreen(
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
                         val delivered = group.orders.all { it.locallyDelivered }
-                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) null else numberedRouteGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
+                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) {
+                            null
+                        } else {
+                            vm.routeSttForGroup(group.orders.map(Order::code))
+                                ?: numberedRouteGroups.indexOfFirst { it.key == group.key }.takeIf { it >= 0 }?.plus(1)
+                        }
                         DeliveryGroupCard(
                             routeStt = routeStt,
                             group = group,
@@ -4065,6 +4076,56 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     private var routeAnchorLat by mutableStateOf(prefs.getString("route_anchor_lat_v1", "").orEmpty())
     private var routeAnchorLng by mutableStateOf(prefs.getString("route_anchor_lng_v1", "").orEmpty())
 
+    // STT tuyến được lưu tách khỏi vị trí phần tử trong orderState.
+    // Giao hàng / xóa đơn tuyệt đối không dồn STT; chỉ các thao tác sửa/tạo tuyến mới ghi lại bảng này.
+    private val routeSttState = mutableStateMapOf<String, Int>().apply {
+        val obj = runCatching {
+            JSONObject(prefs.getString("route_stt_map_v1", "{}") ?: "{}")
+        }.getOrElse { JSONObject() }
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val code = keys.next()
+            val value = obj.optInt(code, 0)
+            if (value > 0) put(code, value)
+        }
+    }
+
+    private fun persistRouteStt() {
+        val obj = JSONObject()
+        routeSttState.forEach { (code, stt) -> obj.put(code, stt) }
+        prefs.edit().putString("route_stt_map_v1", obj.toString()).apply()
+    }
+
+    fun routeSttFor(code: String): Int? = routeSttState[code]
+
+    fun routeSttForGroup(codes: List<String>): Int? =
+        codes.mapNotNull { routeSttState[it] }.minOrNull()
+
+    fun ensureRouteSttGroups(groups: List<List<String>>) {
+        if (!routeNumberingEnabled) return
+        var changed = false
+        var next = (routeSttState.values.maxOrNull() ?: 0) + 1
+        groups.forEach { codes ->
+            val existing = codes.mapNotNull { routeSttState[it] }.minOrNull()
+            val stt = existing ?: next++
+            codes.forEach { code ->
+                if (routeSttState[code] == null) {
+                    routeSttState[code] = stt
+                    changed = true
+                }
+            }
+        }
+        if (changed) persistRouteStt()
+    }
+
+    fun replaceRouteStt(groups: List<List<String>>) {
+        routeSttState.clear()
+        groups.forEachIndexed { index, codes ->
+            codes.forEach { code -> routeSttState[code] = index + 1 }
+        }
+        persistRouteStt()
+    }
+
     fun routeAnchorPoint(): MapPoint? {
         routeAnchorLat = prefs.getString("route_anchor_lat_v1", routeAnchorLat).orEmpty()
         routeAnchorLng = prefs.getString("route_anchor_lng_v1", routeAnchorLng).orEmpty()
@@ -4084,7 +4145,11 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
 
     fun clearRouteNumbering() {
         routeNumberingEnabled = false
-        prefs.edit().putBoolean("route_numbering_enabled_v1", false).apply()
+        routeSttState.clear()
+        prefs.edit()
+            .putBoolean("route_numbering_enabled_v1", false)
+            .remove("route_stt_map_v1")
+            .apply()
     }
 
     fun learnRoutePattern(points: List<MapPoint>) {
@@ -4117,6 +4182,13 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             orderState.addAll(sampleOrders)
             customerState.addAll(sampleCustomers)
             savePersistentData()
+        }
+        if (routeNumberingEnabled) {
+            val groups = buildDeliveryGroups(
+                orderState.filterNot { isTerminalOrderStatus(it.status) },
+                customerState
+            )
+            ensureRouteSttGroups(groups.map { g -> g.orders.map(Order::code) })
         }
     }
 
