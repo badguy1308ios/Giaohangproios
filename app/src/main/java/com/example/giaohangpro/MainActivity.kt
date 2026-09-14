@@ -318,7 +318,7 @@ private val sampleCustomers = listOf(
 enum class Tab { MAP, ORDERS, CUSTOMERS } // Ba tab chính của ứng dụng.
 
 // Điều hướng nội bộ đơn giản cho demo: danh sách chính, chi tiết khách và form thêm/sửa.
-enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT, CUSTOMER_BACKUP }
+enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT, CUSTOMER_BACKUP, STREET_NAME_MANAGEMENT }
 
 // Xác định cặp textbox nào trong form sẽ nhận tọa độ sau khi người dùng chọn trên bản đồ.
 private enum class CoordinateTarget {
@@ -350,6 +350,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
             AppScreen.VTMAN_EXPORT -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
+            AppScreen.STREET_NAME_MANAGEMENT -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastBackPressAt <= 2000L) {
@@ -460,10 +461,17 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                 screen = AppScreen.CUSTOMER_DETAIL
             }
         )
-        AppScreen.SETTINGS -> SettingsScreen(onBack = { screen = AppScreen.MAIN }, onMoneyLedger = { screen = AppScreen.MONEY_LEDGER }, onVtmanExport = { screen = AppScreen.VTMAN_EXPORT }, onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP })
+        AppScreen.SETTINGS -> SettingsScreen(
+            onBack = { screen = AppScreen.MAIN },
+            onMoneyLedger = { screen = AppScreen.MONEY_LEDGER },
+            onVtmanExport = { screen = AppScreen.VTMAN_EXPORT },
+            onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP },
+            onStreetNameManagement = { screen = AppScreen.STREET_NAME_MANAGEMENT }
+        )
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.STREET_NAME_MANAGEMENT -> StreetNameManagementScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
 }
 
@@ -508,7 +516,13 @@ fun TopHeader(onSettingsClick: () -> Unit = {}) {
 
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtmanExport: () -> Unit, onCustomerBackup: () -> Unit) {
+private fun SettingsScreen(
+    onBack: () -> Unit,
+    onMoneyLedger: () -> Unit,
+    onVtmanExport: () -> Unit,
+    onCustomerBackup: () -> Unit,
+    onStreetNameManagement: () -> Unit
+) {
     val context = LocalContext.current
     val routePrefs = remember { context.getSharedPreferences("giaohangpro_persistent_data_v1", android.content.Context.MODE_PRIVATE) }
     var showRouteSettings by remember { mutableStateOf(false) }
@@ -533,6 +547,12 @@ private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtma
                 SettingsItem(Icons.Default.Inventory2, "XỬ LÝ ĐƠN") { Toast.makeText(context,"Xử lý đơn",Toast.LENGTH_SHORT).show() }
                 SettingsDivider()
                 SettingsItem(Icons.Default.Route, "TUYẾN GIAO HÀNG") { showRouteSettings = true }
+                SettingsDivider()
+                SettingsItem(
+                    Icons.Default.Map,
+                    "QUẢN LÝ TÊN ĐƯỜNG",
+                    "Xem hoặc xóa các tên đường đã lưu"
+                ) { onStreetNameManagement() }
             }
             SettingsSection("TÀI CHÍNH") {
                 SettingsItem(Icons.Default.Payments, "BẢNG KÊ TIỀN", onClick = onMoneyLedger)
@@ -572,6 +592,105 @@ private fun SettingsScreen(onBack: () -> Unit, onMoneyLedger: () -> Unit, onVtma
                 routePrefs.edit().putString("route_anchor_lat_v1", anchorLat).putString("route_anchor_lng_v1", anchorLng).apply()
                 showAnchorPicker = false
                 Toast.makeText(context, "Đã lưu Điểm Neo", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+}
+
+@Composable
+private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+    val streetNames = vm.customers
+        .map { it.streetName.trim() }
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase(java.util.Locale.getDefault()) }
+        .sortedBy { it.lowercase(java.util.Locale.getDefault()) }
+
+    Column(Modifier.fillMaxSize().background(Background)) {
+        CustomerPageHeader("QUẢN LÝ TÊN ĐƯỜNG", onBack)
+        if (streetNames.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Map, null, tint = TextGray, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Chưa có tên đường nào", color = TextGray, fontSize = 14.sp)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 6.dp),
+                contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                items(streetNames, key = { it.lowercase(java.util.Locale.getDefault()) }) { streetName ->
+                    val customerCount = vm.customers.count {
+                        it.streetName.trim().equals(streetName, ignoreCase = true)
+                    }
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 10.dp, top = 7.dp, bottom = 7.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape).background(OrangeLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Map, null, tint = Orange, modifier = Modifier.size(21.dp))
+                            }
+                            Spacer(Modifier.width(9.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(streetName, color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "$customerCount khách hàng đang chọn",
+                                    color = TextGray,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            IconButton(
+                                onClick = { pendingDelete = streetName },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    "Xóa tên đường",
+                                    tint = Color(0xFFE21B1B),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pendingDelete?.let { streetName ->
+        val customerCount = vm.customers.count {
+            it.streetName.trim().equals(streetName, ignoreCase = true)
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Xóa tên đường") },
+            text = {
+                Text(
+                    "Xóa \"$streetName\"? $customerCount khách hàng đang chọn tên đường này sẽ trở về trạng thái chưa chọn. Địa chỉ và tọa độ vẫn được giữ nguyên."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteStreetName(streetName)
+                    pendingDelete = null
+                }) {
+                    Text("XÓA", color = Color(0xFFE21B1B), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("HỦY") }
             }
         )
     }
@@ -4462,6 +4581,20 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
+
+    fun deleteStreetName(streetName: String) {
+        val target = streetName.trim()
+        if (target.isBlank()) return
+        var changed = false
+        customerState.indices.forEach { index ->
+            val customer = customerState[index]
+            if (customer.streetName.trim().equals(target, ignoreCase = true)) {
+                customerState[index] = customer.copy(streetName = "")
+                changed = true
+            }
+        }
+        if (changed) savePersistentData()
+    }
 
     fun importOrdersCsv(text: String): Int {
         val lines = text.lineSequence().filter { it.isNotBlank() }.toList()
