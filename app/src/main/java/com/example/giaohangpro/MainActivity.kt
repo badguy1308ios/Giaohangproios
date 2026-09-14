@@ -2204,6 +2204,39 @@ private fun CustomerCoordinateMapPicker(
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var styleReady by remember { mutableStateOf(false) }
 
+    // Picker luôn hiển thị đồng thời vị trí khách đang chọn và vị trí GPS hiện tại.
+    // GPS chỉ cập nhật marker người dùng; không đổi selectedPoint và không tự kéo camera sau lần focus đầu.
+    fun redrawPickerMarkers(readyMap: MapLibreMap) {
+        readyMap.clear()
+
+        driverLocation?.let { userPoint ->
+            val userIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
+                .fromBitmap(createDriverMotorbikeBitmap(context))
+            readyMap.addMarker(
+                MarkerOptions()
+                    .position(LatLng(userPoint.latitude, userPoint.longitude))
+                    .icon(userIcon)
+                    .title("🛵 Vị trí hiện tại")
+                    .snippet("GPS người dùng")
+            )
+        }
+
+        selectedPoint?.let { customerPoint ->
+            readyMap.addMarker(
+                MarkerOptions()
+                    .position(LatLng(customerPoint.latitude, customerPoint.longitude))
+                    .title("Vị trí khách hàng đang chọn")
+            )
+        }
+    }
+
+    // Mỗi khi GPS hoặc điểm khách thay đổi, chỉ vẽ lại marker. Không tác động camera.
+    LaunchedEffect(driverLocation, selectedPoint, map, styleReady) {
+        val readyMap = map ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        redrawPickerMarkers(readyMap)
+    }
+
     DisposableEffect(mapView, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -2235,12 +2268,7 @@ private fun CustomerCoordinateMapPicker(
                     16.0
                 )
             )
-            readyMap.clear()
-            readyMap.addMarker(
-                MarkerOptions()
-                    .position(LatLng(gps.latitude, gps.longitude))
-                    .title("Vị trí đang chọn")
-            )
+            redrawPickerMarkers(readyMap)
             initialFocusDone = true
         }
     }
@@ -2293,23 +2321,11 @@ private fun CustomerCoordinateMapPicker(
                                             }
                                         }
 
-                                        selectedPoint?.let { point ->
-                                            readyMap.clear()
-                                            readyMap.addMarker(
-                                                MarkerOptions()
-                                                    .position(LatLng(point.latitude, point.longitude))
-                                                    .title("Vị trí đang chọn")
-                                            )
-                                        }
+                                        redrawPickerMarkers(readyMap)
 
                                         readyMap.addOnMapClickListener { tapped ->
                                             selectedPoint = MapPoint(tapped.latitude, tapped.longitude)
-                                            readyMap.clear()
-                                            readyMap.addMarker(
-                                                MarkerOptions()
-                                                    .position(tapped)
-                                                    .title("Vị trí đang chọn")
-                                            )
+                                            redrawPickerMarkers(readyMap)
                                             true
                                         }
                                     }
@@ -2391,6 +2407,11 @@ fun OrderListScreen(
     val numberedRouteGroups = allGroups.filterNot { g ->
         g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
     }
+    // Numbering base = active + locally delivered route stops, in original route order.
+    // Terminal VTMan statuses never consume a route STT.
+    val numberedRouteGroups = allGroups.filterNot { g ->
+        g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
+    }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var showAddOrder by remember { mutableStateOf(false) }
@@ -2452,6 +2473,13 @@ fun OrderListScreen(
         val i = visibleGroups.indexOfFirst { g -> g.orders.any { it.code == code } }
         if (i >= 0) listState.scrollToItem(i)
         onFocusConsumed()
+    }
+
+    LaunchedEffect(deliveryFocusCode, visibleGroups) {
+        val code = deliveryFocusCode ?: return@LaunchedEffect
+        val i = visibleGroups.indexOfFirst { g -> g.orders.any { it.code == code } }
+        if (i >= 0) listState.animateScrollToItem(i)
+        deliveryFocusCode = null
     }
 
     LaunchedEffect(deliveryFocusCode, visibleGroups) {
