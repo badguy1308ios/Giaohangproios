@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
@@ -4062,7 +4063,8 @@ private fun StreetNameDropdown(
         DropdownMenu(
             expanded = expanded && (filtered.isNotEmpty() || typed.isNotBlank()),
             onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth(0.96f).heightIn(max = 220.dp)
+            modifier = Modifier.fillMaxWidth(0.96f).heightIn(max = 220.dp),
+            properties = PopupProperties(focusable = false)
         ) {
             filtered.forEach { option ->
                 DropdownMenuItem(
