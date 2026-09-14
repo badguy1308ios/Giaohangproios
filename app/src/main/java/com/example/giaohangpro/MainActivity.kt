@@ -2407,11 +2407,6 @@ fun OrderListScreen(
     val numberedRouteGroups = allGroups.filterNot { g ->
         g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
     }
-    // Numbering base = active + locally delivered route stops, in original route order.
-    // Terminal VTMan statuses never consume a route STT.
-    val numberedRouteGroups = allGroups.filterNot { g ->
-        g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
-    }
     var keyword by remember { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var showAddOrder by remember { mutableStateOf(false) }
