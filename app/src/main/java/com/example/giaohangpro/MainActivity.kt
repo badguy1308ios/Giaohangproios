@@ -1573,6 +1573,9 @@ fun MapScreen(
     var editMarker by remember { mutableStateOf<MapOrderMarker?>(null) }
     var editNumberText by remember { mutableStateOf("") }
     var editOnMap by remember { mutableStateOf(false) }
+    val streetRouteScope = rememberCoroutineScope()
+    var streetRouteJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    DisposableEffect(Unit) { onDispose { streetRouteJob?.cancel() } }
 
     fun commitGroupedDirectStt() {
         val marker = editMarker ?: return
@@ -1613,6 +1616,7 @@ fun MapScreen(
             val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
             val codes = text.lineSequence().drop(1).mapNotNull { line -> line.substringAfter(',', "").trim().trim('"').split(' ').firstOrNull()?.takeIf(String::isNotBlank) }.toList()
             val byRep = activeGroups.associateBy { it.orders.first().code }
+            streetRouteJob?.cancel()
             val orderedGroups = codes.mapNotNull { byRep[it] }
             val remainingGroups = activeGroups.filterNot { it.orders.first().code in codes }
             val finalGroups = orderedGroups + remainingGroups
@@ -1635,31 +1639,68 @@ fun MapScreen(
         onFocusConsumed = onFocusConsumed,
         onOpenOrder = onOpenOrder,
         onCreateRoute = {
-            val located = activeGroups.filter { deliveryGroupPoint(it) != null }.toMutableList()
-            val pending = activeGroups.filter { deliveryGroupPoint(it) == null }
-            val sortedGroups = mutableListOf<DeliveryGroup>()
-            var current = vm.routeAnchorPoint() ?: located.firstOrNull()?.let(::deliveryGroupPoint) ?: DEFAULT_MAP_POINT
-            while (located.isNotEmpty()) {
-                val next = located.minByOrNull { g ->
-                    val p = deliveryGroupPoint(g) ?: return@minByOrNull Double.MAX_VALUE
-                    straightDistanceMeters(current, p) - vm.learnedRouteWeight(current, p) * 60.0
-                } ?: break
-                sortedGroups += next
-                current = deliveryGroupPoint(next) ?: current
-                located.remove(next)
+            if (streetRouteJob?.isActive != true) {
+                val ordersSnapshot = vm.orders.toList()
+                val customersSnapshot = vm.customers.toList()
+                val numberingSnapshot = vm.routeNumberingEnabled
+                val sttSnapshot = ordersSnapshot.associate { it.code to vm.routeSttFor(it.code) }
+                val anchorSnapshot = vm.routeAnchorPoint()
+                val groupsSnapshot = activeGroups.toList()
+                val samples = vm.streetLearningSamples()
+                val history = vm.streetLearningHistory()
+                val legacy = vm.legacyRouteLearningSnapshot()
+                streetRouteJob = streetRouteScope.launch {
+                    Toast.makeText(context, "Đang tạo tuyến…", Toast.LENGTH_SHORT).show()
+                    val sortedGroups = withContext(Dispatchers.Default) {
+                        val located = groupsSnapshot.filter { deliveryGroupPoint(it) != null }
+                        val pending = groupsSnapshot.filter { deliveryGroupPoint(it) == null }
+                        fun point(p: MapPoint) = StreetRouteLearning.Point(p.latitude, p.longitude)
+                        val origin = point(anchorSnapshot ?: located.firstOrNull()?.let(::deliveryGroupPoint) ?: DEFAULT_MAP_POINT)
+                        val stops = located.map { group ->
+                            val p = deliveryGroupPoint(group)!!
+                            val c = group.customer
+                            val cp = c?.let { pointFromStrings(it.latitude, it.longitude) }
+                            // A different delivery address must not borrow the customer's primary street.
+                            val street = if (cp != null && straightDistanceMeters(cp, p) <= 50.0) c?.streetName.orEmpty() else ""
+                            StreetRouteLearning.Stop(group.key, street, point(p))
+                        }
+                        fun cell(p: StreetRouteLearning.Point) =
+                            "${kotlin.math.floor(p.lat * 500.0).toInt()},${kotlin.math.floor(p.lng * 500.0).toInt()}"
+                        val oldWeight: (StreetRouteLearning.Point, StreetRouteLearning.Point) -> Double = { a, b ->
+                            -(legacy["${cell(a)}>${cell(b)}"] ?: 0.0) * 60.0
+                        }
+                        val keys = try {
+                            StreetRouteLearning.Model(samples, history).order(stops, origin, oldWeight)
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            // Learning failures leave the established geographic/legacy planner available.
+                            StreetRouteLearning.Model(emptyList(), emptyList()).order(stops, origin, oldWeight)
+                        }
+                        val byKey = located.associateBy { it.key }
+                        keys.mapNotNull(byKey::get) + pending
+                    }
+                    // Do not apply a stale plan if delivery/customer/route data changed while calculating.
+                    if (vm.orders.toList() != ordersSnapshot || vm.customers.toList() != customersSnapshot ||
+                        vm.routeNumberingEnabled != numberingSnapshot || vm.routeAnchorPoint() != anchorSnapshot ||
+                        ordersSnapshot.any { vm.routeSttFor(it.code) != sttSnapshot[it.code] } || editing) {
+                        Toast.makeText(context, "Dữ liệu đã thay đổi. Hãy bấm Tạo tuyến lại.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        vm.reorderOrders(sortedGroups.flatMap { it.orders.map(Order::code) })
+                        vm.replaceRouteStt(sortedGroups.map { it.orders.map(Order::code) })
+                        vm.enableRouteNumbering()
+                        Toast.makeText(context, "Đã tạo tuyến theo ${sortedGroups.size} điểm giao", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-            sortedGroups += pending
-            vm.reorderOrders(sortedGroups.flatMap { it.orders.map(Order::code) })
-            vm.replaceRouteStt(sortedGroups.map { it.orders.map(Order::code) })
-            vm.enableRouteNumbering()
-            Toast.makeText(context, "Đã tạo tuyến theo ${sortedGroups.size} điểm giao", Toast.LENGTH_SHORT).show()
         },
         onEditRoute = {
+            streetRouteJob?.cancel()
             draft = activeGroups.map { it.key }
             editing = true
             Toast.makeText(context, "Chạm STT để nhập số mới trực tiếp", Toast.LENGTH_SHORT).show()
         },
         onClearRoute = {
+            streetRouteJob?.cancel()
             vm.clearRouteNumbering()
             editing = false
             editMarker = null
@@ -1668,6 +1709,8 @@ fun MapScreen(
             Toast.makeText(context, "Đã xóa toàn bộ STT", Toast.LENGTH_SHORT).show()
         },
         onSaveRoute = {
+            val confirmedByKey = activeGroups.associateBy { it.key }
+            vm.learnStreetRoute(draft.mapNotNull { confirmedByKey[it]?.orders?.firstOrNull()?.code })
             val learnedPoints = draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key }?.let(::deliveryGroupPoint) }
             vm.learnRoutePattern(learnedPoints)
             editMarker = null
@@ -1706,6 +1749,7 @@ fun MapScreen(
             val savedGroups = draft.mapNotNull(groupByKey::get)
             vm.reorderOrders(savedGroups.flatMap{it.orders.map(Order::code)})
             vm.replaceRouteStt(savedGroups.map { it.orders.map(Order::code) })
+            vm.learnStreetRoute(savedGroups.mapNotNull { it.orders.firstOrNull()?.code })
             editMarker = null
             editNumberText = ""
             editOnMap = false
@@ -4425,6 +4469,71 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             .putBoolean("route_numbering_enabled_v1", false)
             .remove("route_stt_map_v1")
             .apply()
+    }
+
+
+    // Independent, versioned store: no order/customer/STT fields are changed by learning.
+    internal fun streetLearningSamples(): List<StreetRouteLearning.Sample> = customerState.mapNotNull { c ->
+        val p = pointFromStrings(c.latitude, c.longitude) ?: return@mapNotNull null
+        c.streetName.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        StreetRouteLearning.Sample(c.id, c.streetName, StreetRouteLearning.Point(p.latitude, p.longitude))
+    }
+
+    internal fun streetLearningHistory(): List<List<StreetRouteLearning.Visit>> = runCatching {
+        val root = JSONObject(prefs.getString("street_route_lessons_v1", "{}") ?: "{}")
+        val routes = root.optJSONArray("routes") ?: org.json.JSONArray()
+        (maxOf(0, routes.length() - 24) until routes.length()).mapNotNull { i ->
+            val route = routes.optJSONArray(i) ?: return@mapNotNull null
+            if (route.length() > 2000) return@mapNotNull null
+            (0 until route.length()).map { j ->
+                val v = route.optJSONObject(j)
+                StreetRouteLearning.Visit(
+                    v?.optLong("id", 0L) ?: 0L, v?.optString("street", "").orEmpty(),
+                    StreetRouteLearning.Point(v?.optDouble("lat", 0.0) ?: 0.0, v?.optDouble("lng", 0.0) ?: 0.0)
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    internal fun legacyRouteLearningSnapshot(): Map<String, Double> = runCatching {
+        val root = JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}")
+        val result = mutableMapOf<String, Double>()
+        val keys = root.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = root.optDouble(key, 0.0)
+            if (value.isFinite()) result[key] = value
+        }
+        result.toMap()
+    }.getOrDefault(emptyMap())
+
+    fun learnStreetRoute(codes: List<String>) {
+        // Called only by the user's Save route actions, never by create/deliver/delete/import.
+        runCatching {
+            val groups = buildDeliveryGroups(orderState, customerState)
+            val byCode = groups.flatMap { g -> g.orders.map { it.code to g } }.toMap()
+            val visits = codes.map { code ->
+                val g = byCode[code]
+                val c = g?.customer
+                val p = g?.let(::deliveryGroupPoint)
+                StreetRouteLearning.Visit(
+                    c?.id ?: 0L, c?.streetName.orEmpty(),
+                    StreetRouteLearning.Point(p?.latitude ?: 0.0, p?.longitude ?: 0.0)
+                )
+            }
+            val history = StreetRouteLearning.rememberRoute(streetLearningHistory(), visits)
+            val routes = org.json.JSONArray()
+            history.forEach { route ->
+                val row = org.json.JSONArray()
+                route.forEach { v -> row.put(JSONObject().apply {
+                    put("id", v.customerId); put("street", v.street)
+                    put("lat", v.point.lat); put("lng", v.point.lng)
+                }) }
+                routes.put(row)
+            }
+            prefs.edit().putString("street_route_lessons_v1",
+                JSONObject().put("version", 1).put("routes", routes).toString()).apply()
+        }.onFailure { android.util.Log.w("GiaoHangPro", "Could not save street route lesson", it) }
     }
 
     fun learnRoutePattern(points: List<MapPoint>) {

@@ -47,7 +47,7 @@ jobs:
             chmod 600 "$HOME/.android/debug.keystore"
           fi
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle testDebugUnitTest assembleDebug --stacktrace
       - name: Rename APK
         run: |
           mkdir -p dist
