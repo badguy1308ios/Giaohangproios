@@ -2730,9 +2730,10 @@ private fun DeliveryGroupCard(
                         }
                     }
                     Spacer(Modifier.width(9.dp))
-                    Text("${group.orders.size} đơn", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("  •  Tổng COD ", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text(groupMoneyText(group), color = MoneyGreen, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("${group.orders.size} đơn • Tổng COD", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(groupMoneyText(group), color = MoneyGreen, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
                 }
 
                 // Cụm nút thao tác dùng chung cho tất cả MVĐ trong Customer ID này.
@@ -2805,10 +2806,7 @@ private fun GroupedOrderDetail(
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CopyableWaybillCode(order.code, Modifier.weight(1f))
-            Text(if (delivered) "" else normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(8.dp))
-            Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            OrderHeading(order, delivered, Modifier.weight(1f))
         }
         Spacer(Modifier.height(4.dp))
         OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
@@ -2817,7 +2815,7 @@ private fun GroupedOrderDetail(
         OrderInfoRow(Icons.Default.Inventory2, order.item)
         if (order.tags.isNotEmpty()) {
             Spacer(Modifier.height(5.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { order.tags.forEach { Tag(it) } }
+            OrderTags(order.tags)
         }
     }
 }
@@ -2850,10 +2848,7 @@ private fun SingleOrderDetailCard(
                     ) { RouteStateCircle(routeStt, hasRealCoordinate, false) }
                     Spacer(Modifier.width(7.dp))
                 }
-                CopyableWaybillCode(order.code, Modifier.weight(1f))
-                Text(if (delivered) "" else normalizeOrderStatus(order.status), color = orderStatusColor(order.status), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-                Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                OrderHeading(order, delivered, Modifier.weight(1f))
             }
             Spacer(Modifier.height(4.dp))
             OrderInfoRow(Icons.Default.Store, order.shop.ifBlank { order.customer })
@@ -2862,7 +2857,7 @@ private fun SingleOrderDetailCard(
             OrderInfoRow(Icons.Default.Inventory2, order.item)
             if (order.tags.isNotEmpty()) {
                 Spacer(Modifier.height(5.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { order.tags.forEach { Tag(it) } }
+                OrderTags(order.tags)
             }
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2885,7 +2880,7 @@ fun OrderInfoRow(
     val rowModifier = Modifier
         .fillMaxWidth()
         .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-        .padding(vertical = 1.dp)
+        .padding(vertical = 3.dp)
     Row(
         rowModifier,
         verticalAlignment = Alignment.Top
@@ -2900,6 +2895,37 @@ fun OrderInfoRow(
             lineHeight = 19.sp,
             softWrap = true
         )
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun OrderHeading(order: Order, delivered: Boolean, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        CopyableWaybillCode(order.code, Modifier.fillMaxWidth())
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            if (!delivered) {
+                Text(normalizeOrderStatus(order.status), color = orderStatusColor(order.status),
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(order.amount, color = MoneyGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun OrderTags(tags: List<String>) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        tags.forEach { Tag(it) }
     }
 }
 
