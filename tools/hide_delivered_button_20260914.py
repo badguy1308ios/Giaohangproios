@@ -7,6 +7,6 @@ new = 'if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, fi
 s = s.replace(old, new)
 p.write_text(s)
 
-photo_patch = Path('tools/show_all_customer_gate_photos_20260914.py')
-if photo_patch.exists():
-    exec(compile(photo_patch.read_text(), str(photo_patch), 'exec'))
+cleanup_patch = Path('tools/remove_customer_card_thumbnails_20260914.py')
+if cleanup_patch.exists():
+    exec(compile(cleanup_patch.read_text(), str(cleanup_patch), 'exec'))
