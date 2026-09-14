@@ -34,8 +34,11 @@ new = '''    Row(
         )
     }
 '''
-if old not in s:
+if old in s:
+    s = s.replace(old, new, 1)
+    p.write_text(s)
+    print('order detail info rows now wrap naturally and show full content')
+elif new in s:
+    print('order detail info rows already support multiline text')
+else:
     raise SystemExit('OrderInfoRow multiline anchor not found')
-s = s.replace(old, new, 1)
-p.write_text(s)
-print('order detail info rows now wrap naturally and show full content')
