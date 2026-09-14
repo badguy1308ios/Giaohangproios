@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -177,6 +179,7 @@ data class Customer(
     val name: String, // Tên chính hiển thị trong danh sách và màn hình chi tiết.
     val phone: String, // Số điện thoại chính để gọi nhanh.
     val address: String, // Địa chỉ giao hàng chính.
+    val streetName: String = "", // Tên đường dùng để gom các tọa độ và học thói quen tạo tuyến.
     val latitude: String = "", // Vĩ độ của địa chỉ chính, do người dùng chọn trên Goong Map hoặc nhập tay.
     val longitude: String = "", // Kinh độ của địa chỉ chính, do người dùng chọn trên Goong Map hoặc nhập tay.
     val initials: String = "", // Chữ viết tắt hiển thị trong avatar khi không dùng ảnh.
@@ -449,6 +452,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
         }
         AppScreen.CUSTOMER_FORM -> CustomerFormScreen(
             customer = if (formIsNew) null else selectedCustomer,
+            streetNameOptions = vm.customers.map { it.streetName },
             onBack = { screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL },
             onSave = { edited ->
                 selectedCustomerId = if (formIsNew) vm.addCustomer(edited) else { vm.updateCustomer(edited); edited.id }
@@ -3779,6 +3783,11 @@ private fun CustomerDetailContent(
         (listOf(customer.phone) + customer.extraPhones.map { it.number }).filter { it.isNotBlank() }.forEach { displayPhone ->
             Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, displayPhone) }
         }
+        if (customer.streetName.isNotBlank()) {
+            Box(Modifier.padding(start = 50.dp)) {
+                DetailInfoCard(Icons.Default.Map, "Tên đường: ${customer.streetName}")
+            }
+        }
         (listOf(CustomerAddress(customer.address, customer.latitude, customer.longitude, true)) + customer.extraAddresses).filter { it.address.isNotBlank() }.forEach { addr ->
             Card(
                 Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
@@ -3826,9 +3835,15 @@ private data class PhoneDraft(val number: String, val canCall: Boolean, val canZ
 private data class AddressDraft(val address: String, val latitude: String, val longitude: String, val isPrimary: Boolean, val photoUri: String = "")
 
 @Composable
-fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Customer) -> Unit) {
+fun CustomerFormScreen(
+    customer: Customer?,
+    streetNameOptions: List<String> = emptyList(),
+    onBack: () -> Unit,
+    onSave: (Customer) -> Unit
+) {
     val context = LocalContext.current
     var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
+    var streetName by remember(customer?.id) { mutableStateOf(customer?.streetName.orEmpty()) }
     var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) }
     var photoUri by remember(customer?.id) { mutableStateOf(customer?.photoUri.orEmpty()) }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
@@ -3902,6 +3917,11 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
             }
 
             Text("ĐỊA CHỈ + ĐỊNH VỊ", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            StreetNameDropdown(
+                value = streetName,
+                onValueChange = { streetName = it },
+                options = streetNameOptions
+            )
             addresses.forEachIndexed { index, item ->
                 Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
                     Column(Modifier.padding(4.dp)) {
@@ -3969,7 +3989,7 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
                 val validPhones = phones.filter { it.number.isNotBlank() }; val validAddresses = addresses.filter { it.address.isNotBlank() }
                 if (name.isBlank() || validPhones.isEmpty() || validAddresses.isEmpty()) validation = true else {
                     val primaryAddress = validAddresses.firstOrNull { it.isPrimary } ?: validAddresses.first(); val primaryPhone = validPhones.first()
-                    onSave(Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = photoUri))
+                    onSave(Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), streetName = streetName.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = photoUri))
                 }
             }, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("LƯU", fontWeight = FontWeight.Bold) }
             OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
@@ -3995,6 +4015,75 @@ fun CustomerFormScreen(customer: Customer?, onBack: () -> Unit, onSave: (Custome
         CustomerCoordinateMapPicker(initialPoint = pointFromStrings(addresses[index].latitude, addresses[index].longitude), focusUserLocation = true, onDismiss = { pickAddressIndex = null }, onSavePoint = { point ->
             addresses[index] = addresses[index].copy(latitude = "%.6f".format(java.util.Locale.US, point.latitude), longitude = "%.6f".format(java.util.Locale.US, point.longitude)); pickAddressIndex = null
         })
+    }
+}
+
+@Composable
+private fun StreetNameDropdown(
+    value: String,
+    onValueChange: (String) -> Unit,
+    options: List<String>
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val typed = value.trim()
+    val available = options
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase(java.util.Locale.getDefault()) }
+    val filtered = available.filter { typed.isBlank() || it.contains(typed, ignoreCase = true) }
+    val hasExactMatch = available.any { it.equals(typed, ignoreCase = true) }
+
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Tên Đường", fontSize = 11.sp) },
+            placeholder = { Text("Nhập hoặc chọn tên đường", fontSize = 12.sp) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            trailingIcon = {
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        "Mở danh sách tên đường"
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                onValueChange(typed)
+                expanded = false
+            })
+        )
+        DropdownMenu(
+            expanded = expanded && (filtered.isNotEmpty() || typed.isNotBlank()),
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.96f).heightIn(max = 220.dp)
+        ) {
+            filtered.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onValueChange(option)
+                        expanded = false
+                    }
+                )
+            }
+            if (typed.isNotBlank() && !hasExactMatch) {
+                if (filtered.isNotEmpty()) HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("+ Tạo \"$typed\"", color = Orange, fontWeight = FontWeight.Bold) },
+                    onClick = {
+                        onValueChange(typed)
+                        expanded = false
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -4298,7 +4387,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 }
                 customerState.add(Customer(
                     id=o.optLong("id",0L), name=optString(o,"name"), phone=optString(o,"phone"), address=optString(o,"address"),
-                    latitude=optString(o,"latitude"), longitude=optString(o,"longitude"), initials=optString(o,"initials"), aliases=aliases,
+                    streetName=optString(o,"streetName"), latitude=optString(o,"latitude"), longitude=optString(o,"longitude"), initials=optString(o,"initials"), aliases=aliases,
                     extraPhones=phones, extraAddresses=addresses, note=optString(o,"note"),
                     primaryCanCall=o.optBoolean("primaryCanCall",true), primaryCanZalo=o.optBoolean("primaryCanZalo",true),
                     primaryCanSms=o.optBoolean("primaryCanSms",true), photoUri=optString(o,"photoUri")
@@ -4321,7 +4410,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         val customersArr=org.json.JSONArray()
         customerState.forEach { c ->
             customersArr.put(org.json.JSONObject().apply {
-                put("id",c.id); put("name",c.name); put("phone",c.phone); put("address",c.address); put("latitude",c.latitude); put("longitude",c.longitude)
+                put("id",c.id); put("name",c.name); put("phone",c.phone); put("address",c.address); put("streetName",c.streetName); put("latitude",c.latitude); put("longitude",c.longitude)
                 put("initials",c.initials); put("aliases",org.json.JSONArray(c.aliases)); put("note",c.note)
                 put("primaryCanCall",c.primaryCanCall); put("primaryCanZalo",c.primaryCanZalo); put("primaryCanSms",c.primaryCanSms); put("photoUri",c.photoUri)
                 put("extraPhones",org.json.JSONArray().apply { c.extraPhones.forEach { p -> put(org.json.JSONObject().apply { put("number",p.number); put("action",p.action); put("canCall",p.canCall); put("canZalo",p.canZalo); put("canSms",p.canSms) }) } })
@@ -4692,6 +4781,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                     put("name", c.name)
                     put("names", org.json.JSONArray(listOf(c.name) + c.aliases))
                     put("note", c.note)
+                    put("streetName", c.streetName)
                     put("phones", org.json.JSONArray().apply {
                         put(phoneJson(c.phone, true, c.primaryCanCall, c.primaryCanZalo, c.primaryCanSms))
                         c.extraPhones.forEach { p -> put(phoneJson(p.number, false, p.canCall, p.canZalo, p.canSms)) }
