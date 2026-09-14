@@ -1584,6 +1584,9 @@ fun MapScreen(
             val savedGroups = draft.mapNotNull(groupByKey::get)
             vm.reorderOrders(savedGroups.flatMap{it.orders.map(Order::code)})
             vm.replaceRouteStt(savedGroups.map { it.orders.map(Order::code) })
+            editMarker = null
+            editNumberText = ""
+            editOnMap = false
             confirmSave=false; editing=false
         }){Text("LƯU")} },
         dismissButton = { TextButton(onClick={confirmSave=false}){Text("HỦY")} }
@@ -1656,7 +1659,7 @@ private fun BaseMapScreen(
                 modifier = Modifier.fillMaxSize(),
                 orders = mappedOrders,
                 driverLocation = driverLocation,
-                selectedOrderNumber = selectedMarker?.number,
+                selectedOrderNumber = if (editingStt) null else selectedMarker?.number,
                 expanded = mapExpanded,
                 editingStt = editingStt,
                 onToggleExpand = { mapExpanded = !mapExpanded },
@@ -2081,11 +2084,10 @@ private fun GoongOrderMap(
                                 .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
                                 .zoom(14.0).build()
                             readyMap.setOnMarkerClickListener { clicked ->
-                                val number = clicked.title?.substringAfter("Đơn #")?.substringBefore(" ")?.toIntOrNull()
-                                val marker = orders.firstOrNull { it.number == number }
+                                val code = clicked.title?.substringAfter(" • ", "")?.trim().orEmpty()
+                                val marker = orders.firstOrNull { it.order.code == code }
                                 if (marker != null) {
-                                    onOrderSelected(marker)
-                                    if (editingStt) onEditStt(marker)
+                                    if (editingStt) onEditStt(marker) else onOrderSelected(marker)
                                     true
                                 } else false
                             }
