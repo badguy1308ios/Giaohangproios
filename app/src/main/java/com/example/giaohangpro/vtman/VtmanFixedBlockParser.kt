@@ -5,7 +5,13 @@ object VtmanFixedBlockParser {
     private val moneyRegex = Regex("(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]", RegexOption.IGNORE_CASE)
     private val standaloneMoneyRegex = Regex("^\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]\\s*$", RegexOption.IGNORE_CASE)
     private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH)$", RegexOption.IGNORE_CASE)
-    private val addressHints = listOf("@", "đường", "phường", "xã", "huyện", "quận", "tp.", "t.", "h.", "khu", "ấp", "tđc", "đ.", "x.")
+    // Match address words, not arbitrary substrings in a shop/customer name.
+    // Abbreviations need a separator or a place name: "H.Long Thành" is a hint,
+    // while the shop "H.1998 Áo Thun" is not.
+    private val addressHintRegex = Regex(
+        "(?<![\\p{L}\\p{N}])(?:đường|phường|xã|huyện|quận|khu|ấp|tđc)(?![\\p{L}\\p{N}])|(?<![\\p{L}\\p{N}])(?:tp|t|h|đ|x)\\.(?=[\\p{L}]|[\\s\\u00A0]+\\S)|@",
+        RegexOption.IGNORE_CASE
+    )
     private val screenNoise = listOf("gạch phát offline", "danh sách phát", "phát thành công", "đồng bộ đơn hàng", "đồng bộ gần nhất", "thành công")
 
     fun parse(texts: List<String>, expectedWaybill: String): VtmanOrderRecord? {
@@ -40,7 +46,7 @@ object VtmanFixedBlockParser {
             .distinct()
             .joinToString(" ")
         val serviceLines = content.filter { extractServiceCodes(it).isNotEmpty() && looksLikeServiceLine(it) }.toSet()
-        val addressIndex = content.indexOfFirst { line -> addressHints.any { hint -> line.contains(hint, true) } }
+        val addressIndex = content.indexOfFirst(addressHintRegex::containsMatchIn)
 
         val beforeAddress: List<String> = (if (addressIndex > 0) content.take(addressIndex) else emptyList())
             .filterNot {

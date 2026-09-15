@@ -78,7 +78,18 @@ class VtmanAccessibilityService : AccessibilityService() {
         val rec=VtmanFixedBlockParser.parse(resultStrings,mv)
         if (rec==null || rec.customer.isBlank() || rec.address.isBlank() || rec.cod.isBlank()) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
-            skipNoDataAndContinue(mv)
+            // A matching order is visible. A parsing failure is not an empty result:
+            // retain the current queue item so Chạy retries it instead of losing it.
+            val missing = buildList {
+                if (rec == null) add("khối đơn")
+                else {
+                    if (rec.customer.isBlank()) add("tên khách")
+                    if (rec.address.isBlank()) add("địa chỉ")
+                    if (rec.cod.isBlank()) add("COD")
+                }
+            }.joinToString(", ")
+            mode=0
+            VtmanQueueController.fail("Tìm thấy $mv nhưng chưa đọc được $missing. Đơn vẫn được giữ; bấm Chạy để thử lại.")
             return
         }
         if (!VtmanQueueController.stage(rec)) { VtmanQueueController.fail("MVĐ đọc được không trùng mã đang chờ"); mode=0; return }
