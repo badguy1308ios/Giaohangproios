@@ -3806,18 +3806,19 @@ fun CustomerDetailScreen(
             CustomerDetailContent(
                 customer = customer,
                 modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp)
-            )
-            CustomerSideActions(
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 3.dp, top = 312.dp, bottom = 3.dp),
-                onCall = { launchPhone("call") },
-                onZalo = { launchPhone("zalo") },
-                onSms = { launchPhone("sms") },
-                onNavigate = {
-                    pointFromStrings(customer.latitude, customer.longitude)?.let { openGoogleNavigation(context, it) }
-                },
-                onEdit = onEdit,
-                onDelete = { showDeleteDialog = true }
-            )
+            ) {
+                CustomerSideActions(
+                    modifier = Modifier.padding(bottom = 3.dp),
+                    onCall = { launchPhone("call") },
+                    onZalo = { launchPhone("zalo") },
+                    onSms = { launchPhone("sms") },
+                    onNavigate = {
+                        pointFromStrings(customer.latitude, customer.longitude)?.let { openGoogleNavigation(context, it) }
+                    },
+                    onEdit = onEdit,
+                    onDelete = { showDeleteDialog = true }
+                )
+            }
         }
     }
 
@@ -3905,27 +3906,33 @@ private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics
 @Composable
 private fun CustomerDetailContent(
     customer: Customer,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val bitmap = remember(context, customer.photoUri) {
+        if (customer.photoUri.isBlank()) null else runCatching {
+            val uri = android.net.Uri.parse(customer.photoUri)
+            when (uri.scheme) {
+                "file" -> android.graphics.BitmapFactory.decodeFile(uri.path)
+                else -> context.contentResolver.openInputStream(uri)?.use(android.graphics.BitmapFactory::decodeStream)
+            }
+        }.getOrNull()
+    }
     Column(modifier.verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Card(
-            Modifier.fillMaxWidth().height(306.dp), RoundedCornerShape(14.dp),
+            Modifier.fillMaxWidth().then(
+                if (bitmap != null) Modifier.aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat())
+                else Modifier.height(306.dp)
+            ), RoundedCornerShape(14.dp),
             CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
             Box(Modifier.fillMaxSize()) {
                 if (customer.photoUri.isNotBlank()) {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
-                        factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP } },
+                        factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER } },
                         update = { imageView ->
-                            val uri = android.net.Uri.parse(customer.photoUri)
-                            val bitmap = runCatching {
-                                when (uri.scheme) {
-                                    "file" -> android.graphics.BitmapFactory.decodeFile(uri.path)
-                                    else -> context.contentResolver.openInputStream(uri)?.use(android.graphics.BitmapFactory::decodeStream)
-                                }
-                            }.getOrNull()
                             if (bitmap != null) imageView.setImageBitmap(bitmap) else imageView.setImageDrawable(null)
                         }
                     )
@@ -3939,38 +3946,44 @@ private fun CustomerDetailContent(
 
             }
         }
-        (listOf(customer.name) + customer.aliases).filter { it.isNotBlank() }.forEach { displayName ->
-            Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Person, displayName) }
-        }
-        (listOf(customer.phone) + customer.extraPhones.map { it.number }).filter { it.isNotBlank() }.forEach { displayPhone ->
-            Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, displayPhone) }
-        }
-        if (customer.streetName.isNotBlank()) {
-            Box(Modifier.padding(start = 50.dp)) {
-                DetailInfoCard(Icons.Default.Map, "Tên đường: ${customer.streetName}")
-            }
-        }
-        (listOf(CustomerAddress(customer.address, customer.latitude, customer.longitude, true)) + customer.extraAddresses).filter { it.address.isNotBlank() }.forEach { addr ->
-            Card(
-                Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Border)
-            ) {
-                Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(19.dp))
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(addr.address, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text(if (addr.latitude.isBlank() || addr.longitude.isBlank()) "Chưa có tọa độ" else "${addr.latitude}, ${addr.longitude}", color = TextGray, fontSize = 11.sp)
+        // Actions and information share the same scrolling block below the full photo.
+        Box(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                (listOf(customer.name) + customer.aliases).filter { it.isNotBlank() }.forEach { displayName ->
+                    Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Person, displayName) }
+                }
+                (listOf(customer.phone) + customer.extraPhones.map { it.number }).filter { it.isNotBlank() }.forEach { displayPhone ->
+                    Box(Modifier.padding(start = 50.dp)) { DetailInfoCard(Icons.Default.Phone, displayPhone) }
+                }
+                if (customer.streetName.isNotBlank()) {
+                    Box(Modifier.padding(start = 50.dp)) {
+                        DetailInfoCard(Icons.Default.Map, "Tên đường: ${customer.streetName}")
                     }
                 }
+                (listOf(CustomerAddress(customer.address, customer.latitude, customer.longitude, true)) + customer.extraAddresses).filter { it.address.isNotBlank() }.forEach { addr ->
+                    Card(
+                        Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+                    ) {
+                        Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).clip(CircleShape).background(Orange), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.LocationOn, null, tint = Color.White, modifier = Modifier.size(19.dp))
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(addr.address, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(if (addr.latitude.isBlank() || addr.longitude.isBlank()) "Chưa có tọa độ" else "${addr.latitude}, ${addr.longitude}", color = TextGray, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+                if (customer.note.isNotBlank()) Card(
+                    Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+                ) { Text(customer.note, Modifier.padding(7.dp), color = Navy, fontSize = 13.sp) }
             }
+            actions()
         }
-        if (customer.note.isNotBlank()) Card(
-            Modifier.fillMaxWidth().padding(start = 50.dp), RoundedCornerShape(14.dp), CardDefaults.cardColors(containerColor = Color.White),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Border)
-        ) { Text(customer.note, Modifier.padding(7.dp), color = Navy, fontSize = 13.sp) }
     }
 }
 
