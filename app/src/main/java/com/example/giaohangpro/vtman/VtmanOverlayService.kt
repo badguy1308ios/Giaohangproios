@@ -1,12 +1,14 @@
 package com.example.giaohangpro.vtman
 
 import android.app.Service
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -23,11 +25,52 @@ class VtmanOverlayService : Service() {
     private var selector: View? = null
     private var marker: View? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val connectionWait = VtmanConnectionWait()
+    private var selectionGeneration = 0
+
+    private fun accessibilityEnabled(): Boolean {
+        val expected = ComponentName(this, VtmanAccessibilityService::class.java)
+        // Read the user's enabled setting, independently of the live service binding.
+        // Only Android/user settings can enable or bind this service.
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        return enabled.split(':').any { ComponentName.unflattenFromString(it) == expected }
+    }
+
+    private fun requestStart() {
+        if (VtmanQueueController.nextWaybill() == null) {
+            VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước")
+            return
+        }
+        connectionWait.start(SystemClock.elapsedRealtime())
+        checkPendingStart()
+    }
+
+    private fun checkPendingStart() {
+        when (connectionWait.poll(accessibilityEnabled(), VtmanQueueController.service != null, SystemClock.elapsedRealtime())) {
+            VtmanConnectionWait.Result.READY -> VtmanQueueController.service?.begin()
+            VtmanConnectionWait.Result.DISABLED -> VtmanQueueController.fail("Trợ năng Giao Hàng Pro chưa bật. Mở Trợ năng để cấp quyền.")
+            VtmanConnectionWait.Result.WAITING -> VtmanQueueController.report("Trợ năng đã bật · đang chờ Android kết nối (tối đa 8 giây)…")
+            VtmanConnectionWait.Result.TIMED_OUT -> VtmanQueueController.fail("Trợ năng đã bật nhưng Android chưa kết nối dịch vụ. Bấm Chạy để thử lại; nếu vẫn lỗi, kiểm tra dịch vụ trong Trợ năng.")
+            VtmanConnectionWait.Result.IDLE -> Unit
+        }
+    }
+
+    private fun cancelStart() {
+        connectionWait.cancel()
+        clearSelectionUi()
+        VtmanQueueController.service?.stop()
+    }
 
     private val refresh = object : Runnable {
         override fun run() {
+            checkPendingStart()
             val s = VtmanQueueController.snapshot()
-            status.text = "Đã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            val connection = when {
+                !accessibilityEnabled() -> "Trợ năng: chưa bật"
+                VtmanQueueController.service == null -> "Trợ năng: đã bật, chưa kết nối"
+                else -> "Trợ năng: đã kết nối"
+            }
+            status.text = "$connection\nĐã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
             handler.postDelayed(this, 450)
         }
     }
@@ -39,6 +82,7 @@ class VtmanOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        cancelStart()
         handler.removeCallbacksAndMessages(null)
         clearSelectionUi()
         if (::panel.isInitialized) runCatching { windowManager.removeView(panel) }
@@ -61,9 +105,9 @@ class VtmanOverlayService : Service() {
         status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; maxLines = 6 }
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
         fun button(label: String, action: () -> Unit) = Button(this).apply { text = label; setOnClickListener { action() } }
-        row.addView(button("Chạy") { VtmanQueueController.service?.begin() ?: VtmanQueueController.serviceUnavailable() }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button("Dừng") { VtmanQueueController.service?.stop() }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button("Tắt") { VtmanQueueController.service?.stop(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(button("Chạy") { requestStart() }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(button("Dừng") { cancelStart(); VtmanQueueController.report("Đã dừng") }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
         panel.addView(status); panel.addView(row)
         makeDraggable(panel)
         val params = WindowManager.LayoutParams(
@@ -96,8 +140,10 @@ class VtmanOverlayService : Service() {
                     val x=e.rawX; val y=e.rawY
                     runCatching { windowManager.removeView(this) }
                     selector=null
-                    showMarker(x,y)
-                    onPoint(x,y)
+                    try {
+                        showMarker(x,y)
+                        onPoint(x,y)
+                    } catch (e: RuntimeException) { selectionFailed(e) }
                 }
                 true
             }
@@ -117,17 +163,31 @@ class VtmanOverlayService : Service() {
     }
 
     private fun clearSelectionUi() {
+        selectionGeneration++
         selector?.let { runCatching { windowManager.removeView(it) } }; selector=null
         marker?.let { runCatching { windowManager.removeView(it) } }; marker=null
+    }
+
+    private fun selectionFailed(error: RuntimeException) {
+        clearSelectionUi()
+        val service = VtmanQueueController.service
+        if (service != null) service.reportFailure(error)
+        else VtmanQueueController.fail("Không mở được điểm chọn nút gọi. Kiểm tra quyền Hiển thị trên ứng dụng khác rồi thử lại.")
     }
 
     companion object {
         @Volatile private var instance: VtmanOverlayService? = null
         fun requestCallPointSelection(onPoint: (Float, Float) -> Unit): Boolean {
             val s=instance ?: return false
-            s.handler.post { s.showSelector(onPoint) }
+            val generation = s.selectionGeneration
+            s.handler.post {
+                if (instance === s && generation == s.selectionGeneration) {
+                    try { s.showSelector(onPoint) }
+                    catch (e: RuntimeException) { s.selectionFailed(e) }
+                }
+            }
             return true
         }
-        fun clearCallPointUi() { instance?.handler?.post { instance?.clearSelectionUi() } }
+        fun clearCallPointUi() { instance?.clearSelectionUi() }
     }
 }

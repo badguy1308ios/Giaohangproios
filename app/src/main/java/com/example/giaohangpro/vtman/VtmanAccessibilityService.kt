@@ -1,11 +1,14 @@
 package com.example.giaohangpro.vtman
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -17,29 +20,93 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var returnDeadline = 0L
     private var nextBackAt = 0L
     private var resultDeadline = 0L
-    private val tick = Runnable { process() }
+    private var rootMissingSince: Long? = null
+    private var tickScheduled = false
+    private val tick = Runnable { tickScheduled = false; safely { process() } }
 
-    override fun onServiceConnected() { VtmanQueueController.service = this }
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        VtmanQueueController.service = this
+        diagnostic("connected")
+    }
     override fun onInterrupt() = Unit
     override fun onAccessibilityEvent(event: AccessibilityEvent?) { if (mode > 1) schedule(120) }
-    override fun onDestroy() { h.removeCallbacksAndMessages(null); if (VtmanQueueController.service === this) VtmanQueueController.service = null; super.onDestroy() }
+    override fun onUnbind(intent: Intent?): Boolean {
+        detach()
+        return super.onUnbind(intent)
+    }
+    override fun onDestroy() { detach(); super.onDestroy() }
 
-    fun begin() {
+    private fun diagnostic(code: String) {
+        // Keep only lifecycle/error categories, never customer text or phone numbers.
+        Log.i("VtmanAccessibility", code)
+        getSharedPreferences("vtman_diagnostics", MODE_PRIVATE).edit()
+            .putString("last_event", code).putLong("last_event_at", System.currentTimeMillis()).apply()
+    }
+
+    private fun detach() {
+        val wasRunning = mode != 0
+        mode = 0
+        h.removeCallbacksAndMessages(null)
+        tickScheduled = false
+        rootMissingSince = null
+        if (VtmanQueueController.service === this) {
+            VtmanQueueController.service = null
+            VtmanOverlayService.clearCallPointUi()
+            VtmanQueueController.clearCallPoint()
+            diagnostic("disconnected")
+            if (wasRunning) VtmanQueueController.fail("Trợ năng mất kết nối. Đã dừng Export; bấm Chạy sau khi dịch vụ kết nối lại.")
+        }
+    }
+
+    private fun safely(action: () -> Unit) {
+        try { action() }
+        catch (e: RuntimeException) { reportFailure(e) }
+    }
+
+    fun reportFailure(error: RuntimeException) {
+        stop()
+        diagnostic("error:" + error.javaClass.simpleName)
+        VtmanQueueController.fail("Lỗi đọc màn hình (" + error.javaClass.simpleName + "). Mở lại VTMan rồi bấm Chạy; không cần cấp lại quyền nếu Trợ năng vẫn kết nối.")
+    }
+
+    fun begin() = safely {
+        if (mode != 0) return@safely
+        rootMissingSince = null
+        beginExport()
+    }
+
+    private fun beginExport() {
         val r = rootInActiveWindow
         pkg = r?.packageName?.toString(); r?.recycle()
         if (VtmanQueueController.nextWaybill() == null) { VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước"); return }
         if (pkg.isNullOrBlank() || pkg == packageName) { VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi bấm Chạy"); return }
         mode = 1
         VtmanQueueController.report("Chạm đúng biểu tượng gọi của đơn đầu tiên")
-        if (!VtmanOverlayService.requestCallPointSelection { x,y -> VtmanQueueController.setCallPoint(x,y); mode=2; schedule(100) }) {
+        if (!VtmanOverlayService.requestCallPointSelection { x,y ->
+            if (mode == 1 && VtmanQueueController.service === this) {
+                VtmanQueueController.setCallPoint(x,y); mode=2; schedule(100)
+            }
+        }) {
             VtmanQueueController.fail("Popup VTMan Export chưa mở"); mode=0
         }
     }
 
-    fun stop() { mode=0; h.removeCallbacksAndMessages(null); VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun process() {
-        val root=rootInActiveWindow ?: run { schedule(180); return }
+        if (mode <= 1) return
+        val root=rootInActiveWindow ?: run {
+            val now = SystemClock.elapsedRealtime()
+            val since = rootMissingSince ?: now.also { rootMissingSince = it }
+            if (now - since >= 5000L) {
+                stop()
+                diagnostic("window_unavailable")
+                VtmanQueueController.fail("Trợ năng chưa đọc được màn hình trong 5 giây. Mở VTMan ở phía trước rồi bấm Chạy lại.")
+            } else schedule(180)
+            return
+        }
+        rootMissingSince = null
         try {
             val mv=VtmanQueueController.nextWaybill() ?: run { mode=0; VtmanQueueController.report("Hoàn tất toàn bộ MVĐ"); return }
             when(mode) { 2->search(root,mv); 3->readBlock(root,mv); 4->readPhone(root,mv); 5->waitReturn(root) }
@@ -184,5 +251,6 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun tap(x:Float,y:Float):Boolean{ val p=Path().apply{moveTo(x,y)}; return dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(p,0,70)).build(),null,null) }
-    private fun schedule(ms:Long){ if(mode>1){ h.removeCallbacks(tick); h.postDelayed(tick,ms) } }
+    // Window events must not keep postponing the worker forever.
+    private fun schedule(ms:Long){ if(mode>1 && !tickScheduled){ tickScheduled=true; h.postDelayed(tick,ms) } }
 }
