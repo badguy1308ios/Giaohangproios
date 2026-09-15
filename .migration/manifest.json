@@ -1,0 +1,149 @@
+{
+  "source": "badguy1308/Giaohangpro",
+  "refs": [
+    {
+      "ref": "refs/heads/backup-before-status-ui-20260914",
+      "sha": "846c71ba0c4fa9f44fa7b611797d0f96bb1a6770"
+    },
+    {
+      "ref": "refs/heads/backup-before-street-learning-271",
+      "sha": "120e8cd0be269f038aafc25cdc8937506d28b09e"
+    },
+    {
+      "ref": "refs/heads/backup-v1.0.225",
+      "sha": "ac6a2cb9684956659369b1174638ef4733bf815f"
+    },
+    {
+      "ref": "refs/heads/main",
+      "sha": "4800b653714095e0c3cf80cb5dc1bcc1ccd07cdf"
+    },
+    {
+      "ref": "refs/heads/upload-goong-ui-gon",
+      "sha": "854f19afae3a5bb83dd6392e03eb8fb3e84b638a"
+    },
+    {
+      "ref": "refs/heads/versioned-apk-builds",
+      "sha": "632c168653c82b1daf9951113bd3c551a2adb405"
+    }
+  ],
+  "commits": 464,
+  "sha256": "eea8d16cf7f548cb1bcc5f0f59dbb6712cef93a0483b86d049c0b48f29aee0e4",
+  "size": 11985444,
+  "parts": [
+    {
+      "name": "giaohangpro.bundle.part-0000",
+      "sha256": "593669d985a5c5e32e39960f4404b9a0a49af5264e7f4fa83c7a3667c21c8484",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0001",
+      "sha256": "4f299783a485eafe6b1501de9edefe7b345cdf33259d93d9b563398725db2e71",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0002",
+      "sha256": "112797b4b2f33d217e09eb743106d917ef373ef9b8832b1956d9b609b1192bae",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0003",
+      "sha256": "f4b38c1c014be97675b0149a6033a5e8db8202ab8cc0e31dbbe34b1ab4af6548",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0004",
+      "sha256": "86ae6585c96610b16cf978a6784e5ed3374678a0b1ffc69da1ba8577984c6d85",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0005",
+      "sha256": "281e90073c6455bbf719985190d4950e32ed91e319aa4c4858afa277e0e2af51",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0006",
+      "sha256": "1cf2875308fab21a5287341d3f8267d4d32782d5a16eb3d0fd1dd4b2edad8f60",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0007",
+      "sha256": "7876f970712919de2e348be09bce4b0d4e3e2e34416f7cbb32c0bada6075c4f9",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0008",
+      "sha256": "bd3c3c16cff7ab15432812300ea0365de2f02595aa9411a5ba601a8078381ed3",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0009",
+      "sha256": "88ab14c7c2d8203c37615c1fa8331b004ecf839f7ad8d5159ce4036276252768",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0010",
+      "sha256": "3b78c1fe0a8d19f4cd9ab256925b7a968e6f7b20c934855900d903d5d0564aad",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0011",
+      "sha256": "920316b7886711ecf5445ea3f1c221aa5b25b307042137081d75322e3b234a5c",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0012",
+      "sha256": "2610beab220dc596f2022cd9769c5183e1829e8217a6a456c0f5747a89756cf7",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0013",
+      "sha256": "cc3cc6ae47d8280e7ce4ee8d70fa6d6c8d6d086cec421286646df9e8ca60068d",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0014",
+      "sha256": "22c3ebd97a744de847e5b28e02455aa6913b3ae014f105e2121f4088b94fa4ce",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0015",
+      "sha256": "ba78bafe3bb86377f7b777e56d6749351085fd423c2bd91ceae25e156c61b731",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0016",
+      "sha256": "a8a5a9eeeca246f7ed845443580918e4b44d20a50235a1754dae663a51888908",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0017",
+      "sha256": "4d22d4b93f1dcbe7c580c7aa798cc153dc93f92166d72096ecc16d2599ffeb21",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0018",
+      "sha256": "a207a8a6c0a015af385124fde93b5f3bff2be757952931d63cac7f12b1a4b08a",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0019",
+      "sha256": "e8b726d97443bc3c6033491746f49e7e4ec072823f4f6717c086c20a89f1b80a",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0020",
+      "sha256": "662c0f685eb2b85b318f26913af124b75ba3ef4230390ce7985898bdab310630",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0021",
+      "sha256": "7d3ebe97db215a2c03a0a1cb4fd9d787add0c9295542f23bd6d5f7f96f346299",
+      "size": 524288
+    },
+    {
+      "name": "giaohangpro.bundle.part-0022",
+      "sha256": "0bc1deb77c2e66394cddbf5e85d286253c034d9163afe42a8d583856fe580ad4",
+      "size": 451108
+    }
+  ]
+}

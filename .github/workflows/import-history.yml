@@ -1,0 +1,54 @@
+name: Import original GiaoHangPro history
+on:
+  push:
+    branches: [migration/import-20260915]
+    paths: [.github/workflows/import-history.yml]
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify and store original Git objects
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          manifest = json.loads(pathlib.Path(".migration/manifest.json").read_text())
+          chunks = []
+          for part in manifest["parts"]:
+              chunk = pathlib.Path(".migration", part["name"]).read_bytes()
+              assert len(chunk) == part["size"]
+              assert hashlib.sha256(chunk).hexdigest() == part["sha256"]
+              chunks.append(chunk)
+          data = b"".join(chunks)
+          assert len(data) == manifest["size"]
+          assert hashlib.sha256(data).hexdigest() == manifest["sha256"]
+          bundle = pathlib.Path("/tmp/giaohangpro.bundle")
+          bundle.write_bytes(data)
+          git("bundle", "verify", str(bundle))
+          actual = dict((ref, sha) for sha, ref in (line.split(" ", 1) for line in git("bundle", "list-heads", str(bundle)).splitlines()))
+          assert actual == {item["ref"]: item["sha"] for item in manifest["refs"]}
+          for item in manifest["refs"]:
+              git("fetch", str(bundle), item["ref"])
+          tips = [item["sha"] for item in manifest["refs"]]
+          assert int(git("rev-list", "--count", *tips)) == manifest["commits"]
+          assert git("rev-parse", "4800b653714095e0c3cf80cb5dc1bcc1ccd07cdf:app/keystore/giaohangpro-debug.keystore") == "be5744cb202cc61664849f0e86e9dc7654fd06df"
+          git("fsck", "--full", "--no-dangling")
+          git("config", "user.name", "github-actions[bot]")
+          git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
+          parents = ["-p", git("rev-parse", "HEAD")]
+          for tip in tips:
+              parents += ["-p", tip]
+          # Keep the transfer branch's tree unchanged; publish original Git objects as parents.
+          commit = git("commit-tree", git("rev-parse", "HEAD^{tree}"), *parents, "-m", "Preserve verified original Git history for migration [skip ci]")
+          git("push", "origin", commit + ":refs/heads/migration/import-20260915")
+          print("Verified and stored", manifest["commits"], "original commits and", len(tips), "branch tips")
+          
+          PY
