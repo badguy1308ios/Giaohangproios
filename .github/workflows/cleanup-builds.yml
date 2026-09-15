@@ -1,0 +1,59 @@
+name: Dọn build cũ
+on:
+  workflow_dispatch:
+    inputs:
+      delete_old_runs:
+        description: 'Xóa thật (kèm APK cũ). Bỏ chọn để chỉ xem trước.'
+        type: boolean
+        default: false
+permissions:
+  actions: write
+concurrency:
+  group: cleanup-old-android-builds
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Giữ bản mới và dọn lịch sử build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const workflowId = 353288316; // Existing Android build workflow only.
+            const execute = context.payload.inputs?.delete_old_runs === 'true';
+            const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: workflowId, per_page: 100
+            });
+            const runs = all.filter(r => r.workflow_id === workflowId && r.path === '.github/workflows/android.yml')
+              .sort((a,b) => b.run_number - a.run_number);
+            const keep = new Set([
+              ...runs.slice(0,5),
+              ...runs.filter(r => r.conclusion === 'success').slice(0,5),
+              ...runs.filter(r => [225,229].includes(r.run_number))
+            ].map(r => r.id));
+            const candidates = runs.filter(r => r.status === 'completed' && !keep.has(r.id));
+            await core.summary.addHeading(execute ? 'Dọn build cũ' : 'Xem trước — chưa xóa')
+              .addRaw('Giữ 5 lần build mới nhất, 5 bản thành công mới nhất và mốc 225/229. Xóa lần chạy sẽ xóa cả APK đính kèm.\n')
+              .addTable([
+                [{data:'Giữ lại',header:true},{data:'Sẽ xóa',header:true}],
+                [String(runs.length-candidates.length),String(candidates.length)]
+              ])
+              .addDetails('Danh sách giữ', runs.filter(r=>!candidates.some(c=>c.id===r.id)).map(r=>'v1.0.'+r.run_number).join(', '))
+              .addDetails('Danh sách xóa', candidates.map(r=>'v1.0.'+r.run_number+' — '+r.id).join('\n'))
+              .write();
+            if (!execute) return;
+            let deleted = 0;
+            for (const run of candidates) {
+              const {data: live} = await github.rest.actions.getWorkflowRun({owner,repo,run_id:run.id});
+              if (live.status !== 'completed' || live.workflow_id !== workflowId || keep.has(live.id)) {
+                core.info('Bỏ qua lần chạy đang thay đổi: '+run.id);
+                continue;
+              }
+              await github.rest.actions.deleteWorkflowRun({owner,repo,run_id:run.id});
+              deleted++;
+              core.info('Đã xóa v1.0.'+run.run_number+' ('+deleted+'/'+candidates.length+')');
+              await new Promise(resolve=>setTimeout(resolve,1000));
+            }
+            await core.summary.addRaw('\nĐã xóa thành công: '+deleted+' lần build.\n').write();
