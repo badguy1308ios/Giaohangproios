@@ -552,7 +552,7 @@ private fun SettingsScreen(
                 SettingsItem(
                     Icons.Default.Map,
                     "QUẢN LÝ TÊN ĐƯỜNG",
-                    "Xem hoặc xóa các tên đường đã lưu"
+                    "Xem, sửa hoặc xóa các tên đường đã lưu"
                 ) { onStreetNameManagement() }
             }
             SettingsSection("TÀI CHÍNH") {
@@ -601,6 +601,9 @@ private fun SettingsScreen(
 @Composable
 private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
+    var pendingEdit by remember { mutableStateOf<String?>(null) }
+    var editedName by remember { mutableStateOf("") }
+    var editError by remember { mutableStateOf<String?>(null) }
     val streetNames = vm.streetNames
         .sortedBy { it.lowercase(java.util.Locale.getDefault()) }
 
@@ -650,6 +653,12 @@ private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 )
                             }
                             IconButton(
+                                onClick = { pendingEdit = streetName; editedName = streetName; editError = null },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Edit, "Sửa tên đường", tint = Orange, modifier = Modifier.size(22.dp))
+                            }
+                            IconButton(
                                 onClick = { pendingDelete = streetName },
                                 modifier = Modifier.size(40.dp)
                             ) {
@@ -665,6 +674,37 @@ private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    pendingEdit?.let { streetName ->
+        AlertDialog(
+            onDismissRequest = { pendingEdit = null },
+            title = { Text("Sửa tên đường") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it; editError = null },
+                        label = { Text("Tên đường") },
+                        singleLine = true,
+                        isError = editError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    editError?.let { Text(it, color = Color(0xFFE21B1B)) }
+                    Text("Tên mới sẽ được cập nhật cho tất cả khách hàng đang chọn đường này và danh sách chọn khi thêm/sửa khách.", fontSize = 12.sp, color = TextGray)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = editedName.isNotBlank(),
+                    onClick = {
+                        editError = vm.renameStreetName(streetName, editedName)
+                        if (editError == null) pendingEdit = null
+                    }
+                ) { Text("LƯU") }
+            },
+            dismissButton = { TextButton(onClick = { pendingEdit = null }) { Text("HỦY") } }
+        )
     }
 
     pendingDelete?.let { streetName ->
@@ -4665,7 +4705,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         true
     }.getOrElse { false }
 
-    private fun savePersistentData() {
+    private fun savePersistentData(editor: android.content.SharedPreferences.Editor = prefs.edit()) {
         val ordersArr=org.json.JSONArray()
         orderState.forEach { o ->
             ordersArr.put(org.json.JSONObject().apply {
@@ -4685,7 +4725,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 put("extraAddresses",org.json.JSONArray().apply { c.extraAddresses.forEach { a -> put(org.json.JSONObject().apply { put("address",a.address); put("latitude",a.latitude); put("longitude",a.longitude); put("isPrimary",a.isPrimary); put("photoUri",a.photoUri) }) } })
             })
         }
-        prefs.edit().putString("orders",ordersArr.toString()).putString("customers",customersArr.toString()).apply()
+        editor.putString("orders",ordersArr.toString()).putString("customers",customersArr.toString()).apply()
     }
 
     fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
@@ -4744,6 +4784,33 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
+
+    fun renameStreetName(oldName: String, newName: String): String? {
+        val change = try {
+            StreetNameChange.prepare(oldName, newName, streetNameState.toList(), customerState.toList(), streetLearningHistory())
+        } catch (e: IllegalArgumentException) {
+            return e.message
+        }
+        val routes = org.json.JSONArray()
+        change.lessons.forEach { route ->
+            val row = org.json.JSONArray()
+            route.forEach { v -> row.put(JSONObject().apply {
+                put("id", v.customerId); put("street", v.street)
+                put("lat", v.point.lat); put("lng", v.point.lng)
+            }) }
+            routes.put(row)
+        }
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            streetNameState.clear()
+            streetNameState.addAll(change.names)
+            change.customers.forEachIndexed { i, customer -> customerState[i] = customer }
+        }
+        // Persist names, assigned customers and renamed learning labels together.
+        savePersistentData(prefs.edit()
+            .putString("street_names_v1", org.json.JSONArray(change.names).toString())
+            .putString("street_route_lessons_v1", JSONObject().put("version", 1).put("routes", routes).toString()))
+        return null
+    }
 
     fun deleteStreetName(streetName: String) {
         val target = streetName.trim()
