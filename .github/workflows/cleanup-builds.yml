@@ -16,12 +16,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - name: Giữ bản mới và dọn lịch sử build
         uses: actions/github-script@v7
         with:
           script: |
             const {owner, repo} = context.repo;
-            const workflowId = 353288316; // Existing Android build workflow only.
+            const {data: workflow} = await github.rest.actions.getWorkflow({owner, repo, workflow_id: 'android.yml'});
+            const workflowId = workflow.id;
+            const offset = Number(require('fs').readFileSync('version-code-offset.txt', 'utf8').trim());
+            if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid version offset');
+            const versionOf = run => run.run_number + offset;
             const execute = context.payload.inputs?.delete_old_runs === 'true';
             const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner, repo, workflow_id: workflowId, per_page: 100
@@ -31,7 +36,7 @@ jobs:
             const keep = new Set([
               ...runs.slice(0,5),
               ...runs.filter(r => r.conclusion === 'success').slice(0,5),
-              ...runs.filter(r => [225,229].includes(r.run_number))
+              ...runs.filter(r => [225,229].includes(versionOf(r)))
             ].map(r => r.id));
             const candidates = runs.filter(r => r.status === 'completed' && !keep.has(r.id));
             await core.summary.addHeading(execute ? 'Dọn build cũ' : 'Xem trước — chưa xóa')
@@ -40,8 +45,8 @@ jobs:
                 [{data:'Giữ lại',header:true},{data:'Sẽ xóa',header:true}],
                 [String(runs.length-candidates.length),String(candidates.length)]
               ])
-              .addDetails('Danh sách giữ', runs.filter(r=>!candidates.some(c=>c.id===r.id)).map(r=>'v1.0.'+r.run_number).join(', '))
-              .addDetails('Danh sách xóa', candidates.map(r=>'v1.0.'+r.run_number+' — '+r.id).join('\n'))
+              .addDetails('Danh sách giữ', runs.filter(r=>!candidates.some(c=>c.id===r.id)).map(r=>'v1.0.'+versionOf(r)).join(', '))
+              .addDetails('Danh sách xóa', candidates.map(r=>'v1.0.'+versionOf(r)+' — '+r.id).join('\n'))
               .write();
             if (!execute) return;
             let deleted = 0;
@@ -53,7 +58,7 @@ jobs:
               }
               await github.rest.actions.deleteWorkflowRun({owner,repo,run_id:run.id});
               deleted++;
-              core.info('Đã xóa v1.0.'+run.run_number+' ('+deleted+'/'+candidates.length+')');
+              core.info('Đã xóa v1.0.'+versionOf(run)+' ('+deleted+'/'+candidates.length+')');
               await new Promise(resolve=>setTimeout(resolve,1000));
             }
             await core.summary.addRaw('\nĐã xóa thành công: '+deleted+' lần build.\n').write();

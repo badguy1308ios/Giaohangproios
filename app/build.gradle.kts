@@ -4,7 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val ciBuildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val versionCodeOffset = rootProject.file("version-code-offset.txt").readText().trim().toInt()
+val ciBuildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(versionCodeOffset)
 
 android {
     namespace = "com.example.giaohangpro"

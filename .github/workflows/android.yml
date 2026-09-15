@@ -1,5 +1,5 @@
 name: Build Android APK
-run-name: "GiaoHangPro v1.0.${{ github.run_number }} • ${{ github.event_name }}"
+run-name: "GiaoHangPro • build #${{ github.run_number }} • ${{ github.event_name }}"
 on:
   push:
     branches: [main]
@@ -8,7 +8,7 @@ permissions:
   contents: write
 jobs:
   build:
-    name: "Build v1.0.${{ github.run_number }}"
+    name: Build Android APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +34,9 @@ jobs:
       - name: Prepare version
         id: version
         run: |
-          VERSION="1.0.${GITHUB_RUN_NUMBER}"
+          VERSION_CODE_OFFSET="$(cat version-code-offset.txt)"
+          APP_VERSION_CODE="$((GITHUB_RUN_NUMBER + VERSION_CODE_OFFSET))"
+          VERSION="1.0.${APP_VERSION_CODE}"
           APK_NAME="GiaoHangPro-v${VERSION}.apk"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
@@ -57,4 +59,4 @@ jobs:
           name: "GiaoHangPro-v${{ steps.version.outputs.version }}"
           path: "dist/${{ steps.version.outputs.apk_name }}"
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
