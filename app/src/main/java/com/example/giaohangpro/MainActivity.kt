@@ -2673,7 +2673,7 @@ fun OrderListScreen(
         g.orders.any { o ->
             o.code.contains(q, true) || o.customer.contains(q, true) ||
                 o.phone.contains(q, true) || o.address.contains(q, true) ||
-                o.shop.contains(q, true) || o.item.contains(q, true)
+                o.shop.contains(q, true) || o.item.contains(q, true) || matchesCodSearch(o.amount, q)
         } || (g.customer?.name?.contains(q, true) == true))
 
     // Tab Chi tiết đơn: các điểm CHƯA có tọa độ thật luôn nằm đầu danh sách.
@@ -2684,7 +2684,7 @@ fun OrderListScreen(
     val visibleGroups = pendingGroups + locatedGroups + deliveredGroups.filter(::matches) + terminalGroups.filter(::matches)
     val filteredOrders = if (q.isBlank()) vm.orders else vm.orders.filter { o ->
         o.code.contains(q, true) || o.customer.contains(q, true) || o.phone.contains(q, true) ||
-            o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true)
+            o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true) || matchesCodSearch(o.amount, q)
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
@@ -2937,7 +2937,7 @@ fun OrderListScreen(
         val editCandidates = vm.orders.filter { o ->
             editQuery.isBlank() || o.code.contains(editQuery, true) || o.customer.contains(editQuery, true) ||
                 o.phone.contains(editQuery, true) || o.address.contains(editQuery, true) ||
-                o.shop.contains(editQuery, true) || o.item.contains(editQuery, true)
+                o.shop.contains(editQuery, true) || o.item.contains(editQuery, true) || matchesCodSearch(o.amount, editQuery)
         }
         AlertDialog(
             onDismissRequest = { editPicker = false },
@@ -3430,10 +3430,11 @@ fun CustomerListScreen(
 ) {
     var keyword by remember { mutableStateOf("") } // Lưu nội dung người dùng đang nhập vào ô tìm kiếm.
 
+    val nameQuery = normalizeCustomerSearch(keyword)
     val filteredCustomers = customers.filter { customer -> // Tạo danh sách mới chỉ gồm các khách phù hợp từ khóa.
         val query = keyword.trim() // Xóa khoảng trắng thừa ở đầu và cuối từ khóa.
         query.isBlank() || // Nếu chưa nhập gì thì giữ nguyên toàn bộ danh sách.
-            customer.name.contains(query, ignoreCase = true) || // Cho phép tìm theo tên, không phân biệt hoa/thường.
+            normalizeCustomerSearch(customer.name).contains(nameQuery) || // Cho phép tìm theo tên, không phân biệt hoa/thường.
             customer.phone.contains(query, ignoreCase = true) || // Cho phép tìm theo số điện thoại.
             customer.address.contains(query, ignoreCase = true) // Cho phép tìm theo địa chỉ.
     }
@@ -4397,7 +4398,7 @@ private fun createInitials(name: String): String =
 fun SearchBox(value:String,onValueChange:(String)->Unit,onClear:()->Unit,onQrClick:()->Unit){
     OutlinedTextField(
         value=value,onValueChange=onValueChange,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),
-        placeholder={Text("Tìm mã đơn, tên người nhận...",color=TextGray,fontSize=14.sp,maxLines=1)},
+        placeholder={Text("Tìm mã đơn, tên, COD...",color=TextGray,fontSize=14.sp,maxLines=1)},
         leadingIcon={Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(Orange).clickable{onQrClick()},contentAlignment=Alignment.Center){Icon(Icons.Default.QrCodeScanner,"Quét QR",tint=Color.White,modifier=Modifier.size(23.dp))}},
         trailingIcon={if(value.isNotBlank()) IconButton(onClick=onClear){Icon(Icons.Default.Close,"Xóa",tint=TextGray,modifier=Modifier.size(20.dp))}},
         shape=RoundedCornerShape(14.dp),singleLine=true,
