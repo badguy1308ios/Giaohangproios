@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -3331,11 +3332,76 @@ fun OrderInfoRow(
     }
 }
 
+@Composable
+private fun WaybillQrButton(code: String) {
+    var showQr by remember(code) { mutableStateOf(false) }
+    val qrBitmap = remember(code) {
+        runCatching {
+            com.journeyapps.barcodescanner.BarcodeEncoder().encodeBitmap(
+                code,
+                com.google.zxing.BarcodeFormat.QR_CODE,
+                720,
+                720
+            )
+        }.getOrNull()
+    }
+
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.White)
+            .border(0.5.dp, Color(0xFFD8D8D8), RoundedCornerShape(6.dp))
+            .clickable(enabled = qrBitmap != null) { showQr = true },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.QrCode2,
+            contentDescription = "Tạo mã QR cho MVĐ $code",
+            tint = Color.Black,
+            modifier = Modifier.size(16.dp)
+        )
+    }
+
+    if (showQr && qrBitmap != null) {
+        AlertDialog(
+            onDismissRequest = { showQr = false },
+            title = { Text("Mã QR MVĐ", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "Mã QR của MVĐ $code",
+                        modifier = Modifier
+                            .size(240.dp)
+                            .background(Color.White)
+                            .padding(8.dp)
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(code, color = Navy, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showQr = false }) {
+                    Text("ĐÓNG", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+}
+
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun OrderHeading(order: Order, delivered: Boolean, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        CopyableWaybillCode(order.code, Modifier.fillMaxWidth())
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CopyableWaybillCode(order.code, Modifier.weight(1f, fill = false))
+            Spacer(Modifier.width(5.dp))
+            WaybillQrButton(order.code)
+        }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
