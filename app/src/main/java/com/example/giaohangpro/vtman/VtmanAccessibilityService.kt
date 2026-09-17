@@ -94,6 +94,30 @@ class VtmanAccessibilityService : AccessibilityService() {
 
     fun stop() { mode=0; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
+    fun skipErroredWaybill() = safely {
+        val skipped = VtmanQueueController.skipCurrentByUser()
+        if (skipped == null) {
+            VtmanQueueController.fail("Không có MVĐ để bỏ qua")
+            return@safely
+        }
+
+        h.removeCallbacksAndMessages(null)
+        tickScheduled = false
+        rootMissingSince = null
+        val (waybill, next) = skipped
+        if (next == null) {
+            mode = 0
+            VtmanQueueController.report("Đã bỏ qua $waybill · hoàn tất toàn bộ MVĐ")
+        } else if (VtmanQueueController.callPoint() != null) {
+            mode = 2
+            VtmanQueueController.report("Đã bỏ qua $waybill · tiếp tục $next")
+            schedule(300)
+        } else {
+            mode = 0
+            VtmanQueueController.report("Đã bỏ qua $waybill · bấm Chạy để tiếp tục $next")
+        }
+    }
+
     private fun process() {
         if (mode <= 1) return
         val root=rootInActiveWindow ?: run {

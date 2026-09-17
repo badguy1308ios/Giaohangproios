@@ -22,6 +22,7 @@ class VtmanOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var panel: LinearLayout
     private lateinit var status: TextView
+    private lateinit var skipButton: Button
     private var selector: View? = null
     private var marker: View? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -71,6 +72,9 @@ class VtmanOverlayService : Service() {
                 else -> "Trợ năng: đã kết nối"
             }
             status.text = "$connection\nĐã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            if (::skipButton.isInitialized) {
+                skipButton.isEnabled = s.error.isNotBlank() && s.currentWaybill.isNotBlank()
+            }
             handler.postDelayed(this, 450)
         }
     }
@@ -108,7 +112,13 @@ class VtmanOverlayService : Service() {
         row.addView(button("Chạy") { requestStart() }, LinearLayout.LayoutParams(0, -2, 1f))
         row.addView(button("Dừng") { cancelStart(); VtmanQueueController.report("Đã dừng") }, LinearLayout.LayoutParams(0, -2, 1f))
         row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
-        panel.addView(status); panel.addView(row)
+        skipButton = button("Bỏ qua") {
+            VtmanQueueController.service?.skipErroredWaybill()
+                ?: VtmanQueueController.fail("Trợ năng chưa kết nối; chưa thể bỏ qua MVĐ")
+        }.apply { isEnabled = false }
+        panel.addView(status)
+        panel.addView(row)
+        panel.addView(skipButton, LinearLayout.LayoutParams(-1, -2))
         makeDraggable(panel)
         val params = WindowManager.LayoutParams(
             760, -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,

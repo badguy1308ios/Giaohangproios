@@ -74,6 +74,21 @@ object VtmanQueueController {
         return nextWaybill()
     }
 
+    @Synchronized fun skipCurrentByUser(): Pair<String, String?>? {
+        val waybill = queue.getOrNull(index) ?: return null
+        skipped += waybill
+        index++
+        active = null
+        error = ""
+        val next = queue.getOrNull(index)
+        status = if (next == null) {
+            "Đã bỏ qua $waybill · hoàn tất toàn bộ MVĐ"
+        } else {
+            "Đã bỏ qua $waybill · tiếp tục $next"
+        }
+        return waybill to next
+    }
+
     @Synchronized fun records(): List<VtmanOrderRecord> = completed.values.toList()
     @Synchronized fun report(message: String) { status = message; error = "" }
     @Synchronized fun fail(message: String) { status = message; error = message }
