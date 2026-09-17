@@ -41,11 +41,12 @@ class VtmanConnectionWaitTest {
         wait.cancel()
         assertEquals(IDLE, wait.poll(true, true, 500))
     }
-    @Test fun permissionRevokedDuringWaitDoesNotStartStaleService() {
+    @Test fun permissionRevokedDuringWaitCancelsWhenServiceIsDisconnected() {
         val wait = VtmanConnectionWait()
         wait.start(100)
         assertEquals(WAITING, wait.poll(true, false, 200))
-        assertEquals(DISABLED, wait.poll(false, true, 300))
+        assertEquals(DISABLED, wait.poll(false, false, 300))
+        assertEquals(IDLE, wait.poll(true, true, 400))
     }
     @Test fun connectionAfterTimeoutDoesNotRequireAnotherStart() {
         val wait = VtmanConnectionWait()
