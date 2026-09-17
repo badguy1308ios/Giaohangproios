@@ -65,6 +65,36 @@ class VtmanFixedBlockParserTest {
         assertFalse(VtmanFixedBlockParser.containsExpectedWaybill("Search", waybill))
     }
 
+    @Test fun shopCitySuffixIsNotMistakenForDeliveryAddress() {
+        val ecoWaybill = "ECOSGN0261K09628"
+        val result = VtmanFixedBlockParser.parse(
+            listOf(
+                "$ecoWaybill TT500 0 đ",
+                "CN Công Ty CP Dược Phẩm ECO (Tp.Hà Nội)",
+                "NGUYỄN THÀNH ĐẠT",
+                "D18 Khu TĐC Lộc An Bình Sơn Ấp An Bình, X.Lộc An, H.Long Thành, Đồng Nai",
+                "Hóa đơn + 00109114 Thuốc + Hóa Đơn",
+                ",GGC",
+                "Thành công"
+            ),
+            ecoWaybill
+        )!!
+
+        assertEquals("CN Công Ty CP Dược Phẩm ECO (Tp.Hà Nội)", result.shop)
+        assertEquals("NGUYỄN THÀNH ĐẠT", result.customer)
+        assertEquals("D18 Khu TĐC Lộc An Bình Sơn Ấp An Bình, X.Lộc An, H.Long Thành, Đồng Nai", result.address)
+        assertEquals("0đ", result.cod)
+    }
+
+    @Test fun phonePickerUsesFirstDisplayedNumber() {
+        assertEquals(
+            "0868217663",
+            VtmanFixedBlockParser.findPhone(
+                listOf("Chọn số điện thoại để gọi", "0868217663", "0969859601")
+            )
+        )
+    }
+
     @Test fun emptyResultDoesNotProduceAnOrder() {
         assertNull(VtmanFixedBlockParser.parse(listOf("Gạch phát offline", "Không có dữ liệu"), waybill))
     }

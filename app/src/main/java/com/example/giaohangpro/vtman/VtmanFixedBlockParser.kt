@@ -46,15 +46,21 @@ object VtmanFixedBlockParser {
             .distinct()
             .joinToString(" ")
         val serviceLines = content.filter { extractServiceCodes(it).isNotEmpty() && looksLikeServiceLine(it) }.toSet()
-        val addressIndex = content.indexOfFirst(addressHintRegex::containsMatchIn)
+        // Chỉ nhận một dòng là địa chỉ khi phía trước nó đã có đủ hai trường
+        // nội dung: shop + tên khách. Nhờ vậy "(Tp.Hà Nội)" nằm trong tên shop
+        // không còn bị nhận nhầm là địa chỉ.
+        fun contentBefore(index: Int): List<String> = content.take(index).filterNot {
+            statusRegex.containsMatchIn(it) ||
+                isStandaloneMoneyLine(it) ||
+                looksLikeCodLine(it) ||
+                it in serviceLines
+        }
+        val addressIndex = content.indices.firstOrNull { index ->
+            addressHintRegex.containsMatchIn(content[index]) && contentBefore(index).size >= 2
+        } ?: -1
 
-        val beforeAddress: List<String> = (if (addressIndex > 0) content.take(addressIndex) else emptyList())
-            .filterNot {
-                statusRegex.containsMatchIn(it) ||
-                    isStandaloneMoneyLine(it) ||
-                    looksLikeCodLine(it) ||
-                    it in serviceLines
-            }
+        val beforeAddress: List<String> =
+            if (addressIndex > 0) contentBefore(addressIndex) else emptyList()
 
         val customer = beforeAddress.lastOrNull().orEmpty()
         val shop = if (beforeAddress.size >= 2) beforeAddress[beforeAddress.lastIndex - 1] else ""
