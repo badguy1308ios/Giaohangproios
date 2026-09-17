@@ -18,6 +18,13 @@ class VtmanConnectionWaitTest {
         assertEquals(DISABLED, wait.poll(false, false, 100))
         assertEquals(IDLE, wait.poll(true, true, 200))
     }
+
+    @Test fun liveConnectionOverridesStaleDisabledSetting() {
+        val wait = VtmanConnectionWait()
+        wait.start(100)
+        assertEquals(READY, wait.poll(false, true, 100))
+        assertEquals(IDLE, wait.poll(false, true, 200))
+    }
     @Test fun repeatedStartCannotExtendTimeoutAndLateConnectionStillStarts() {
         val wait = VtmanConnectionWait()
         wait.start(100)

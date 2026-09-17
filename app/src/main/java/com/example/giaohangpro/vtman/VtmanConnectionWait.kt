@@ -10,8 +10,10 @@ internal class VtmanConnectionWait(private val timeoutMs: Long = 8000L) {
     fun poll(enabled: Boolean, connected: Boolean, now: Long): Result {
         val start = startedAt ?: return Result.IDLE
         return when {
-            !enabled -> Result.DISABLED.also { cancel() }
+            // Kết nối sống là bằng chứng chắc chắn nhất. Một số máy HiOS trả về
+            // danh sách Settings.Secure chậm hoặc sai dù service đã kết nối.
             connected -> Result.READY.also { cancel() }
+            !enabled -> Result.DISABLED.also { cancel() }
             // TIMED_OUT chỉ đổi thông báo thành "đang chờ lâu". Yêu cầu Chạy vẫn
             // được giữ để onServiceConnected đến trễ vẫn tự khởi động Export.
             now - start >= timeoutMs -> Result.TIMED_OUT

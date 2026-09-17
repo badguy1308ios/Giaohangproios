@@ -1,6 +1,7 @@
 package com.example.giaohangpro.vtman
 
 import android.app.Service
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -11,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
+import android.view.accessibility.AccessibilityManager
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -30,11 +32,29 @@ class VtmanOverlayService : Service() {
     private var selectionGeneration = 0
 
     private fun accessibilityEnabled(): Boolean {
+        // Một service đang kết nối thật luôn được xem là đã bật. Tránh trường hợp
+        // HiOS trả Settings.Secure cũ khiến popup báo sai "chưa bật".
+        if (VtmanQueueController.service != null) return true
+
         val expected = ComponentName(this, VtmanAccessibilityService::class.java)
-        // Read the user's enabled setting, independently of the live service binding.
-        // Only Android/user settings can enable or bind this service.
-        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-        return enabled.split(':').any { ComponentName.unflattenFromString(it) == expected }
+        val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledByManager = runCatching {
+            manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                .any { info ->
+                    val serviceInfo = info.resolveInfo.serviceInfo
+                    ComponentName(serviceInfo.packageName, serviceInfo.name) == expected
+                }
+        }.getOrDefault(false)
+        if (enabledByManager) return true
+
+        // Fallback cho ROM không trả danh sách đầy đủ qua AccessibilityManager.
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ).orEmpty()
+        return enabled.split(':')
+            .mapNotNull(ComponentName::unflattenFromString)
+            .any { it == expected }
     }
 
     private fun requestStart() {
@@ -67,9 +87,10 @@ class VtmanOverlayService : Service() {
             checkPendingStart()
             val s = VtmanQueueController.snapshot()
             val connection = when {
+                // Ưu tiên kết nối sống trước mọi dữ liệu cài đặt có thể bị HiOS trễ.
+                VtmanQueueController.service != null -> "Trợ năng: đã kết nối"
                 !accessibilityEnabled() -> "Trợ năng: chưa bật"
-                VtmanQueueController.service == null -> "Trợ năng: đã bật, chưa kết nối"
-                else -> "Trợ năng: đã kết nối"
+                else -> "Trợ năng: đã bật, chưa kết nối"
             }
             status.text = "$connection\nĐã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
             if (::skipButton.isInitialized) {
