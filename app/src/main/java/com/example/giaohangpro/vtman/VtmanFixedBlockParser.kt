@@ -1,5 +1,13 @@
 package com.example.giaohangpro.vtman
 
+data class VtmanScreenText(
+    val value: String,
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int
+)
+
 object VtmanFixedBlockParser {
     private val statusRegex = Regex("\\bTT\\s*(500|505|506|507|508|515)\\b", RegexOption.IGNORE_CASE)
     private val moneyRegex = Regex("(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]", RegexOption.IGNORE_CASE)
@@ -13,6 +21,86 @@ object VtmanFixedBlockParser {
         RegexOption.IGNORE_CASE
     )
     private val screenNoise = listOf("gạch phát offline", "danh sách phát", "phát thành công", "đồng bộ đơn hàng", "đồng bộ gần nhất", "thành công")
+
+    /**
+     * Đọc theo cấu trúc 5 hàng hiển thị ngay dưới đúng MVĐ:
+     * shop, người nhận, địa chỉ, hàng hóa và dịch vụ tùy chọn.
+     * Không suy đoán loại dữ liệu bằng các chữ Tp., H., Khu... trong nội dung.
+     */
+    fun parsePositioned(texts: List<VtmanScreenText>, expectedWaybill: String): VtmanOrderRecord? {
+        val nodes = texts
+            .map { it.copy(value = it.value.trim()) }
+            .filter { it.value.isNotBlank() && it.right > it.left && it.bottom > it.top }
+            .distinctBy { listOf(it.value, it.left, it.top, it.right, it.bottom) }
+
+        val header = nodes
+            .filter { containsExpectedWaybill(it.value, expectedWaybill) }
+            .minWithOrNull(
+                compareBy<VtmanScreenText> {
+                    when {
+                        statusRegex.containsMatchIn(it.value) -> 0
+                        it.value.length <= expectedWaybill.length + 4 -> 1
+                        else -> 2
+                    }
+                }.thenBy { it.top }
+            ) ?: return null
+
+        val successTop = nodes.asSequence()
+            .filter { it.top > header.top && it.value.equals("Thành công", true) }
+            .map(VtmanScreenText::top)
+            .minOrNull() ?: Int.MAX_VALUE
+
+        val blockNodes = nodes
+            .filter { it.top >= header.top - 8 && it.top < successTop }
+            .sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
+        val block = blockNodes.map(VtmanScreenText::value)
+        val status = block.asSequence()
+            .mapNotNull { statusRegex.find(it)?.value?.replace(" ", "") }
+            .firstOrNull().orEmpty()
+        val cod = findCod(block, expectedWaybill)
+
+        val headerBottom = blockNodes.asSequence()
+            .filter {
+                containsExpectedWaybill(it.value, expectedWaybill) ||
+                    statusRegex.containsMatchIn(it.value) ||
+                    isStandaloneMoneyLine(it.value) ||
+                    looksLikeCodLine(it.value)
+            }
+            .filter { it.top <= header.bottom + 28 }
+            .map(VtmanScreenText::bottom)
+            .maxOrNull() ?: header.bottom
+
+        val rowValues = blockNodes.asSequence()
+            .filter { it.top >= headerBottom - 2 }
+            .map(VtmanScreenText::value)
+            .filterNot {
+                containsExpectedWaybill(it, expectedWaybill) ||
+                    statusRegex.matches(it.trim()) ||
+                    isStandaloneMoneyLine(it) ||
+                    looksLikeCodLine(it) ||
+                    it.equals("Thành công", true) ||
+                    isScreenNoise(it)
+            }
+            .distinct()
+            .toList()
+
+        if (rowValues.size < 4) return null
+        val service = rowValues.drop(4)
+            .flatMap(::extractServiceCodes)
+            .distinct()
+            .joinToString(" ")
+
+        return VtmanOrderRecord(
+            waybill = expectedWaybill,
+            shop = rowValues[0],
+            customer = rowValues[1],
+            address = rowValues[2],
+            goods = rowValues[3],
+            service = service,
+            status = status,
+            cod = cod
+        )
+    }
 
     fun parse(texts: List<String>, expectedWaybill: String): VtmanOrderRecord? {
         val cleaned = texts.map(String::trim).filter(String::isNotBlank)

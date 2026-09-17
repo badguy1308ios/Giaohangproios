@@ -65,6 +65,61 @@ class VtmanFixedBlockParserTest {
         assertFalse(VtmanFixedBlockParser.containsExpectedWaybill("Search", waybill))
     }
 
+    private fun positioned(
+        value: String,
+        top: Int,
+        left: Int = 90,
+        right: Int = 640,
+        height: Int = 42
+    ) = VtmanScreenText(value, left, top, right, top + height)
+
+    @Test fun positionedRowsFollowFiveIconOrderWithoutTextGuessing() {
+        val code = "152023460476"
+        val result = VtmanFixedBlockParser.parsePositioned(
+            listOf(
+                positioned(code, 460, 28, 220),
+                positioned("TT500", 460, 230, 330),
+                positioned("120,000 đ", 460, 500, 650),
+                positioned("Bánh tráng sate phơi sương (Tp.Hà Nội)", 525),
+                positioned("Lành Nguyễn", 585),
+                positioned("Sđt 0784485971 Địa chỉ đường n11 khu tái định cư", 645),
+                positioned("Bánh tráng phơi sương null", 730),
+                positioned(",COD,PXD", 795),
+                positioned("Thành công", 860)
+            ),
+            code
+        )!!
+
+        assertEquals("Bánh tráng sate phơi sương (Tp.Hà Nội)", result.shop)
+        assertEquals("Lành Nguyễn", result.customer)
+        assertEquals("Sđt 0784485971 Địa chỉ đường n11 khu tái định cư", result.address)
+        assertEquals("Bánh tráng phơi sương null", result.goods)
+        assertEquals("COD PXD", result.service)
+        assertEquals("TT500", result.status)
+        assertEquals("120,000đ", result.cod)
+    }
+
+    @Test fun positionedServiceRowIsOptional() {
+        val code = "ECOSGN0261K09628"
+        val result = VtmanFixedBlockParser.parsePositioned(
+            listOf(
+                positioned("$code TT500 0 đ", 460, 28, 650),
+                positioned("CN Công Ty CP Dược Phẩm ECO (Tp.Hà Nội)", 525),
+                positioned("NGUYỄN THÀNH ĐẠT", 585),
+                positioned("D18 không chứa từ khóa địa chỉ", 645),
+                positioned("Hóa đơn + thuốc", 705),
+                positioned("Thành công", 780)
+            ),
+            code
+        )!!
+
+        assertEquals("CN Công Ty CP Dược Phẩm ECO (Tp.Hà Nội)", result.shop)
+        assertEquals("NGUYỄN THÀNH ĐẠT", result.customer)
+        assertEquals("D18 không chứa từ khóa địa chỉ", result.address)
+        assertEquals("Hóa đơn + thuốc", result.goods)
+        assertEquals("", result.service)
+    }
+
     @Test fun shopCitySuffixIsNotMistakenForDeliveryAddress() {
         val ecoWaybill = "ECOSGN0261K09628"
         val result = VtmanFixedBlockParser.parse(

@@ -46,6 +46,7 @@ object VtmanQueueController {
         val record = active ?: return listOf("block dữ liệu")
         return buildList {
             if (record.phone.isBlank()) add("SĐT")
+            if (record.shop.isBlank()) add("shop")
             if (record.customer.isBlank()) add("khách hàng")
             if (record.goods.isBlank()) add("mặt hàng")
             if (record.status.isBlank()) add("trạng thái")

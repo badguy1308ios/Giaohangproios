@@ -173,16 +173,24 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        val rec=VtmanFixedBlockParser.parse(resultStrings,mv)
-        if (rec==null || rec.customer.isBlank() || rec.address.isBlank() || rec.cod.isBlank()) {
+        // Ưu tiên cấu trúc 5 hàng theo vị trí/icon; parser chữ cũ chỉ là
+        // dự phòng cho phiên bản VTMan không cung cấp tọa độ TextView.
+        val positioned = root.collectResultPositionedTexts()
+        val rec = VtmanFixedBlockParser.parsePositioned(positioned, mv)
+            ?: VtmanFixedBlockParser.parse(resultStrings, mv)
+        if (rec==null || rec.shop.isBlank() || rec.customer.isBlank() || rec.address.isBlank() ||
+            rec.goods.isBlank() || rec.status.isBlank() || rec.cod.isBlank()) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
             // A matching order is visible. A parsing failure is not an empty result:
             // retain the current queue item so Chạy retries it instead of losing it.
             val missing = buildList {
                 if (rec == null) add("khối đơn")
                 else {
+                    if (rec.shop.isBlank()) add("tên shop")
                     if (rec.customer.isBlank()) add("tên khách")
                     if (rec.address.isBlank()) add("địa chỉ")
+                    if (rec.goods.isBlank()) add("hàng hóa")
+                    if (rec.status.isBlank()) add("trạng thái")
                     if (rec.cod.isBlank()) add("COD")
                 }
             }.joinToString(", ")
@@ -332,6 +340,34 @@ class VtmanAccessibilityService : AccessibilityService() {
         walk(this)
         return out.sortedWith(compareBy<PositionedText> { it.top }.thenBy { it.left }.thenBy { it.order })
             .map(PositionedText::value)
+    }
+
+    private fun AccessibilityNodeInfo.collectResultPositionedTexts(): List<VtmanScreenText> {
+        val out = mutableListOf<VtmanScreenText>()
+        fun walk(n: AccessibilityNodeInfo) {
+            if (!n.isEditable) {
+                val value = n.text?.toString()?.trim().orEmpty()
+                if (value.isNotBlank()) {
+                    val bounds = Rect().also(n::getBoundsInScreen)
+                    if (!bounds.isEmpty) {
+                        out += VtmanScreenText(
+                            value = value,
+                            left = bounds.left,
+                            top = bounds.top,
+                            right = bounds.right,
+                            bottom = bounds.bottom
+                        )
+                    }
+                }
+            }
+            for (i in 0 until n.childCount) {
+                val child = n.getChild(i) ?: continue
+                walk(child)
+                child.recycle()
+            }
+        }
+        walk(this)
+        return out
     }
 
     private fun AccessibilityNodeInfo.collectResultStrings():List<String>{
