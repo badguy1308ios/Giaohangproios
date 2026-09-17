@@ -50,8 +50,8 @@ class VtmanOverlayService : Service() {
         when (connectionWait.poll(accessibilityEnabled(), VtmanQueueController.service != null, SystemClock.elapsedRealtime())) {
             VtmanConnectionWait.Result.READY -> VtmanQueueController.service?.begin()
             VtmanConnectionWait.Result.DISABLED -> VtmanQueueController.fail("Trợ năng Giao Hàng Pro chưa bật. Mở Trợ năng để cấp quyền.")
-            VtmanConnectionWait.Result.WAITING -> VtmanQueueController.report("Trợ năng đã bật · đang chờ Android kết nối (tối đa 8 giây)…")
-            VtmanConnectionWait.Result.TIMED_OUT -> VtmanQueueController.fail("Trợ năng đã bật nhưng Android chưa kết nối dịch vụ. Bấm Chạy để thử lại; nếu vẫn lỗi, kiểm tra dịch vụ trong Trợ năng.")
+            VtmanConnectionWait.Result.WAITING -> VtmanQueueController.report("Trợ năng đã bật · đang chờ Android kết nối…")
+            VtmanConnectionWait.Result.TIMED_OUT -> VtmanQueueController.report("Trợ năng vẫn đang bật · Android kết nối lại hơi lâu. Export sẽ tự chạy khi kết nối, không cần bật lại quyền.")
             VtmanConnectionWait.Result.IDLE -> Unit
         }
     }
@@ -187,6 +187,14 @@ class VtmanOverlayService : Service() {
 
     companion object {
         @Volatile private var instance: VtmanOverlayService? = null
+
+        fun notifyAccessibilityConnected() {
+            val service = instance ?: return
+            service.handler.post {
+                if (instance === service) service.checkPendingStart()
+            }
+        }
+
         fun requestCallPointSelection(onPoint: (Float, Float) -> Unit): Boolean {
             val s=instance ?: return false
             val generation = s.selectionGeneration

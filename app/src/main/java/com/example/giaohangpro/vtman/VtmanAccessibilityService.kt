@@ -27,6 +27,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         VtmanQueueController.service = this
+        VtmanOverlayService.notifyAccessibilityConnected()
         diagnostic("connected")
     }
     override fun onInterrupt() = Unit

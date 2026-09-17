@@ -9,13 +9,13 @@ internal class VtmanConnectionWait(private val timeoutMs: Long = 8000L) {
     fun cancel() { startedAt = null }
     fun poll(enabled: Boolean, connected: Boolean, now: Long): Result {
         val start = startedAt ?: return Result.IDLE
-        val result = when {
-            !enabled -> Result.DISABLED
-            connected -> Result.READY
+        return when {
+            !enabled -> Result.DISABLED.also { cancel() }
+            connected -> Result.READY.also { cancel() }
+            // TIMED_OUT chỉ đổi thông báo thành "đang chờ lâu". Yêu cầu Chạy vẫn
+            // được giữ để onServiceConnected đến trễ vẫn tự khởi động Export.
             now - start >= timeoutMs -> Result.TIMED_OUT
             else -> Result.WAITING
         }
-        if (result != Result.WAITING) cancel()
-        return result
     }
 }

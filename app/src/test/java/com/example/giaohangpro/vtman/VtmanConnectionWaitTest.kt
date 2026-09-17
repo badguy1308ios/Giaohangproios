@@ -18,13 +18,15 @@ class VtmanConnectionWaitTest {
         assertEquals(DISABLED, wait.poll(false, false, 100))
         assertEquals(IDLE, wait.poll(true, true, 200))
     }
-    @Test fun repeatedStartCannotExtendTimeoutForever() {
+    @Test fun repeatedStartCannotExtendTimeoutAndLateConnectionStillStarts() {
         val wait = VtmanConnectionWait()
         wait.start(100)
         wait.start(7000)
         assertEquals(WAITING, wait.poll(true, false, 8099))
         assertEquals(TIMED_OUT, wait.poll(true, false, 8100))
-        assertEquals(IDLE, wait.poll(true, true, 8200))
+        assertEquals(TIMED_OUT, wait.poll(true, false, 15000))
+        assertEquals(READY, wait.poll(true, true, 16000))
+        assertEquals(IDLE, wait.poll(true, true, 16100))
     }
     @Test fun stopOrCloseCancelsDelayedStart() {
         val wait = VtmanConnectionWait()
@@ -38,11 +40,11 @@ class VtmanConnectionWaitTest {
         assertEquals(WAITING, wait.poll(true, false, 200))
         assertEquals(DISABLED, wait.poll(false, true, 300))
     }
-    @Test fun userCanRetryAfterTimeout() {
+    @Test fun connectionAfterTimeoutDoesNotRequireAnotherStart() {
         val wait = VtmanConnectionWait()
         wait.start(0)
         assertEquals(TIMED_OUT, wait.poll(true, false, 8000))
-        wait.start(9000)
         assertEquals(READY, wait.poll(true, true, 9500))
+        assertEquals(IDLE, wait.poll(true, true, 9600))
     }
 }
