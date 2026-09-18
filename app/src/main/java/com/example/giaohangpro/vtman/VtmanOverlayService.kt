@@ -32,6 +32,7 @@ class VtmanOverlayService : Service() {
     private val connectionWait = VtmanConnectionWait()
     private var selectionGeneration = 0
     private var autoExportLocked = false
+    private var completionClose = false
 
     private fun accessibilityEnabled(): Boolean {
         // Một service đang kết nối thật luôn được xem là đã bật. Tránh trường hợp
@@ -122,12 +123,15 @@ class VtmanOverlayService : Service() {
                 runPauseButton.text = when {
                     partialCount > 0 -> "Quét lại"
                     service?.isRunning() == true -> "Tạm dừng"
+                    service?.isPaused() == true -> "Tiếp tục"
                     else -> "Chạy"
                 }
             }
             if (::skipButton.isInitialized) {
+                val showSkip = partialCount > 0 || (s.error.isNotBlank() && s.currentWaybill.isNotBlank())
                 skipButton.text = if (partialCount > 0) "Lấy $partialCount đơn" else "Bỏ qua"
-                skipButton.isEnabled = partialCount > 0 || (s.error.isNotBlank() && s.currentWaybill.isNotBlank())
+                skipButton.isEnabled = showSkip
+                skipButton.visibility = if (showSkip) View.VISIBLE else View.GONE
             }
             handler.postDelayed(this, 450)
         }
@@ -143,7 +147,7 @@ class VtmanOverlayService : Service() {
     }
 
     override fun onDestroy() {
-        cancelStart()
+        if (!completionClose) cancelStart() else clearSelectionUi()
         handler.removeCallbacksAndMessages(null)
         clearSelectionUi()
         if (::panel.isInitialized) runCatching { windowManager.removeView(panel) }
@@ -189,7 +193,7 @@ class VtmanOverlayService : Service() {
         skipButton = button("Bỏ qua") { skipOrUsePartial() }.apply { isEnabled = false }
         row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f))
         row.addView(
-            button("Tắt") { cancelStart(); stopSelf() },
+            button("×") { cancelStart(); stopSelf() },
             LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f)
         )
         panel.addView(status)
@@ -291,5 +295,15 @@ class VtmanOverlayService : Service() {
             return true
         }
         fun clearCallPointUi() { instance?.clearSelectionUi() }
+
+        fun closeAfterCompletion() {
+            val service = instance ?: return
+            service.handler.post {
+                if (instance === service) {
+                    service.completionClose = true
+                    service.stopSelf()
+                }
+            }
+        }
     }
 }

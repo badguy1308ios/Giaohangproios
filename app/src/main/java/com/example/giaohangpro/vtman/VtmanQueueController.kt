@@ -1,5 +1,9 @@
 package com.example.giaohangpro.vtman
 
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
 data class VtmanQueueSnapshot(
     val total: Int = 0,
     val processed: Int = 0,
@@ -12,6 +16,8 @@ data class VtmanQueueSnapshot(
 )
 
 object VtmanQueueController {
+    private const val PREFS = "vtman_export_checkpoint"
+    private const val KEY_STATE = "active_state"
     private val queue = mutableListOf<String>()
     private val completed = linkedMapOf<String, VtmanOrderRecord>()
     private val skipped = mutableListOf<String>()
@@ -21,9 +27,15 @@ object VtmanQueueController {
     private var pendingAutoCount = 0
     private var autoLogEnabled = false
     private val autoRunLog = mutableListOf<String>()
+    private var appContext: Context? = null
     @Volatile var service: VtmanAccessibilityService? = null
     private var status = "Chưa nạp danh sách MVĐ"
     private var error = ""
+
+    @Synchronized fun attachContext(context: Context) {
+        appContext = context.applicationContext
+        if (queue.isEmpty() && completed.isEmpty() && pendingAutoCount == 0) restoreCheckpoint()
+    }
 
     @Synchronized fun load(waybills: List<String>, preserveAutoLog: Boolean = false) {
         queue.clear()
@@ -34,6 +46,7 @@ object VtmanQueueController {
             autoRunLog.clear()
         }
         status = if (queue.isEmpty()) "Không tìm thấy MVĐ hợp lệ" else "Đã nạp ${queue.size} MVĐ. Mở VTMan/Gạch phát offline rồi bấm Chạy."
+        persistCheckpoint()
     }
 
     @Synchronized fun prepareAutoExport(count: Int) {
@@ -44,6 +57,7 @@ object VtmanQueueController {
         autoRunLog.clear()
         appendAutoLog("Bắt đầu · $pendingAutoCount MVĐ")
         status = "Auto Export đã sẵn sàng · cần lấy $pendingAutoCount MVĐ. Mở Gạch phát offline."
+        persistCheckpoint()
     }
 
     private fun appendAutoLog(message: String) {
@@ -54,10 +68,14 @@ object VtmanQueueController {
         if (autoRunLog.lastOrNull() != line) autoRunLog += line
     }
 
-    @Synchronized fun addAutoLog(message: String) { appendAutoLog(message) }
+    @Synchronized fun addAutoLog(message: String) {
+        appendAutoLog(message)
+        persistCheckpoint()
+    }
 
     @Synchronized fun clearAutoLog() {
         autoRunLog.clear()
+        persistCheckpoint()
     }
 
     @Synchronized fun hasPendingAutoExport(): Boolean = pendingAutoCount > 0
@@ -68,10 +86,13 @@ object VtmanQueueController {
         return count
     }
 
+    @Synchronized fun isAutoSession(): Boolean = autoLogEnabled
+    @Synchronized fun hasResumableSession(): Boolean = autoLogEnabled && queue.getOrNull(index) != null
     @Synchronized fun nextWaybill(): String? = queue.getOrNull(index)
     @Synchronized fun setCallPoint(x: Float, y: Float) { callPoint = CallPoint(x, y) }
     @Synchronized fun callPoint(): CallPoint? = callPoint
     @Synchronized fun clearCallPoint() { callPoint = null }
+    @Synchronized fun clearActiveForRetry() { active = null }
 
     @Synchronized fun stage(record: VtmanOrderRecord): Boolean {
         if (record.waybill != nextWaybill()) { active = null; return false }
@@ -105,6 +126,7 @@ object VtmanQueueController {
         appendAutoLog("✓ ${record.waybill} · Đã lưu")
         if (index >= queue.size) appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
         error = ""
+        persistCheckpoint()
         return record
     }
 
@@ -115,6 +137,7 @@ object VtmanQueueController {
         active = null
         status = "Bỏ qua $waybill: VTMan không có dữ liệu"
         appendAutoLog("⚠ $waybill · Không có dữ liệu")
+        persistCheckpoint()
         return nextWaybill()
     }
 
@@ -132,6 +155,7 @@ object VtmanQueueController {
         }
         appendAutoLog("⚠ $waybill · Người dùng bỏ qua")
         if (next == null) appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
+        persistCheckpoint()
         return waybill to next
     }
 
@@ -141,6 +165,7 @@ object VtmanQueueController {
         status = message
         error = message
         appendAutoLog("✕ Lỗi · $message")
+        persistCheckpoint()
     }
     @Synchronized fun serviceUnavailable() = fail("Trợ năng Giao Hàng Pro chưa kết nối. Hãy bật dịch vụ trợ năng rồi thử lại.")
 
@@ -154,6 +179,80 @@ object VtmanQueueController {
         error = error,
         runLog = autoRunLog.toList(),
     )
+
+    private fun recordToJson(record: VtmanOrderRecord) = JSONObject().apply {
+        put("waybill", record.waybill); put("shop", record.shop); put("phone", record.phone)
+        put("customer", record.customer); put("goods", record.goods); put("status", record.status)
+        put("cod", record.cod); put("address", record.address); put("service", record.service)
+    }
+
+    private fun jsonToRecord(value: JSONObject) = VtmanOrderRecord(
+        waybill = value.optString("waybill"),
+        shop = value.optString("shop"),
+        phone = value.optString("phone"),
+        customer = value.optString("customer"),
+        goods = value.optString("goods"),
+        status = value.optString("status"),
+        cod = value.optString("cod"),
+        address = value.optString("address"),
+        service = value.optString("service"),
+    )
+
+    private fun persistCheckpoint() {
+        val context = appContext ?: return
+        val activeSession = pendingAutoCount > 0 || index < queue.size
+        val state = JSONObject().apply {
+            put("active", activeSession)
+            put("queue", JSONArray().apply { queue.forEach(::put) })
+            put("completed", JSONArray().apply { completed.values.forEach { put(recordToJson(it)) } })
+            put("skipped", JSONArray().apply { skipped.forEach(::put) })
+            put("index", index)
+            put("pendingAutoCount", pendingAutoCount)
+            put("autoLogEnabled", autoLogEnabled)
+            put("runLog", JSONArray().apply { autoRunLog.forEach(::put) })
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_STATE, state.toString()).apply()
+    }
+
+    private fun restoreCheckpoint() {
+        val context = appContext ?: return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_STATE, null) ?: return
+        runCatching {
+            val state = JSONObject(raw)
+            if (!state.optBoolean("active", false)) return
+            queue.clear()
+            state.optJSONArray("queue")?.let { values ->
+                for (i in 0 until values.length()) values.optString(i).takeIf(String::isNotBlank)?.let(queue::add)
+            }
+            completed.clear()
+            state.optJSONArray("completed")?.let { values ->
+                for (i in 0 until values.length()) {
+                    val record = jsonToRecord(values.getJSONObject(i))
+                    if (record.waybill.isNotBlank()) completed[record.waybill] = record
+                }
+            }
+            skipped.clear()
+            state.optJSONArray("skipped")?.let { values ->
+                for (i in 0 until values.length()) values.optString(i).takeIf(String::isNotBlank)?.let(skipped::add)
+            }
+            index = state.optInt("index", 0).coerceIn(0, queue.size)
+            pendingAutoCount = state.optInt("pendingAutoCount", 0).coerceIn(0, 500)
+            autoLogEnabled = state.optBoolean("autoLogEnabled", true)
+            autoRunLog.clear()
+            state.optJSONArray("runLog")?.let { values ->
+                for (i in 0 until values.length()) values.optString(i).takeIf(String::isNotBlank)?.let(autoRunLog::add)
+            }
+            active = null
+            callPoint = null
+            error = ""
+            status = "Đã khôi phục tiến độ · tiếp tục ${queue.getOrNull(index).orEmpty()}"
+            appendAutoLog("↻ Khôi phục tiến độ tại ${queue.getOrNull(index).orEmpty()}")
+        }.onFailure {
+            prefs.edit().remove(KEY_STATE).apply()
+        }
+    }
 }
 
 data class CallPoint(val x: Float, val y: Float)

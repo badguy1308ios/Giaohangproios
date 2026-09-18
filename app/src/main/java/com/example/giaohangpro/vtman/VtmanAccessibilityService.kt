@@ -38,10 +38,13 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var tickScheduled = false
     private var lastAutoNavigationTapAt = 0L
     private var autoEntryCheckScheduled = false
+    private var retryWaybill = ""
+    private var retryAttempt = 0
     private val tick = Runnable { tickScheduled = false; safely { process() } }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        VtmanQueueController.attachContext(applicationContext)
         VtmanQueueController.service = this
         VtmanOverlayService.notifyAccessibilityConnected()
         diagnostic("connected")
@@ -203,6 +206,21 @@ class VtmanAccessibilityService : AccessibilityService() {
             schedule(250)
             return
         }
+        if (requestedAutoCount <= 0 && root != null &&
+            VtmanQueueController.hasResumableSession() &&
+            VtmanQueueController.callPoint() == null
+        ) {
+            val bounds = Rect().also(root::getBoundsInScreen)
+            VtmanQueueController.setCallPoint(
+                bounds.left + bounds.width() * 0.90f,
+                bounds.top + bounds.height() * 0.50f
+            )
+            root.recycle()
+            mode = 2
+            VtmanQueueController.report("Đã khôi phục Auto Export · tiếp tục ${VtmanQueueController.nextWaybill()}")
+            schedule(350)
+            return
+        }
         root?.recycle()
 
         if (VtmanQueueController.nextWaybill() == null) {
@@ -274,7 +292,43 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+
+    private fun resetRetry(waybill: String) {
+        if (retryWaybill == waybill) {
+            retryWaybill = ""
+            retryAttempt = 0
+        }
+    }
+
+    private fun retryCurrentOrFail(waybill: String, reason: String, returnToVtman: Boolean = false) {
+        if (retryWaybill != waybill) {
+            retryWaybill = waybill
+            retryAttempt = 0
+        }
+        if (retryAttempt >= 2) {
+            mode = 0
+            VtmanQueueController.fail("$reason · đã tự thử lại 2 lần")
+            return
+        }
+        retryAttempt++
+        VtmanQueueController.clearActiveForRetry()
+        VtmanQueueController.addAutoLog("↻ $waybill · thử lại $retryAttempt/2")
+        VtmanQueueController.report("$reason · đang tự thử lại $retryAttempt/2")
+        h.removeCallbacksAndMessages(null)
+        tickScheduled = false
+        rootMissingSince = null
+        if (returnToVtman) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            returnDeadline = System.currentTimeMillis() + 9_000L
+            nextBackAt = System.currentTimeMillis() + 600L
+            mode = 5
+            schedule(500)
+        } else {
+            mode = 2
+            schedule(550)
+        }
+    }
 
     fun skipErroredWaybill() = safely {
         val skipped = VtmanQueueController.skipCurrentByUser()
@@ -334,7 +388,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         val f=root.findSearch() ?: run { VtmanQueueController.fail("Không thấy ô Search"); mode=0; return }
         val a=Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,mv) }
         val ok=f.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,a); f.recycle()
-        if (!ok) { VtmanQueueController.fail("Không nhập được MVĐ vào Search"); mode=0; return }
+        if (!ok) { retryCurrentOrFail(mv, "Không nhập được MVĐ vào Search"); return }
         mode=3
         resultDeadline=System.currentTimeMillis()+5000L
         VtmanQueueController.report("Đang chờ kết quả $mv")
@@ -379,11 +433,13 @@ class VtmanAccessibilityService : AccessibilityService() {
                     if (rec.cod.isBlank()) add("COD")
                 }
             }.joinToString(", ")
-            mode=0
-            VtmanQueueController.fail("Tìm thấy $mv nhưng chưa đọc được $missing. Đơn vẫn được giữ; bấm Chạy để thử lại.")
+            retryCurrentOrFail(mv, "Tìm thấy $mv nhưng chưa đọc được $missing")
             return
         }
-        if (!VtmanQueueController.stage(rec)) { VtmanQueueController.fail("MVĐ đọc được không trùng mã đang chờ"); mode=0; return }
+        if (!VtmanQueueController.stage(rec)) {
+            retryCurrentOrFail(mv, "MVĐ đọc được không trùng mã đang chờ")
+            return
+        }
 
         // Không dùng Y cố định của đơn đầu tiên: khi Search còn nhiều block, tọa độ đó
         // có thể bấm nút gọi của MVĐ khác. Giữ X do người dùng chọn nhưng khóa Y theo
@@ -400,7 +456,16 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (!tap(p.x,callY)) { VtmanQueueController.fail("Không bấm được nút gọi của $mv"); mode=0; return }
+        val stillShowsCurrent = root.collectResultStrings()
+            .any { VtmanFixedBlockParser.containsExpectedWaybill(it, mv) }
+        if (!stillShowsCurrent) {
+            retryCurrentOrFail(mv, "Màn hình đã đổi trước khi lấy SĐT của $mv")
+            return
+        }
+        if (!tap(p.x,callY)) {
+            retryCurrentOrFail(mv, "Không bấm được nút gọi của $mv")
+            return
+        }
         val now = System.currentTimeMillis()
         phoneReadNotBefore = now + 250L
         deadline=now+4000L
@@ -410,11 +475,11 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun skipNoDataAndContinue(mv:String) {
+        resetRetry(mv)
         VtmanQueueController.skipNoData()
         val next=VtmanQueueController.nextWaybill()
         if (next==null) {
-            mode=0
-            VtmanQueueController.report("Hoàn tất toàn bộ MVĐ · $mv không có dữ liệu")
+            completeAutoRun("Hoàn tất toàn bộ MVĐ · $mv không có dữ liệu")
         } else {
             mode=2
             VtmanQueueController.report("$mv không có dữ liệu · bỏ qua, tiếp tục $next")
@@ -448,15 +513,14 @@ class VtmanAccessibilityService : AccessibilityService() {
         VtmanFixedBlockParser.findPhone(phoneStrings)?.let { phone ->
             VtmanQueueController.updatePhone(phone)
             if (VtmanQueueController.missingActiveFields().isNotEmpty()) {
-                VtmanQueueController.fail("Đơn $mv còn thiếu dữ liệu")
-                mode=0
+                retryCurrentOrFail(mv, "Đơn $mv còn thiếu dữ liệu", returnToVtman = true)
                 return
             }
             if (VtmanQueueController.finalizeCurrent() == null) {
-                VtmanQueueController.fail("Không thể lưu SĐT vì MVĐ hiện tại đã thay đổi")
-                mode=0
+                retryCurrentOrFail(mv, "Không thể lưu SĐT vì MVĐ hiện tại đã thay đổi", returnToVtman = true)
                 return
             }
+            resetRetry(mv)
             returnDeadline = now + 9000L
             nextBackAt = now + 500L
 
@@ -474,8 +538,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
 
         if (now>deadline) {
-            VtmanQueueController.fail("Không đọc được SĐT của $mv")
-            mode=0
+            retryCurrentOrFail(mv, "Không đọc được SĐT của $mv", returnToVtman = true)
         } else schedule(180)
     }
 
@@ -497,7 +560,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
 
         mode = if (VtmanQueueController.nextWaybill()==null) 0 else 2
-        if (mode==0) VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
+        if (mode==0) completeAutoRun("Hoàn tất toàn bộ MVĐ")
         else {
             VtmanQueueController.report("Đã lưu SĐT đầu tiên · tiếp tục đơn kế")
             schedule(350)
@@ -508,7 +571,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         val currentPkg = root.packageName?.toString()
         if (currentPkg == pkg) {
             mode = if (VtmanQueueController.nextWaybill()==null) 0 else 2
-            if (mode==0) VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
+            if (mode==0) completeAutoRun("Hoàn tất toàn bộ MVĐ")
             else {
                 VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
                 schedule(450)
@@ -526,6 +589,34 @@ class VtmanAccessibilityService : AccessibilityService() {
             nextBackAt = now + 1800L
         }
         schedule(250)
+    }
+
+    private fun clearVtmanSearchField() {
+        val root = rootInActiveWindow ?: return
+        try {
+            if (root.packageName?.toString() != VTMAN_PACKAGE_NAME) return
+            val search = root.findSearch() ?: return
+            val arguments = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+            }
+            search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            search.recycle()
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun completeAutoRun(message: String) {
+        mode = 0
+        clearVtmanSearchField()
+        VtmanQueueController.report(message)
+        if (!VtmanQueueController.isAutoSession()) return
+        h.postDelayed({
+            val launch = packageManager.getLaunchIntentForPackage(packageName)
+            launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            if (launch != null) startActivity(launch)
+            VtmanOverlayService.closeAfterCompletion()
+        }, 350L)
     }
 
     private fun collectAutoWaybills(root: AccessibilityNodeInfo) {
