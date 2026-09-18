@@ -387,7 +387,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {

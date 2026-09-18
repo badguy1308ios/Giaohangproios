@@ -23,6 +23,7 @@ import android.widget.TextView
 class VtmanOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var panel: LinearLayout
+    private var waitingPanel: LinearLayout? = null
     private lateinit var status: TextView
     private lateinit var runPauseButton: Button
     private lateinit var skipButton: Button
@@ -106,6 +107,7 @@ class VtmanOverlayService : Service() {
         connectionWait.cancel()
         clearSelectionUi()
         VtmanQueueController.service?.stop()
+        VtmanQueueController.cancelPendingAutoWorkflow()
     }
 
     private val refresh = object : Runnable {
@@ -144,7 +146,11 @@ class VtmanOverlayService : Service() {
             autoExportLocked = true
         }
         val deferPanel = intent?.getBooleanExtra(EXTRA_DEFER_PANEL, false) == true
-        if (!deferPanel && !::panel.isInitialized) showPanel()
+        if (deferPanel) {
+            if (!::panel.isInitialized && waitingPanel == null) showWaitingPanel()
+        } else if (!::panel.isInitialized) {
+            showPanel()
+        }
         return START_NOT_STICKY
     }
 
@@ -152,12 +158,77 @@ class VtmanOverlayService : Service() {
         if (!completionClose) cancelStart() else clearSelectionUi()
         handler.removeCallbacksAndMessages(null)
         clearSelectionUi()
+        hideWaitingPanel()
         if (::panel.isInitialized) runCatching { windowManager.removeView(panel) }
         if (instance === this) instance = null
         super.onDestroy()
     }
 
+    private fun showWaitingPanel() {
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        if (!Settings.canDrawOverlays(this)) {
+            VtmanQueueController.fail("Chưa cấp quyền Hiển thị trên ứng dụng khác cho Giao Hàng Pro")
+            stopSelf()
+            return
+        }
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(16, 5, 5, 5)
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(194, 78, 20))
+                cornerRadius = 24f
+            }
+        }
+        val dragArea = TextView(this).apply {
+            text = "Đang chuẩn bị Auto Export…"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(8, 5, 8, 5)
+        }
+        val close = TextView(this).apply {
+            text = "×"
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { stopSelf() }
+        }
+        box.addView(dragArea, LinearLayout.LayoutParams(0, 54, 1f))
+        box.addView(close, LinearLayout.LayoutParams(54, 54))
+        waitingPanel = box
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val params = WindowManager.LayoutParams(
+            (screenWidth * 0.72f).toInt(),
+            -2,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            x = 0
+            y = (screenHeight * 0.11f).toInt()
+        }
+        runCatching {
+            windowManager.addView(box, params)
+            makeOverlayDraggable(dragArea, box)
+        }.onFailure {
+            waitingPanel = null
+            VtmanQueueController.fail("Không mở được popup chờ Auto Export: ${it.message}")
+        }
+    }
+
+    private fun hideWaitingPanel() {
+        waitingPanel?.let { runCatching { windowManager.removeView(it) } }
+        waitingPanel = null
+    }
+
     private fun showPanel() {
+        hideWaitingPanel()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         if (!Settings.canDrawOverlays(this)) {
             VtmanQueueController.fail("Chưa cấp quyền Hiển thị trên ứng dụng khác cho Giao Hàng Pro")
@@ -238,6 +309,34 @@ class VtmanOverlayService : Service() {
         runCatching { windowManager.addView(panel, params) }
             .onSuccess { handler.post(refresh) }
             .onFailure { VtmanQueueController.fail("Không mở được popup VTMan: ${it.message}") }
+    }
+
+    private fun makeOverlayDraggable(handle: View, target: View) {
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        handle.setOnTouchListener { _, event ->
+            val params = target.layoutParams as? WindowManager.LayoutParams
+                ?: return@setOnTouchListener false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = startX + (event.rawX - downX).toInt()
+                    params.y = startY + (event.rawY - downY).toInt()
+                    runCatching { windowManager.updateViewLayout(target, params) }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
     }
 
     private fun makeDraggable(view: View) {

@@ -108,6 +108,20 @@ object VtmanQueueController {
 
     @Synchronized fun fallbackAutoCount(): Int = autoFallbackCount
 
+    @Synchronized fun cancelPendingAutoWorkflow() {
+        if (!pendingAutoDiscovery && pendingAutoCount <= 0) return
+        appendAutoLog("Đã tắt Auto Export bởi người dùng")
+        pendingAutoDiscovery = false
+        pendingAutoCount = 0
+        autoFallbackCount = 0
+        active = null
+        callPoint = null
+        error = ""
+        status = "Đã tắt Auto Export"
+        autoLogEnabled = false
+        persistCheckpoint()
+    }
+
     private fun appendAutoLog(message: String) {
         if (!autoLogEnabled) return
         val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
