@@ -116,6 +116,11 @@ object VtmanQueueController {
         }
     }
 
+    private fun appendCompletionLog() {
+        appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
+        if (skipped.isNotEmpty()) appendAutoLog("Cần kiểm tra lại · ${skipped.joinToString(", ")}")
+    }
+
     @Synchronized fun finalizeCurrent(): VtmanOrderRecord? {
         val record = active ?: return null
         if (record.waybill != nextWaybill() || missingActiveFields().isNotEmpty()) return null
@@ -124,7 +129,7 @@ object VtmanQueueController {
         active = null
         status = "Đã lấy ${completed.size}/${queue.size}: ${record.waybill}"
         appendAutoLog("✓ ${record.waybill} · Đã lưu")
-        if (index >= queue.size) appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
+        if (index >= queue.size) appendCompletionLog()
         error = ""
         persistCheckpoint()
         return record
@@ -137,6 +142,7 @@ object VtmanQueueController {
         active = null
         status = "Bỏ qua $waybill: VTMan không có dữ liệu"
         appendAutoLog("⚠ $waybill · Không có dữ liệu")
+        if (index >= queue.size) appendCompletionLog()
         persistCheckpoint()
         return nextWaybill()
     }

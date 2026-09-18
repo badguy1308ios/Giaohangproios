@@ -342,8 +342,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         rootMissingSince = null
         val (waybill, next) = skipped
         if (next == null) {
-            mode = 0
-            VtmanQueueController.report("Đã bỏ qua $waybill · hoàn tất toàn bộ MVĐ")
+            completeAutoRun("Đã bỏ qua $waybill · hoàn tất toàn bộ MVĐ")
         } else if (VtmanQueueController.callPoint() != null) {
             mode = 2
             VtmanQueueController.report("Đã bỏ qua $waybill · tiếp tục $next")
