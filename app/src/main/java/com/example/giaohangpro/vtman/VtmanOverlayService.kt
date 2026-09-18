@@ -139,10 +139,12 @@ class VtmanOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        instance = this
         if (intent?.getBooleanExtra(EXTRA_AUTO_EXPORT_LOCKED, false) == true) {
             autoExportLocked = true
         }
-        if (!::panel.isInitialized) showPanel()
+        val deferPanel = intent?.getBooleanExtra(EXTRA_DEFER_PANEL, false) == true
+        if (!deferPanel && !::panel.isInitialized) showPanel()
         return START_NOT_STICKY
     }
 
@@ -295,6 +297,7 @@ class VtmanOverlayService : Service() {
 
     companion object {
         const val EXTRA_AUTO_EXPORT_LOCKED = "AUTO_EXPORT_LOCKED"
+        const val EXTRA_DEFER_PANEL = "DEFER_AUTO_EXPORT_PANEL"
         @Volatile private var instance: VtmanOverlayService? = null
 
         fun notifyAccessibilityConnected() {
@@ -316,6 +319,14 @@ class VtmanOverlayService : Service() {
             return true
         }
         fun clearCallPointUi() { instance?.clearSelectionUi() }
+
+        fun showDeferredAutoPanel(): Boolean {
+            val service = instance ?: return false
+            service.handler.post {
+                if (instance === service && !service::panel.isInitialized) service.showPanel()
+            }
+            return true
+        }
 
         fun closeAfterCompletion() {
             val service = instance ?: return
