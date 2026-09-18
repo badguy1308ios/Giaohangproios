@@ -29,6 +29,8 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var autoStableTicks = 0
     private var autoCallX = 0f
     private var autoCallY = 0f
+    private var pausedMode = 0
+    private var pausedAt = 0L
     private var tickScheduled = false
     private val tick = Runnable { tickScheduled = false; safely { process() } }
 
@@ -76,6 +78,8 @@ class VtmanAccessibilityService : AccessibilityService() {
         tickScheduled = false
         rootMissingSince = null
         phoneReadNotBefore = 0L
+        pausedMode = 0
+        pausedAt = 0L
         if (VtmanQueueController.service === this) {
             VtmanQueueController.service = null
             VtmanOverlayService.clearCallPointUi()
@@ -144,7 +148,40 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun stop() { mode=0; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun isRunning(): Boolean = mode > 1
+    fun isPaused(): Boolean = pausedMode > 1
+
+    fun pause() = safely {
+        if (mode <= 1) return@safely
+        pausedMode = mode
+        pausedAt = System.currentTimeMillis()
+        mode = 0
+        h.removeCallbacksAndMessages(null)
+        tickScheduled = false
+        rootMissingSince = null
+        VtmanQueueController.report("Đã tạm dừng")
+    }
+
+    fun resume() = safely {
+        if (pausedMode <= 1) {
+            begin()
+            return@safely
+        }
+        val now = System.currentTimeMillis()
+        val pausedDuration = (now - pausedAt).coerceAtLeast(0L)
+        if (deadline > 0L) deadline += pausedDuration
+        if (returnDeadline > 0L) returnDeadline += pausedDuration
+        if (resultDeadline > 0L) resultDeadline += pausedDuration
+        if (nextBackAt > 0L) nextBackAt += pausedDuration
+        if (phoneReadNotBefore > 0L) phoneReadNotBefore += pausedDuration
+        mode = pausedMode
+        pausedMode = 0
+        pausedAt = 0L
+        VtmanQueueController.report("Đang tiếp tục Auto Export")
+        schedule(100)
+    }
+
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     fun skipErroredWaybill() = safely {
         val skipped = VtmanQueueController.skipCurrentByUser()

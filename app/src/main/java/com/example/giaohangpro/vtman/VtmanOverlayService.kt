@@ -24,6 +24,7 @@ class VtmanOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var panel: LinearLayout
     private lateinit var status: TextView
+    private lateinit var runPauseButton: Button
     private lateinit var skipButton: Button
     private var selector: View? = null
     private var marker: View? = null
@@ -58,12 +59,22 @@ class VtmanOverlayService : Service() {
     }
 
     private fun requestStart() {
-        if (VtmanQueueController.nextWaybill() == null) {
+        val service = VtmanQueueController.service
+        if (service?.isPaused() == true) {
+            service.resume()
+            return
+        }
+        if (VtmanQueueController.nextWaybill() == null && !VtmanQueueController.hasPendingAutoExport()) {
             VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước")
             return
         }
         connectionWait.start(SystemClock.elapsedRealtime())
         checkPendingStart()
+    }
+
+    private fun toggleRunPause() {
+        val service = VtmanQueueController.service
+        if (service?.isRunning() == true) service.pause() else requestStart()
     }
 
     private fun checkPendingStart() {
@@ -86,13 +97,10 @@ class VtmanOverlayService : Service() {
         override fun run() {
             checkPendingStart()
             val s = VtmanQueueController.snapshot()
-            val connection = when {
-                // Ưu tiên kết nối sống trước mọi dữ liệu cài đặt có thể bị HiOS trễ.
-                VtmanQueueController.service != null -> "Trợ năng: đã kết nối"
-                !accessibilityEnabled() -> "Trợ năng: chưa bật"
-                else -> "Trợ năng: đã bật, chưa kết nối"
+            status.text = "Đã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            if (::runPauseButton.isInitialized) {
+                runPauseButton.text = if (VtmanQueueController.service?.isRunning() == true) "Tạm dừng" else "Chạy"
             }
-            status.text = "$connection\nĐã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
             if (::skipButton.isInitialized) {
                 skipButton.isEnabled = s.error.isNotBlank() && s.currentWaybill.isNotBlank()
             }
@@ -130,16 +138,16 @@ class VtmanOverlayService : Service() {
         status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; maxLines = 6 }
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
         fun button(label: String, action: () -> Unit) = Button(this).apply { text = label; setOnClickListener { action() } }
-        row.addView(button("Chạy") { requestStart() }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button("Dừng") { cancelStart(); VtmanQueueController.report("Đã dừng") }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
+        runPauseButton = button("Chạy") { toggleRunPause() }
+        row.addView(runPauseButton, LinearLayout.LayoutParams(0, -2, 1f))
         skipButton = button("Bỏ qua") {
             VtmanQueueController.service?.skipErroredWaybill()
                 ?: VtmanQueueController.fail("Trợ năng chưa kết nối; chưa thể bỏ qua MVĐ")
         }.apply { isEnabled = false }
+        row.addView(skipButton, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
         panel.addView(status)
         panel.addView(row)
-        panel.addView(skipButton, LinearLayout.LayoutParams(-1, -2))
         makeDraggable(panel)
         val params = WindowManager.LayoutParams(
             760, -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
