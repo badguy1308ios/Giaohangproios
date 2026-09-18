@@ -1231,8 +1231,24 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Border)
             ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("TRẠNG THÁI", color = OrangeDark, fontWeight = FontWeight.Bold)
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("TRẠNG THÁI", color = OrangeDark, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(
+                            onClick = {
+                                com.example.giaohangpro.vtman.VtmanQueueController.clearAutoLog()
+                                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                            },
+                            enabled = snapshot.runLog.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, null, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(3.dp))
+                            Text("XÓA", fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Text(snapshot.status, color = if (snapshot.error.isBlank()) Navy else Color(0xFFD32F2F), fontSize = 13.sp)
                     if (snapshot.total > 0) {
                         Text(
@@ -1240,6 +1256,29 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                             color = TextGray,
                             fontSize = 12.sp
                         )
+                    }
+                    if (snapshot.runLog.isNotEmpty()) {
+                        HorizontalDivider(color = Border)
+                        Text("NHẬT KÝ LẦN CHẠY", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        val logScroll = rememberScrollState()
+                        LaunchedEffect(snapshot.runLog.size) {
+                            kotlinx.coroutines.delay(80)
+                            logScroll.scrollTo(logScroll.maxValue)
+                        }
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(logScroll),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            snapshot.runLog.forEach { line ->
+                                val lineColor = when {
+                                    "✓" in line -> Color(0xFF168A45)
+                                    "⚠" in line -> Color(0xFFF57C00)
+                                    "✕" in line -> Color(0xFFD32F2F)
+                                    else -> TextGray
+                                }
+                                Text(line, color = lineColor, fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }

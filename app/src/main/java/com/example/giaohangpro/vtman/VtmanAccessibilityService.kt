@@ -469,7 +469,8 @@ class VtmanAccessibilityService : AccessibilityService() {
 
         if (autoWaybills.size >= autoTarget) {
             val codes = autoWaybills.take(autoTarget)
-            VtmanQueueController.load(codes)
+            VtmanQueueController.addAutoLog("Đã gom đủ ${codes.size} MVĐ")
+            VtmanQueueController.load(codes, preserveAutoLog = true)
             VtmanQueueController.setCallPoint(autoCallX, autoCallY)
             autoTarget = 0
             autoWaybills.clear()

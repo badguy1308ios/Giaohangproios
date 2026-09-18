@@ -8,6 +8,7 @@ data class VtmanQueueSnapshot(
     val currentWaybill: String = "",
     val status: String = "Chưa nạp danh sách MVĐ",
     val error: String = "",
+    val runLog: List<String> = emptyList(),
 )
 
 object VtmanQueueController {
@@ -18,14 +19,20 @@ object VtmanQueueController {
     private var active: VtmanOrderRecord? = null
     private var callPoint: CallPoint? = null
     private var pendingAutoCount = 0
+    private var autoLogEnabled = false
+    private val autoRunLog = mutableListOf<String>()
     @Volatile var service: VtmanAccessibilityService? = null
     private var status = "Chưa nạp danh sách MVĐ"
     private var error = ""
 
-    @Synchronized fun load(waybills: List<String>) {
+    @Synchronized fun load(waybills: List<String>, preserveAutoLog: Boolean = false) {
         queue.clear()
         queue.addAll(waybills.map(String::trim).filter(String::isNotBlank).distinct())
         completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null; pendingAutoCount = 0; error = ""
+        if (!preserveAutoLog) {
+            autoLogEnabled = false
+            autoRunLog.clear()
+        }
         status = if (queue.isEmpty()) "Không tìm thấy MVĐ hợp lệ" else "Đã nạp ${queue.size} MVĐ. Mở VTMan/Gạch phát offline rồi bấm Chạy."
     }
 
@@ -33,7 +40,24 @@ object VtmanQueueController {
         queue.clear(); completed.clear(); skipped.clear()
         index = 0; active = null; callPoint = null; error = ""
         pendingAutoCount = count.coerceIn(1, 500)
+        autoLogEnabled = true
+        autoRunLog.clear()
+        appendAutoLog("Bắt đầu · $pendingAutoCount MVĐ")
         status = "Auto Export đã sẵn sàng · cần lấy $pendingAutoCount MVĐ. Mở Gạch phát offline."
+    }
+
+    private fun appendAutoLog(message: String) {
+        if (!autoLogEnabled) return
+        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val line = "$time  $message"
+        if (autoRunLog.lastOrNull() != line) autoRunLog += line
+    }
+
+    @Synchronized fun addAutoLog(message: String) { appendAutoLog(message) }
+
+    @Synchronized fun clearAutoLog() {
+        autoRunLog.clear()
     }
 
     @Synchronized fun hasPendingAutoExport(): Boolean = pendingAutoCount > 0
@@ -78,6 +102,8 @@ object VtmanQueueController {
         index++
         active = null
         status = "Đã lấy ${completed.size}/${queue.size}: ${record.waybill}"
+        appendAutoLog("✓ ${record.waybill} · Đã lưu")
+        if (index >= queue.size) appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
         error = ""
         return record
     }
@@ -88,6 +114,7 @@ object VtmanQueueController {
         index++
         active = null
         status = "Bỏ qua $waybill: VTMan không có dữ liệu"
+        appendAutoLog("⚠ $waybill · Không có dữ liệu")
         return nextWaybill()
     }
 
@@ -103,12 +130,18 @@ object VtmanQueueController {
         } else {
             "Đã bỏ qua $waybill · tiếp tục $next"
         }
+        appendAutoLog("⚠ $waybill · Người dùng bỏ qua")
+        if (next == null) appendAutoLog("Hoàn tất · Lưu ${completed.size}/${queue.size} · Bỏ qua ${skipped.size}")
         return waybill to next
     }
 
     @Synchronized fun records(): List<VtmanOrderRecord> = completed.values.toList()
     @Synchronized fun report(message: String) { status = message; error = "" }
-    @Synchronized fun fail(message: String) { status = message; error = message }
+    @Synchronized fun fail(message: String) {
+        status = message
+        error = message
+        appendAutoLog("✕ Lỗi · $message")
+    }
     @Synchronized fun serviceUnavailable() = fail("Trợ năng Giao Hàng Pro chưa kết nối. Hãy bật dịch vụ trợ năng rồi thử lại.")
 
     @Synchronized fun snapshot() = VtmanQueueSnapshot(
@@ -119,6 +152,7 @@ object VtmanQueueController {
         currentWaybill = nextWaybill().orEmpty(),
         status = status,
         error = error,
+        runLog = autoRunLog.toList(),
     )
 }
 
