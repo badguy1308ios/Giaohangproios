@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <queries>
+        <package android:name="com.viettelpost.vtman" />
+    </queries>
+
     <application
         android:theme="@style/Theme.GiaoHangPro"
         android:label="Giao Hàng Pro"

@@ -13,6 +13,10 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
 class VtmanAccessibilityService : AccessibilityService() {
+    companion object {
+        const val VTMAN_PACKAGE_NAME = "com.viettelpost.vtman"
+    }
+
     private val h = Handler(Looper.getMainLooper())
     private var pkg: String? = null
     private var mode = 0
@@ -32,6 +36,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var pausedMode = 0
     private var pausedAt = 0L
     private var tickScheduled = false
+    private var lastAutoNavigationTapAt = 0L
     private val tick = Runnable { tickScheduled = false; safely { process() } }
 
     override fun onServiceConnected() {
@@ -50,12 +55,30 @@ class VtmanAccessibilityService : AccessibilityService() {
             val eventPackage = event?.packageName?.toString().orEmpty()
             if (eventPackage.isBlank() || eventPackage == packageName) return
             val root = rootInActiveWindow ?: return
-            val isOfflineList = try {
-                root.collectStrings().any { it.contains("Gạch phát offline", true) }
+            try {
+                val activePackage = root.packageName?.toString().orEmpty()
+                if (activePackage != VTMAN_PACKAGE_NAME) return
+
+                val strings = root.collectStrings()
+                val isOfflineList =
+                    strings.any { it.contains("Gạch phát offline", true) } &&
+                    strings.any { it.contains("Danh sách phát", true) }
+
+                if (isOfflineList) {
+                    h.post { if (mode == 0) begin() }
+                    return
+                }
+
+                val now = SystemClock.elapsedRealtime()
+                val entryBounds = root.findExactTextBounds("Gạch phát offline")
+                if (entryBounds != null && now - lastAutoNavigationTapAt >= 2_500L) {
+                    lastAutoNavigationTapAt = now
+                    VtmanQueueController.report("Auto Export: đang mở Gạch phát offline")
+                    tap(entryBounds.exactCenterX(), entryBounds.exactCenterY())
+                }
             } finally {
                 root.recycle()
             }
-            if (isOfflineList) h.post { if (mode == 0) begin() }
         }
     }
     override fun onUnbind(intent: Intent?): Boolean {
@@ -592,6 +615,31 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun AccessibilityNodeInfo.collectStrings():List<String>{ val out= mutableListOf<String>(); fun walk(n:AccessibilityNodeInfo){ sequenceOf(n.text?.toString(),n.contentDescription?.toString(),n.hintText?.toString()).mapNotNull{it?.trim()?.takeIf(String::isNotBlank)}.forEach(out::add); for(i in 0 until n.childCount){val c=n.getChild(i)?:continue;walk(c);c.recycle()} };walk(this);return out }
+
+    private fun AccessibilityNodeInfo.findExactTextBounds(label: String): Rect? {
+        var result: Rect? = null
+        fun walk(node: AccessibilityNodeInfo): Boolean {
+            val matches = sequenceOf(node.text, node.contentDescription, node.hintText)
+                .mapNotNull { it?.toString()?.trim() }
+                .any { it.equals(label, ignoreCase = true) }
+            if (matches) {
+                val bounds = Rect().also(node::getBoundsInScreen)
+                if (!bounds.isEmpty) {
+                    result = bounds
+                    return true
+                }
+            }
+            for (index in 0 until node.childCount) {
+                val child = node.getChild(index) ?: continue
+                val found = walk(child)
+                child.recycle()
+                if (found) return true
+            }
+            return false
+        }
+        walk(this)
+        return result
+    }
 
     private fun AccessibilityNodeInfo.collectStringsTopToBottom(): List<String> {
         data class PositionedText(val top: Int, val left: Int, val order: Int, val value: String)

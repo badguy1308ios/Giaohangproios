@@ -1204,11 +1204,30 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                         true
                                     )
                             )
-                            Toast.makeText(
-                                context,
-                                "Mở VTMan > Gạch phát offline. Auto Export sẽ tự chạy.",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            val vtmanIntent = context.packageManager.getLaunchIntentForPackage(
+                                com.example.giaohangpro.vtman.VtmanAccessibilityService.VTMAN_PACKAGE_NAME
+                            )
+                            if (vtmanIntent != null) {
+                                vtmanIntent.addFlags(
+                                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                                )
+                                context.startActivity(vtmanIntent)
+                                Toast.makeText(
+                                    context,
+                                    "Đang mở VTMan và vào Gạch phát offline…",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else {
+                                com.example.giaohangpro.vtman.VtmanQueueController.fail(
+                                    "Không tìm thấy ứng dụng VTMan trên điện thoại"
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "Không tìm thấy ứng dụng VTMan",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
                 },
