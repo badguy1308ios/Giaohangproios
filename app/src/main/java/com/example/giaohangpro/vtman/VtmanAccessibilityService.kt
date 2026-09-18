@@ -521,7 +521,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             }
             resetRetry(mv)
             returnDeadline = now + 9000L
-            nextBackAt = now + 500L
+            nextBackAt = now + 180L
 
             if (phonePickerVisible) {
                 // Lấy đúng số đầu tiên từ trên xuống rồi đóng bảng, không thực hiện cuộc gọi.
@@ -532,7 +532,7 @@ class VtmanAccessibilityService : AccessibilityService() {
                 mode=5
                 VtmanQueueController.report("Đã lấy SĐT $phone · đang quay lại Gạch phát offline")
             }
-            schedule(250)
+            schedule(120)
             return
         }
 
@@ -552,9 +552,9 @@ class VtmanAccessibilityService : AccessibilityService() {
             }
             if (now >= nextBackAt) {
                 performGlobalAction(GLOBAL_ACTION_BACK)
-                nextBackAt = now + 700L
+                nextBackAt = now + 350L
             }
-            schedule(180)
+            schedule(100)
             return
         }
 
@@ -562,7 +562,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (mode==0) completeAutoRun("Hoàn tất toàn bộ MVĐ")
         else {
             VtmanQueueController.report("Đã lưu SĐT đầu tiên · tiếp tục đơn kế")
-            schedule(350)
+            schedule(180)
         }
     }
 
@@ -573,7 +573,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             if (mode==0) completeAutoRun("Hoàn tất toàn bộ MVĐ")
             else {
                 VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
-                schedule(450)
+                schedule(220)
             }
             return
         }
@@ -585,9 +585,9 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
         if (now >= nextBackAt) {
             performGlobalAction(GLOBAL_ACTION_BACK)
-            nextBackAt = now + 1800L
+            nextBackAt = now + 650L
         }
-        schedule(250)
+        schedule(120)
     }
 
     private fun clearVtmanSearchField() {
@@ -611,11 +611,16 @@ class VtmanAccessibilityService : AccessibilityService() {
         VtmanQueueController.report(message)
         if (!VtmanQueueController.isAutoSession()) return
         h.postDelayed({
-            val launch = packageManager.getLaunchIntentForPackage(packageName)
-            launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            if (launch != null) startActivity(launch)
+            val launch = Intent(this, com.example.giaohangpro.MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            }
+            startActivity(launch)
             VtmanOverlayService.closeAfterCompletion()
-        }, 350L)
+        }, 180L)
     }
 
     private fun collectAutoWaybills(root: AccessibilityNodeInfo) {

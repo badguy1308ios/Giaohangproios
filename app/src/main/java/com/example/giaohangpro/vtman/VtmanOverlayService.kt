@@ -189,15 +189,36 @@ class VtmanOverlayService : Service() {
             }
         }
         runPauseButton = button("Chạy") { toggleRunPause() }
-        row.addView(runPauseButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f))
+        row.addView(runPauseButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 92 else -2, 1f))
         skipButton = button("Bỏ qua") { skipOrUsePartial() }.apply { isEnabled = false }
-        row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f))
-        row.addView(
-            button("×") { cancelStart(); stopSelf() },
-            LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f)
-        )
-        panel.addView(status)
-        panel.addView(row)
+        row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 92 else -2, 1f))
+
+        if (autoExportLocked) {
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            header.addView(View(this), LinearLayout.LayoutParams(52, 42))
+            header.addView(status, LinearLayout.LayoutParams(0, 42, 1f))
+            val close = TextView(this).apply {
+                text = "×"
+                setTextColor(Color.WHITE)
+                textSize = 19f
+                gravity = Gravity.CENTER
+                setBackgroundColor(Color.TRANSPARENT)
+                setOnClickListener { cancelStart(); stopSelf() }
+            }
+            header.addView(close, LinearLayout.LayoutParams(52, 42))
+            panel.addView(header)
+            panel.addView(row)
+        } else {
+            row.addView(
+                button("Tắt") { cancelStart(); stopSelf() },
+                LinearLayout.LayoutParams(0, -2, 1f)
+            )
+            panel.addView(status)
+            panel.addView(row)
+        }
         if (!autoExportLocked) makeDraggable(panel)
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
@@ -209,7 +230,7 @@ class VtmanOverlayService : Service() {
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = if (autoExportLocked) (screenHeight * 0.184f).toInt() else 140
+            y = if (autoExportLocked) (screenHeight * 0.165f).toInt() else 140
             x = 0
         }
         runCatching { windowManager.addView(panel, params) }
