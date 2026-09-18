@@ -2135,7 +2135,123 @@ private fun MapOrderListRow(
     }
 }
 
-// Tạo Drawable marker kiểu bong bóng bằng Canvas Android để OSMDroid có thể hiển thị số thứ tự ở giữa.
+private data class GroupedMarkerNumber(
+    val number: Int,
+    val isPending: Boolean,
+    val selected: Boolean
+)
+
+// Vẽ nhiều STT trong cùng một marker nhưng chỉ dùng một mũi ghim tại tọa độ thật.
+// Mỗi hàng tối đa 4 STT; số lượng lớn sẽ tự xuống hàng để không che mất marker bên dưới.
+private fun createGroupedNumberBubbleDrawable(
+    context: android.content.Context,
+    markers: List<MapOrderMarker>,
+    selectedOrderNumber: Int?
+): android.graphics.drawable.Drawable {
+    val visibleNumbers = markers
+        .filter { it.showNumber }
+        .distinctBy { it.number }
+        .sortedBy { it.number }
+        .map {
+            GroupedMarkerNumber(
+                number = it.number,
+                isPending = !it.hasRealCoordinate,
+                selected = it.number == selectedOrderNumber
+            )
+        }
+
+    if (visibleNumbers.size <= 1) {
+        val marker = markers.first()
+        return createNumberBubbleDrawable(
+            context = context,
+            number = marker.number,
+            isPending = !marker.hasRealCoordinate,
+            showNumber = marker.showNumber,
+            selected = marker.number == selectedOrderNumber
+        )
+    }
+
+    val density = context.resources.displayMetrics.density
+    val columns = visibleNumbers.size.coerceAtMost(4)
+    val rows = (visibleNumbers.size + columns - 1) / columns
+    val cell = 30f * density
+    val gap = 3f * density
+    val padding = 4f * density
+    val bodyWidth = padding * 2f + columns * cell + (columns - 1) * gap
+    val bodyHeight = padding * 2f + rows * cell + (rows - 1) * gap
+    val pointerHeight = 11f * density
+    val pointerTipY = bodyHeight + pointerHeight
+    // MapLibre neo bitmap theo tâm; phần trong suốt phía dưới giữ đầu mũi ghim đúng tọa độ.
+    val bitmapWidth = bodyWidth.toInt().coerceAtLeast((34f * density).toInt())
+    val bitmapHeight = (pointerTipY * 2f).toInt().coerceAtLeast(1)
+    val bitmap = android.graphics.Bitmap.createBitmap(
+        bitmapWidth,
+        bitmapHeight,
+        android.graphics.Bitmap.Config.ARGB_8888
+    )
+    val canvas = android.graphics.Canvas(bitmap)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val groupColor = when {
+        visibleNumbers.any { it.selected } -> android.graphics.Color.rgb(22, 141, 226)
+        visibleNumbers.all { it.isPending } -> android.graphics.Color.rgb(117, 132, 153)
+        else -> android.graphics.Color.rgb(227, 75, 10)
+    }
+
+    // Nền trắng và viền giúp từng STT vẫn rõ khi nằm trên đường hoặc khu dân cư dày.
+    paint.style = android.graphics.Paint.Style.FILL
+    paint.color = android.graphics.Color.argb(245, 255, 255, 255)
+    val bodyRect = android.graphics.RectF(0f, 0f, bitmapWidth.toFloat(), bodyHeight)
+    canvas.drawRoundRect(bodyRect, 11f * density, 11f * density, paint)
+    paint.style = android.graphics.Paint.Style.STROKE
+    paint.strokeWidth = 1.5f * density
+    paint.color = groupColor
+    canvas.drawRoundRect(
+        android.graphics.RectF(
+            paint.strokeWidth / 2f,
+            paint.strokeWidth / 2f,
+            bitmapWidth - paint.strokeWidth / 2f,
+            bodyHeight - paint.strokeWidth / 2f
+        ),
+        11f * density,
+        11f * density,
+        paint
+    )
+
+    paint.style = android.graphics.Paint.Style.FILL
+    paint.color = groupColor
+    val pointer = android.graphics.Path().apply {
+        moveTo(bitmapWidth / 2f - 6f * density, bodyHeight)
+        lineTo(bitmapWidth / 2f, pointerTipY)
+        lineTo(bitmapWidth / 2f + 6f * density, bodyHeight)
+        close()
+    }
+    canvas.drawPath(pointer, paint)
+
+    paint.textAlign = android.graphics.Paint.Align.CENTER
+    paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    paint.textSize = 13f * density
+    visibleNumbers.forEachIndexed { index, item ->
+        val row = index / columns
+        val column = index % columns
+        val left = padding + column * (cell + gap)
+        val top = padding + row * (cell + gap)
+        val cx = left + cell / 2f
+        val cy = top + cell / 2f
+        paint.color = when {
+            item.selected -> android.graphics.Color.rgb(22, 141, 226)
+            item.isPending -> android.graphics.Color.rgb(117, 132, 153)
+            else -> android.graphics.Color.rgb(227, 75, 10)
+        }
+        canvas.drawCircle(cx, cy, cell * 0.46f, paint)
+        paint.color = android.graphics.Color.WHITE
+        val textY = cy - (paint.ascent() + paint.descent()) / 2f
+        canvas.drawText(item.number.toString(), cx, textY, paint)
+    }
+
+    return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+}
+
+// Tạo Drawable marker kiểu bong bóng bằng Canvas Android để hiển thị số thứ tự ở giữa.
 private fun createNumberBubbleDrawable(
     context: android.content.Context,
     number: Int,
@@ -2215,6 +2331,31 @@ data class MapOrderMarker(
     val showNumber: Boolean = true
 )
 
+private data class MapOrderMarkerGroup(
+    val key: String,
+    val point: MapPoint,
+    val markers: List<MapOrderMarker>
+)
+
+private const val MAP_MARKER_GROUP_PREFIX = "GHP_MAP_GROUP:"
+
+private fun mapMarkerGroupKey(marker: MapOrderMarker): String {
+    // Chỉ gom các điểm có tọa độ thật. Đơn chưa có tọa độ đang tạm nằm tại GPS tài xế
+    // phải giữ riêng để không tạo thành một cụm giả.
+    if (!marker.hasRealCoordinate) return "pending:${marker.order.code}"
+    return java.lang.String.format(
+        java.util.Locale.US,
+        "%.6f:%.6f",
+        marker.point.latitude,
+        marker.point.longitude
+    )
+}
+
+private fun groupMapOrderMarkers(markers: List<MapOrderMarker>): List<MapOrderMarkerGroup> =
+    markers.groupBy(::mapMarkerGroupKey).map { (key, grouped) ->
+        MapOrderMarkerGroup(key = key, point = grouped.first().point, markers = grouped)
+    }
+
 private fun goongStyle(context: android.content.Context): String =
     context.resources.openRawResource(com.example.giaohangpro.R.raw.goong_map_style)
         .bufferedReader().use { it.readText() }
@@ -2247,6 +2388,12 @@ private fun GoongOrderMap(
     var didInitialDriverFocus by remember { mutableStateOf(false) }
     var inlineEditorOffset by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
     val inlineEditorMarker = orders.firstOrNull { it.order.code == editingCode }
+    val groupedOrderMarkers = remember(orders) { groupMapOrderMarkers(orders) }
+    val currentGroupedOrderMarkers by rememberUpdatedState(groupedOrderMarkers)
+    val currentSelectedOrderNumber by rememberUpdatedState(selectedOrderNumber)
+    val currentEditingStt by rememberUpdatedState(editingStt)
+    val currentOnOrderSelected by rememberUpdatedState(onOrderSelected)
+    val currentOnEditStt by rememberUpdatedState(onEditStt)
 
     LaunchedEffect(map, inlineEditorMarker, showInlineEditor) {
         if (!showInlineEditor) return@LaunchedEffect
@@ -2292,10 +2439,22 @@ private fun GoongOrderMap(
                                 .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
                                 .zoom(14.0).build()
                             readyMap.setOnMarkerClickListener { clicked ->
-                                val code = clicked.title?.substringAfter(" • ", "")?.trim().orEmpty()
-                                val marker = orders.firstOrNull { it.order.code == code }
-                                if (marker != null) {
-                                    if (editingStt) onEditStt(marker) else onOrderSelected(marker)
+                                val groupKey = clicked.title
+                                    ?.substringAfter(MAP_MARKER_GROUP_PREFIX, "")
+                                    ?.trim()
+                                    .orEmpty()
+                                val group = currentGroupedOrderMarkers.firstOrNull { it.key == groupKey }
+                                if (group != null) {
+                                    // Một cụm có nhiều STT: mỗi lần chạm sẽ chọn STT kế tiếp.
+                                    val choices = group.markers.distinctBy { it.number }.sortedBy { it.number }
+                                    val selectedIndex = choices.indexOfFirst {
+                                        it.number == currentSelectedOrderNumber
+                                    }
+                                    val marker = choices[
+                                        if (selectedIndex >= 0) (selectedIndex + 1) % choices.size else 0
+                                    ]
+                                    if (currentEditingStt) currentOnEditStt(marker)
+                                    else currentOnOrderSelected(marker)
                                     true
                                 } else false
                             }
@@ -2360,7 +2519,7 @@ private fun GoongOrderMap(
         }
     }
 
-    LaunchedEffect(map, orders, driverLocation, selectedOrderNumber, editingStt) {
+    LaunchedEffect(map, orders, groupedOrderMarkers, driverLocation, selectedOrderNumber, editingStt) {
         map?.let { readyMap ->
             readyMap.clear()
             driverLocation?.let { point ->
@@ -2371,18 +2530,48 @@ private fun GoongOrderMap(
                 )
             }
 
-            // Vẽ marker đang chọn cuối cùng để luôn nằm trên các bong bóng gần kề.
-            val drawOrders = if (selectedOrderNumber == null) orders else orders.sortedBy { it.number == selectedOrderNumber }
-            drawOrders.forEach { markerData ->
-                val order = markerData.order
-                val numberBitmap = (createNumberBubbleDrawable(context, markerData.number, !markerData.hasRealCoordinate, markerData.showNumber, markerData.number == selectedOrderNumber) as android.graphics.drawable.BitmapDrawable).bitmap
-                val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
+            // Các đơn trùng tọa độ dùng chung một mũi ghim. Cụm đang chọn được vẽ cuối
+            // để luôn nổi phía trên những marker gần kề mà không làm sai tọa độ thật.
+            val drawGroups = if (selectedOrderNumber == null) {
+                groupedOrderMarkers
+            } else {
+                groupedOrderMarkers.sortedBy { group ->
+                    group.markers.any { it.number == selectedOrderNumber }
+                }
+            }
+            drawGroups.forEach { group ->
+                val numbers = group.markers
+                    .filter { it.showNumber }
+                    .map { it.number }
+                    .distinct()
+                    .sorted()
+                val numberBitmap = (
+                    createGroupedNumberBubbleDrawable(context, group.markers, selectedOrderNumber)
+                        as android.graphics.drawable.BitmapDrawable
+                    ).bitmap
+                val numberIcon = org.maplibre.android.annotations.IconFactory
+                    .getInstance(context)
+                    .fromBitmap(numberBitmap)
+                val firstMarker = group.markers.first()
+                val numberText = numbers.joinToString(", ")
+                val groupDescription = if (group.markers.size > 1) {
+                    "${group.markers.size} đơn cùng điểm • Chạm lại để chọn STT kế tiếp"
+                } else if (editingStt) {
+                    "Chạm để đổi STT"
+                } else if (firstMarker.hasRealCoordinate) {
+                    firstMarker.order.address
+                } else {
+                    "Chưa có tọa độ giao hàng"
+                }
                 readyMap.addMarker(
                     MarkerOptions()
-                        .position(LatLng(markerData.point.latitude, markerData.point.longitude))
+                        .position(LatLng(group.point.latitude, group.point.longitude))
                         .icon(numberIcon)
-                        .title("Đơn #${markerData.number} • ${order.code}")
-                        .snippet(if (editingStt) "Chạm để đổi STT" else if (markerData.hasRealCoordinate) order.address else "Chưa có tọa độ giao hàng")
+                        .title(
+                            "STT ${numberText.ifBlank { "—" }} • " +
+                                MAP_MARKER_GROUP_PREFIX + group.key
+                        )
+                        .snippet(groupDescription)
                 )
             }
 
