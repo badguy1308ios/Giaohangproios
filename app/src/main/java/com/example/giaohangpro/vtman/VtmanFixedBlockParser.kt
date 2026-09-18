@@ -12,7 +12,8 @@ object VtmanFixedBlockParser {
     private val statusRegex = Regex("\\bTT\\s*(500|505|506|507|508|515)\\b", RegexOption.IGNORE_CASE)
     private val moneyRegex = Regex("(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]", RegexOption.IGNORE_CASE)
     private val standaloneMoneyRegex = Regex("^\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]\\s*$", RegexOption.IGNORE_CASE)
-    private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH)$", RegexOption.IGNORE_CASE)
+    private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH|GGC|GGDH|GG1P|PTTX|GBP)$", RegexOption.IGNORE_CASE)
+    private val genericServiceCodeRegex = Regex("^[A-Z][A-Z0-9]{1,9}$")
     // Match address words, not arbitrary substrings in a shop/customer name.
     // Abbreviations need a separator or a place name: "H.Long Thành" is a hint,
     // while the shop "H.1998 Áo Thun" is not.
@@ -86,7 +87,7 @@ object VtmanFixedBlockParser {
 
         if (rowValues.size < 4) return null
         val service = rowValues.drop(4)
-            .flatMap(::extractServiceCodes)
+            .flatMap(::extractPositionedServiceCodes)
             .distinct()
             .joinToString(" ")
 
@@ -223,14 +224,24 @@ object VtmanFixedBlockParser {
         return value.contains(Regex("\\bCOD\\b", RegexOption.IGNORE_CASE)) && moneyRegex.containsMatchIn(value)
     }
 
-    private fun extractServiceCodes(line: String): List<String> = line
-        .split(',', ' ', ';', '|')
+    private fun serviceTokens(line: String): List<String> = line
+        .split(Regex("[^A-Za-z0-9]+"))
         .map { it.trim().uppercase() }
+        .filter(String::isNotBlank)
+
+    private fun extractServiceCodes(line: String): List<String> = serviceTokens(line)
         .filter { serviceCodeRegex.matches(it) }
         .distinct()
 
+    // Ở parser theo 5 hàng, phần sau hàng hàng-hóa chính là hàng dịch vụ.
+    // Nhận mọi mã dạng chữ/số để không bỏ sót mã mới của VTMan; dấu chấm,
+    // dấu phẩy và khoảng trắng đều được xem là ký tự phân cách.
+    private fun extractPositionedServiceCodes(line: String): List<String> = serviceTokens(line)
+        .filter { genericServiceCodeRegex.matches(it) && !statusRegex.matches(it) }
+        .distinct()
+
     private fun looksLikeServiceLine(line: String): Boolean {
-        val tokens = line.split(',', ' ', ';', '|').map(String::trim).filter(String::isNotBlank)
+        val tokens = serviceTokens(line)
         return tokens.isNotEmpty() && tokens.all { serviceCodeRegex.matches(it) }
     }
 

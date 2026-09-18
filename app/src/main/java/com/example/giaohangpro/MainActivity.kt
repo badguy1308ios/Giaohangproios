@@ -158,6 +158,12 @@ data class Order(
 // Mỗi khách hàng có một id ổn định để khi sửa/xóa không bị nhầm khách có cùng tên.
 private val AllowedOrderStatuses = setOf("TT500", "TT506", "TT507", "TT508", "TT505", "TT515")
 private val TerminalOrderStatuses = setOf("TT505", "TT515")
+private val WarningServiceCodes = setOf("GGDH", "GG1P", "PTTX", "GBP")
+
+private fun warningServices(order: Order): List<String> = order.tags
+    .map { it.trim().uppercase() }
+    .filter(WarningServiceCodes::contains)
+    .distinct()
 
 private fun normalizeOrderStatus(raw: String): String {
     val clean = raw.trim().uppercase()
@@ -3090,16 +3096,39 @@ fun OrderListScreen(
 
     pendingDeliveredGroup?.let { group ->
         val firstCode = group.orders.firstOrNull()?.code.orEmpty()
+        val serviceWarnings = group.orders.mapNotNull { order ->
+            warningServices(order).takeIf(List<String>::isNotEmpty)
+                ?.let { codes -> "${order.code}: ${codes.joinToString(", ")}" }
+        }
+        val hasServiceWarning = serviceWarnings.isNotEmpty()
         AlertDialog(
             onDismissRequest = { pendingDeliveredGroup = null },
-            title = { Text("Xác nhận giao?") },
-            text = {
+            title = {
                 Text(
-                    if (group.orders.size > 1)
-                        "Ghi nhớ tạm thao tác giao cho ${group.orders.size} MVĐ? Nạp lại từng MVĐ sẽ xóa dấu này."
-                    else
-                        "Ghi nhớ tạm thao tác giao cho MVĐ $firstCode? Nạp lại MVĐ sẽ xóa dấu này."
+                    if (hasServiceWarning) "CẢNH BÁO DỊCH VỤ" else "Xác nhận giao?",
+                    color = if (hasServiceWarning) Color(0xFFD32F2F) else Color.Unspecified,
+                    fontWeight = FontWeight.Bold
                 )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (hasServiceWarning) {
+                        Text(
+                            "Đơn có dịch vụ cần kiểm tra trước khi phát:",
+                            color = Color(0xFFD32F2F),
+                            fontWeight = FontWeight.Bold
+                        )
+                        serviceWarnings.forEach { warning ->
+                            Text("• $warning", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text(
+                        if (group.orders.size > 1)
+                            "Xác nhận thao tác giao cho ${group.orders.size} MVĐ? Nạp lại từng MVĐ sẽ xóa dấu này."
+                        else
+                            "Xác nhận thao tác giao cho MVĐ $firstCode? Nạp lại MVĐ sẽ xóa dấu này."
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -3115,7 +3144,12 @@ fun OrderListScreen(
                         deliveryFocusCode = next.code
                         onDeliveryFocusNext(next)
                     }
-                }) { Text("XÁC NHẬN", fontWeight = FontWeight.Bold) }
+                }) {
+                    Text(
+                        if (hasServiceWarning) "ĐÃ KIỂM TRA · XÁC NHẬN" else "XÁC NHẬN",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeliveredGroup = null }) { Text("HỦY") }
