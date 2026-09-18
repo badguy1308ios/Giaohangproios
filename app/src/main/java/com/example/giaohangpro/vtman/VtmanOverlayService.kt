@@ -74,7 +74,20 @@ class VtmanOverlayService : Service() {
 
     private fun toggleRunPause() {
         val service = VtmanQueueController.service
-        if (service?.isRunning() == true) service.pause() else requestStart()
+        when {
+            service?.hasPartialAutoResult() == true -> service.retryPartialAutoExport()
+            service?.isRunning() == true -> service.pause()
+            else -> requestStart()
+        }
+    }
+
+    private fun skipOrUsePartial() {
+        val service = VtmanQueueController.service
+        when {
+            service?.hasPartialAutoResult() == true -> service.continuePartialAutoExport()
+            service != null -> service.skipErroredWaybill()
+            else -> VtmanQueueController.fail("Trợ năng chưa kết nối; chưa thể bỏ qua MVĐ")
+        }
     }
 
     private fun checkPendingStart() {
@@ -98,11 +111,18 @@ class VtmanOverlayService : Service() {
             checkPendingStart()
             val s = VtmanQueueController.snapshot()
             status.text = "Đã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            val service = VtmanQueueController.service
+            val partialCount = service?.partialAutoCount() ?: 0
             if (::runPauseButton.isInitialized) {
-                runPauseButton.text = if (VtmanQueueController.service?.isRunning() == true) "Tạm dừng" else "Chạy"
+                runPauseButton.text = when {
+                    partialCount > 0 -> "Quét lại"
+                    service?.isRunning() == true -> "Tạm dừng"
+                    else -> "Chạy"
+                }
             }
             if (::skipButton.isInitialized) {
-                skipButton.isEnabled = s.error.isNotBlank() && s.currentWaybill.isNotBlank()
+                skipButton.text = if (partialCount > 0) "Lấy $partialCount đơn" else "Bỏ qua"
+                skipButton.isEnabled = partialCount > 0 || (s.error.isNotBlank() && s.currentWaybill.isNotBlank())
             }
             handler.postDelayed(this, 450)
         }
@@ -140,10 +160,7 @@ class VtmanOverlayService : Service() {
         fun button(label: String, action: () -> Unit) = Button(this).apply { text = label; setOnClickListener { action() } }
         runPauseButton = button("Chạy") { toggleRunPause() }
         row.addView(runPauseButton, LinearLayout.LayoutParams(0, -2, 1f))
-        skipButton = button("Bỏ qua") {
-            VtmanQueueController.service?.skipErroredWaybill()
-                ?: VtmanQueueController.fail("Trợ năng chưa kết nối; chưa thể bỏ qua MVĐ")
-        }.apply { isEnabled = false }
+        skipButton = button("Bỏ qua") { skipOrUsePartial() }.apply { isEnabled = false }
         row.addView(skipButton, LinearLayout.LayoutParams(0, -2, 1f))
         row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
         panel.addView(status)

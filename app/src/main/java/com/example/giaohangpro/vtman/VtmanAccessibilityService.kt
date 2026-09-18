@@ -150,6 +150,27 @@ class VtmanAccessibilityService : AccessibilityService() {
 
     fun isRunning(): Boolean = mode > 1
     fun isPaused(): Boolean = pausedMode > 1
+    fun hasPartialAutoResult(): Boolean = mode == 0 && autoTarget > 0 && autoWaybills.isNotEmpty()
+    fun partialAutoCount(): Int = if (hasPartialAutoResult()) autoWaybills.size else 0
+
+    fun retryPartialAutoExport() = safely {
+        if (!hasPartialAutoResult()) return@safely
+        autoWaybills.clear()
+        autoSeekingTop = true
+        autoLastSignature = ""
+        autoStableTicks = 0
+        mode = 7
+        VtmanQueueController.addAutoLog("Quét lại từ đầu · cần $autoTarget MVĐ")
+        VtmanQueueController.report("Auto Export: đang quét lại từ đầu")
+        schedule(200)
+    }
+
+    fun continuePartialAutoExport() = safely {
+        if (!hasPartialAutoResult()) return@safely
+        val codes = autoWaybills.toList()
+        VtmanQueueController.addAutoLog("Tiếp tục với ${codes.size}/$autoTarget MVĐ đã tìm thấy")
+        startExportingAutoCodes(codes)
+    }
 
     fun pause() = safely {
         if (mode <= 1) return@safely
@@ -470,15 +491,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (autoWaybills.size >= autoTarget) {
             val codes = autoWaybills.take(autoTarget)
             VtmanQueueController.addAutoLog("Đã gom đủ ${codes.size} MVĐ")
-            VtmanQueueController.load(codes, preserveAutoLog = true)
-            VtmanQueueController.setCallPoint(autoCallX, autoCallY)
-            autoTarget = 0
-            autoWaybills.clear()
-            autoLastSignature = ""
-            autoStableTicks = 0
-            mode = 2
-            VtmanQueueController.report("Đã gom đủ ${codes.size} MVĐ · bắt đầu lấy dữ liệu")
-            schedule(500)
+            startExportingAutoCodes(codes)
             return
         }
 
@@ -487,11 +500,33 @@ class VtmanAccessibilityService : AccessibilityService() {
         val moved = root.performListScroll(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
         if (!moved || autoStableTicks >= 3) {
             val found = autoWaybills.size
-            VtmanQueueController.fail("Auto Export chỉ tìm thấy $found/$autoTarget MVĐ. Kiểm tra số lượng rồi chạy lại.")
+            VtmanQueueController.fail(
+                if (found > 0)
+                    "Chỉ tìm thấy $found/$autoTarget MVĐ · chọn Lấy $found đơn hoặc Quét lại"
+                else
+                    "Không tìm thấy MVĐ · chọn Quét lại"
+            )
             mode = 0
             return
         }
         schedule(650)
+    }
+
+    private fun startExportingAutoCodes(codes: List<String>) {
+        if (codes.isEmpty()) {
+            VtmanQueueController.fail("Không có MVĐ để tiếp tục")
+            mode = 0
+            return
+        }
+        VtmanQueueController.load(codes, preserveAutoLog = true)
+        VtmanQueueController.setCallPoint(autoCallX, autoCallY)
+        autoTarget = 0
+        autoWaybills.clear()
+        autoLastSignature = ""
+        autoStableTicks = 0
+        mode = 2
+        VtmanQueueController.report("Đã chọn ${codes.size} MVĐ · bắt đầu lấy dữ liệu")
+        schedule(500)
     }
 
     private fun List<VtmanScreenText>.visibleWaybillCodes(): List<String> {
