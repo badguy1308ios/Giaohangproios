@@ -32,7 +32,10 @@ new = '''                            readyMap.setOnMarkerClickListener { clicked
                                     true'''
 if old in s:
     s = s.replace(old, new, 1)
-elif 'substringAfter(" • ", "")' not in s:
+elif (
+    'substringAfter(" • ", "")' not in s
+    and 'currentGroupedOrderMarkers.firstOrNull { it.key == groupKey }' not in s
+):
     raise SystemExit('Map marker click anchor not found')
 
 # 3) Fully clear transient STT edit state after Save so edit-only rules cannot leak into normal mode.
