@@ -309,7 +309,7 @@ private val sampleCustomers = listOf(
 enum class Tab { MAP, ORDERS, CUSTOMERS } // Ba tab chính của ứng dụng.
 
 // Điều hướng nội bộ đơn giản cho demo: danh sách chính, chi tiết khách và form thêm/sửa.
-enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT, CUSTOMER_BACKUP, STREET_NAME_MANAGEMENT }
+enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT, AUTO_EXPORT, CUSTOMER_BACKUP, STREET_NAME_MANAGEMENT }
 
 @Composable
 fun GiaoHangApp(vm: MainViewModel = viewModel()) {
@@ -334,6 +334,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             AppScreen.SETTINGS -> screen = AppScreen.MAIN
             AppScreen.MONEY_LEDGER -> screen = AppScreen.SETTINGS
             AppScreen.VTMAN_EXPORT -> screen = AppScreen.SETTINGS
+            AppScreen.AUTO_EXPORT -> screen = AppScreen.SETTINGS
             AppScreen.CUSTOMER_BACKUP -> screen = AppScreen.SETTINGS
             AppScreen.STREET_NAME_MANAGEMENT -> screen = AppScreen.SETTINGS
             AppScreen.MAIN -> {
@@ -452,11 +453,13 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             onBack = { screen = AppScreen.MAIN },
             onMoneyLedger = { screen = AppScreen.MONEY_LEDGER },
             onVtmanExport = { screen = AppScreen.VTMAN_EXPORT },
+            onAutoExport = { screen = AppScreen.AUTO_EXPORT },
             onCustomerBackup = { screen = AppScreen.CUSTOMER_BACKUP },
             onStreetNameManagement = { screen = AppScreen.STREET_NAME_MANAGEMENT }
         )
         AppScreen.MONEY_LEDGER -> MoneyLedgerScreen(onBack = { screen = AppScreen.SETTINGS })
         AppScreen.VTMAN_EXPORT -> VtmanExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
+        AppScreen.AUTO_EXPORT -> AutoExportScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.CUSTOMER_BACKUP -> CustomerBackupScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
         AppScreen.STREET_NAME_MANAGEMENT -> StreetNameManagementScreen(vm = vm, onBack = { screen = AppScreen.SETTINGS })
     }
@@ -507,6 +510,7 @@ private fun SettingsScreen(
     onBack: () -> Unit,
     onMoneyLedger: () -> Unit,
     onVtmanExport: () -> Unit,
+    onAutoExport: () -> Unit,
     onCustomerBackup: () -> Unit,
     onStreetNameManagement: () -> Unit
 ) {
@@ -529,6 +533,8 @@ private fun SettingsScreen(
                 SettingsItem(Icons.Default.SwapHoriz, "IMPORT / EXPORT DỮ LIỆU", "Nhập / xuất khách hàng dạng ZIP, gồm tọa độ và ảnh cổng") { onCustomerBackup() }
                 SettingsDivider()
                 SettingsItem(Icons.Default.FileDownload, "VTMAN EXPORT", "Nạp MVĐ và lấy thông tin đơn trực tiếp từ VTMan") { onVtmanExport() }
+                SettingsDivider()
+                SettingsItem(Icons.Default.AutoAwesome, "AUTO EXPORT", "Chỉ nhập số lượng, app tự gom MVĐ và lấy dữ liệu") { onAutoExport() }
             }
             SettingsSection("VẬN HÀNH") {
                 SettingsItem(Icons.Default.Inventory2, "XỬ LÝ ĐƠN") { Toast.makeText(context,"Xử lý đơn",Toast.LENGTH_SHORT).show() }
@@ -1119,6 +1125,127 @@ private fun VtmanExportScreen(vm: MainViewModel, onBack: () -> Unit) {
 private fun csvCell(v: String): String = "\"" + v.replace("\"", "\"\"") + "\""
 
 
+
+
+@Composable
+private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var countText by remember { mutableStateOf("") }
+    var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
+    var importedCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+            val records = com.example.giaohangpro.vtman.VtmanQueueController.records()
+            if (records.size > importedCount) {
+                vm.importVtmanRecords(records.drop(importedCount))
+                importedCount = records.size
+            } else if (records.size < importedCount) {
+                importedCount = records.size
+            }
+            kotlinx.coroutines.delay(400)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            Row(
+                Modifier.fillMaxWidth().height(40.dp).background(Orange).padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.ArrowBack, "Quay lại", tint = Color.White)
+                }
+                Text("AUTO EXPORT", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).background(Background)
+                .verticalScroll(rememberScrollState()).padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "Nhập đúng số lượng MVĐ đang có trong danh sách Gạch phát offline. App sẽ tự về đầu danh sách, gom đủ mã rồi lấy dữ liệu và SĐT.",
+                color = Navy,
+                fontSize = 13.sp
+            )
+            OutlinedTextField(
+                value = countText,
+                onValueChange = { countText = it.filter(Char::isDigit).take(3) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Số lượng MVĐ cần lấy") },
+                placeholder = { Text("Ví dụ: 25") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Button(
+                onClick = {
+                    val count = countText.toIntOrNull()
+                    when {
+                        count == null || count <= 0 ->
+                            Toast.makeText(context, "Nhập số lượng MVĐ lớn hơn 0", Toast.LENGTH_SHORT).show()
+                        !android.provider.Settings.canDrawOverlays(context) ->
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        else -> {
+                            com.example.giaohangpro.vtman.VtmanQueueController.prepareAutoExport(count)
+                            importedCount = 0
+                            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                            context.startService(
+                                android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java)
+                            )
+                            Toast.makeText(
+                                context,
+                                "Mở VTMan > Gạch phát offline. Auto Export sẽ tự chạy.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Orange),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, null)
+                Spacer(Modifier.width(7.dp))
+                Text("BẮT ĐẦU AUTO EXPORT", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Default.AccessibilityNew, null)
+                Spacer(Modifier.width(7.dp))
+                Text("MỞ CÀI ĐẶT TRỢ NĂNG")
+            }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Border)
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("TRẠNG THÁI", color = OrangeDark, fontWeight = FontWeight.Bold)
+                    Text(snapshot.status, color = if (snapshot.error.isBlank()) Navy else Color(0xFFD32F2F), fontSize = 13.sp)
+                    if (snapshot.total > 0) {
+                        Text(
+                            "Đã xử lý ${snapshot.processed}/${snapshot.total} · Lưu ${snapshot.written} · Bỏ qua ${snapshot.skipped}",
+                            color = TextGray,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 data class CustomerBackupResult(
     val total: Int,

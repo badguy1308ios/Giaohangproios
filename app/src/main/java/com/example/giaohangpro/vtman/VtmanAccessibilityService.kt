@@ -22,6 +22,13 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var resultDeadline = 0L
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
+    private var autoTarget = 0
+    private val autoWaybills = linkedSetOf<String>()
+    private var autoSeekingTop = false
+    private var autoLastSignature = ""
+    private var autoStableTicks = 0
+    private var autoCallX = 0f
+    private var autoCallY = 0f
     private var tickScheduled = false
     private val tick = Runnable { tickScheduled = false; safely { process() } }
 
@@ -32,7 +39,23 @@ class VtmanAccessibilityService : AccessibilityService() {
         diagnostic("connected")
     }
     override fun onInterrupt() = Unit
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) { if (mode > 1) schedule(120) }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (mode > 1) {
+            schedule(120)
+            return
+        }
+        if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) {
+            val eventPackage = event?.packageName?.toString().orEmpty()
+            if (eventPackage.isBlank() || eventPackage == packageName) return
+            val root = rootInActiveWindow ?: return
+            val isOfflineList = try {
+                root.collectStrings().any { it.contains("Gạch phát offline", true) }
+            } finally {
+                root.recycle()
+            }
+            if (isOfflineList) h.post { if (mode == 0) begin() }
+        }
+    }
     override fun onUnbind(intent: Intent?): Boolean {
         detach()
         return super.onUnbind(intent)
@@ -80,10 +103,36 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun beginExport() {
-        val r = rootInActiveWindow
-        pkg = r?.packageName?.toString(); r?.recycle()
-        if (VtmanQueueController.nextWaybill() == null) { VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước"); return }
-        if (pkg.isNullOrBlank() || pkg == packageName) { VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi bấm Chạy"); return }
+        val root = rootInActiveWindow
+        pkg = root?.packageName?.toString()
+        if (pkg.isNullOrBlank() || pkg == packageName) {
+            root?.recycle()
+            VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi thử lại")
+            return
+        }
+
+        val requestedAutoCount = VtmanQueueController.consumePendingAutoExport()
+        if (requestedAutoCount > 0 && root != null) {
+            val bounds = Rect().also(root::getBoundsInScreen)
+            autoTarget = requestedAutoCount
+            autoWaybills.clear()
+            autoSeekingTop = true
+            autoLastSignature = ""
+            autoStableTicks = 0
+            autoCallX = bounds.left + bounds.width() * 0.90f
+            autoCallY = bounds.top + bounds.height() * 0.50f
+            root.recycle()
+            mode = 7
+            VtmanQueueController.report("Auto Export: đang đưa danh sách về đầu")
+            schedule(250)
+            return
+        }
+        root?.recycle()
+
+        if (VtmanQueueController.nextWaybill() == null) {
+            VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước")
+            return
+        }
         mode = 1
         VtmanQueueController.report("Chạm đúng biểu tượng gọi của đơn đầu tiên")
         if (!VtmanOverlayService.requestCallPointSelection { x,y ->
@@ -95,7 +144,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun stop() { mode=0; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     fun skipErroredWaybill() = safely {
         val skipped = VtmanQueueController.skipCurrentByUser()
@@ -135,6 +184,10 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
         rootMissingSince = null
         try {
+            if (mode == 7) {
+                collectAutoWaybills(root)
+                return
+            }
             val mv=VtmanQueueController.nextWaybill() ?: run { mode=0; VtmanQueueController.report("Hoàn tất toàn bộ MVĐ"); return }
             when(mode) {
                 2 -> search(root,mv)
@@ -343,6 +396,114 @@ class VtmanAccessibilityService : AccessibilityService() {
             nextBackAt = now + 1800L
         }
         schedule(250)
+    }
+
+    private fun collectAutoWaybills(root: AccessibilityNodeInfo) {
+        if (root.packageName?.toString() != pkg) {
+            VtmanQueueController.fail("Auto Export: VTMan không còn ở trên màn hình")
+            mode = 0
+            return
+        }
+
+        val visible = root.collectResultPositionedTexts().visibleWaybillCodes()
+        val signature = visible.joinToString("|")
+
+        if (autoSeekingTop) {
+            autoStableTicks = if (signature.isNotBlank() && signature == autoLastSignature) autoStableTicks + 1 else 0
+            autoLastSignature = signature
+            val moved = root.performListScroll(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            if (!moved || autoStableTicks >= 2) {
+                autoSeekingTop = false
+                autoLastSignature = ""
+                autoStableTicks = 0
+                VtmanQueueController.report("Auto Export: đã về đầu · đang gom 0/$autoTarget MVĐ")
+                schedule(450)
+            } else {
+                VtmanQueueController.report("Auto Export: đang đưa danh sách về đầu")
+                schedule(450)
+            }
+            return
+        }
+
+        visible.forEach { code ->
+            if (autoWaybills.size < autoTarget) autoWaybills += code
+        }
+        VtmanQueueController.report("Auto Export: đã gom ${autoWaybills.size}/$autoTarget MVĐ")
+
+        if (autoWaybills.size >= autoTarget) {
+            val codes = autoWaybills.take(autoTarget)
+            VtmanQueueController.load(codes)
+            VtmanQueueController.setCallPoint(autoCallX, autoCallY)
+            autoTarget = 0
+            autoWaybills.clear()
+            autoLastSignature = ""
+            autoStableTicks = 0
+            mode = 2
+            VtmanQueueController.report("Đã gom đủ ${codes.size} MVĐ · bắt đầu lấy dữ liệu")
+            schedule(500)
+            return
+        }
+
+        autoStableTicks = if (signature.isNotBlank() && signature == autoLastSignature) autoStableTicks + 1 else 0
+        autoLastSignature = signature
+        val moved = root.performListScroll(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+        if (!moved || autoStableTicks >= 3) {
+            val found = autoWaybills.size
+            VtmanQueueController.fail("Auto Export chỉ tìm thấy $found/$autoTarget MVĐ. Kiểm tra số lượng rồi chạy lại.")
+            mode = 0
+            return
+        }
+        schedule(650)
+    }
+
+    private fun List<VtmanScreenText>.visibleWaybillCodes(): List<String> {
+        val codeRegex = Regex("^[A-Z0-9]{8,24}$", RegexOption.IGNORE_CASE)
+        val combinedRegex = Regex(
+            "(?<![A-Z0-9])([A-Z0-9]{8,24})\\s+TT\\s*(?:500|505|506|507|508|515)\\b",
+            RegexOption.IGNORE_CASE
+        )
+        val statusRegex = Regex("^TT\\s*(?:500|505|506|507|508|515)$", RegexOption.IGNORE_CASE)
+        val nodes = sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
+        val out = linkedSetOf<String>()
+
+        nodes.forEachIndexed { index, node ->
+            combinedRegex.find(node.value)?.groupValues?.getOrNull(1)?.uppercase()?.let(out::add)
+            if (statusRegex.matches(node.value.trim())) {
+                val centerY = (node.top + node.bottom) / 2
+                nodes.take(index).asReversed().firstOrNull { candidate ->
+                    val value = candidate.value.trim()
+                    val candidateCenterY = (candidate.top + candidate.bottom) / 2
+                    candidate.left < node.left &&
+                        kotlin.math.abs(candidateCenterY - centerY) <= 32 &&
+                        codeRegex.matches(value) &&
+                        value.any(Char::isDigit)
+                }?.value?.trim()?.uppercase()?.let(out::add)
+            }
+        }
+        return out.toList()
+    }
+
+    private fun AccessibilityNodeInfo.performListScroll(action: Int): Boolean {
+        val candidates = mutableListOf<Pair<Int, AccessibilityNodeInfo>>()
+        fun walk(node: AccessibilityNodeInfo) {
+            if (node.isScrollable) {
+                val bounds = Rect().also(node::getBoundsInScreen)
+                candidates += (bounds.width() * bounds.height()) to AccessibilityNodeInfo.obtain(node)
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child)
+                child.recycle()
+            }
+        }
+        walk(this)
+        val sorted = candidates.sortedByDescending(Pair<Int, AccessibilityNodeInfo>::first)
+        var moved = false
+        sorted.forEach { (_, node) ->
+            if (!moved) moved = node.performAction(action)
+            node.recycle()
+        }
+        return moved
     }
 
     private fun AccessibilityNodeInfo.findSearch(): AccessibilityNodeInfo? {

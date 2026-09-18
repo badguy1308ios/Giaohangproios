@@ -17,6 +17,7 @@ object VtmanQueueController {
     private var index = 0
     private var active: VtmanOrderRecord? = null
     private var callPoint: CallPoint? = null
+    private var pendingAutoCount = 0
     @Volatile var service: VtmanAccessibilityService? = null
     private var status = "Chưa nạp danh sách MVĐ"
     private var error = ""
@@ -24,8 +25,23 @@ object VtmanQueueController {
     @Synchronized fun load(waybills: List<String>) {
         queue.clear()
         queue.addAll(waybills.map(String::trim).filter(String::isNotBlank).distinct())
-        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null; error = ""
+        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null; pendingAutoCount = 0; error = ""
         status = if (queue.isEmpty()) "Không tìm thấy MVĐ hợp lệ" else "Đã nạp ${queue.size} MVĐ. Mở VTMan/Gạch phát offline rồi bấm Chạy."
+    }
+
+    @Synchronized fun prepareAutoExport(count: Int) {
+        queue.clear(); completed.clear(); skipped.clear()
+        index = 0; active = null; callPoint = null; error = ""
+        pendingAutoCount = count.coerceIn(1, 500)
+        status = "Auto Export đã sẵn sàng · cần lấy $pendingAutoCount MVĐ. Mở Gạch phát offline."
+    }
+
+    @Synchronized fun hasPendingAutoExport(): Boolean = pendingAutoCount > 0
+
+    @Synchronized fun consumePendingAutoExport(): Int {
+        val count = pendingAutoCount
+        pendingAutoCount = 0
+        return count
     }
 
     @Synchronized fun nextWaybill(): String? = queue.getOrNull(index)
