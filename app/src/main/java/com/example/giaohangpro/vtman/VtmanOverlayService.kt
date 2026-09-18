@@ -185,12 +185,12 @@ class VtmanOverlayService : Service() {
             }
         }
         runPauseButton = button("Chạy") { toggleRunPause() }
-        row.addView(runPauseButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f))
+        row.addView(runPauseButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f))
         skipButton = button("Bỏ qua") { skipOrUsePartial() }.apply { isEnabled = false }
-        row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f))
+        row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f))
         row.addView(
             button("Tắt") { cancelStart(); stopSelf() },
-            LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f)
+            LinearLayout.LayoutParams(0, if (autoExportLocked) 68 else -2, 1f)
         )
         panel.addView(status)
         panel.addView(row)
@@ -205,7 +205,7 @@ class VtmanOverlayService : Service() {
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = if (autoExportLocked) (screenHeight * 0.205f).toInt() else 140
+            y = if (autoExportLocked) (screenHeight * 0.184f).toInt() else 140
             x = 0
         }
         runCatching { windowManager.addView(panel, params) }

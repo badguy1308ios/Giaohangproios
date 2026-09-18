@@ -37,6 +37,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var pausedAt = 0L
     private var tickScheduled = false
     private var lastAutoNavigationTapAt = 0L
+    private var autoEntryCheckScheduled = false
     private val tick = Runnable { tickScheduled = false; safely { process() } }
 
     override fun onServiceConnected() {
@@ -54,33 +55,80 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) {
             val eventPackage = event?.packageName?.toString().orEmpty()
             if (eventPackage.isBlank() || eventPackage == packageName) return
-            val root = rootInActiveWindow ?: return
-            try {
-                val activePackage = root.packageName?.toString().orEmpty()
-                if (activePackage != VTMAN_PACKAGE_NAME) return
-
-                val strings = root.collectStrings()
-                val isOfflineList =
-                    strings.any { it.contains("Gạch phát offline", true) } &&
-                    strings.any { it.contains("Danh sách phát", true) }
-
-                if (isOfflineList) {
-                    h.post { if (mode == 0) begin() }
-                    return
-                }
-
-                val now = SystemClock.elapsedRealtime()
-                val entryBounds = root.findExactTextBounds("Gạch phát offline")
-                if (entryBounds != null && now - lastAutoNavigationTapAt >= 2_500L) {
-                    lastAutoNavigationTapAt = now
-                    VtmanQueueController.report("Auto Export: đang mở Gạch phát offline")
-                    tap(entryBounds.exactCenterX(), entryBounds.exactCenterY())
-                }
-            } finally {
-                root.recycle()
-            }
+            handlePendingAutoNavigation()
         }
     }
+    private fun handlePendingAutoNavigation() {
+        val root = rootInActiveWindow ?: return
+        try {
+            val activePackage = root.packageName?.toString().orEmpty()
+            if (activePackage != VTMAN_PACKAGE_NAME) return
+
+            val strings = root.collectStrings()
+            val isOfflineList =
+                strings.any { it.contains("Gạch phát offline", true) } &&
+                    strings.any { it.contains("Danh sách phát", true) }
+
+            if (isOfflineList) {
+                val search = root.findSearch()
+                val oldQuery = search?.text?.toString()?.trim().orEmpty()
+                if (oldQuery.isNotEmpty()) {
+                    val arguments = Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                            ""
+                        )
+                    }
+                    val cleared = search?.performAction(
+                        AccessibilityNodeInfo.ACTION_SET_TEXT,
+                        arguments
+                    ) == true
+                    search?.recycle()
+                    if (cleared) {
+                        VtmanQueueController.report("Auto Export: đã xóa ô tìm kiếm, đang tải lại danh sách")
+                        scheduleAutoEntryCheck(450L)
+                    } else {
+                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan. Hãy xóa thủ công rồi bấm Chạy.")
+                    }
+                    return
+                }
+                search?.recycle()
+                scheduleAutoBegin()
+                return
+            }
+
+            val now = SystemClock.elapsedRealtime()
+            val entryBounds = root.findExactTextBounds("Gạch phát offline")
+            if (entryBounds != null && now - lastAutoNavigationTapAt >= 2_500L) {
+                lastAutoNavigationTapAt = now
+                VtmanQueueController.report("Auto Export: đang mở Gạch phát offline")
+                tap(entryBounds.exactCenterX(), entryBounds.exactCenterY())
+            }
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun scheduleAutoEntryCheck(delayMs: Long) {
+        if (autoEntryCheckScheduled) return
+        autoEntryCheckScheduled = true
+        h.postDelayed({
+            autoEntryCheckScheduled = false
+            if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) {
+                safely { handlePendingAutoNavigation() }
+            }
+        }, delayMs)
+    }
+
+    private fun scheduleAutoBegin() {
+        if (autoEntryCheckScheduled) return
+        autoEntryCheckScheduled = true
+        h.post {
+            autoEntryCheckScheduled = false
+            if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) begin()
+        }
+    }
+
     override fun onUnbind(intent: Intent?): Boolean {
         detach()
         return super.onUnbind(intent)
@@ -99,6 +147,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         mode = 0
         h.removeCallbacksAndMessages(null)
         tickScheduled = false
+        autoEntryCheckScheduled = false
         rootMissingSince = null
         phoneReadNotBefore = 0L
         pausedMode = 0
