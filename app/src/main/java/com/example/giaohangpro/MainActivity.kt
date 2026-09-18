@@ -67,9 +67,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import java.net.HttpURLConnection
-import java.net.URLEncoder
-import java.net.URL
 // MapLibre hiển thị Goong vector style trong MapView.
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
@@ -86,15 +83,6 @@ import org.maplibre.android.maps.Style
 // ================================================================
 // Muốn đổi toàn bộ giao diện sang màu khác, chỉnh các hằng số ở đây.
 // Màu cam được lấy theo tinh thần hình mẫu người dùng gửi.
-// ================================================================
-// GOONG GEOCODING
-// ================================================================
-// API key Goong dùng để tìm tọa độ từ địa chỉ. Tile bản đồ dùng OpenStreetMap
-// để tab Bản đồ vẫn hiển thị được khi key Goong hết hạn/bị giới hạn dịch vụ.
-// Lưu ý: API key Android luôn có thể bị trích xuất khỏi APK; nên giới hạn key
-// theo package/SHA-1 và API/quota trong trang quản trị Goong.
-private const val GOONG_API_KEY = "dF8oDtuFE9Vj7R2eYbFv0edCC34U6wwip8wYrcAP"
-
 private val Orange = Color(0xFFC65A22)
 private val OrangeDark = Color(0xFFA94318)
 private val OrangeLight = Color(0xFFFFF3EC)
@@ -328,12 +316,6 @@ enum class Tab { MAP, ORDERS, CUSTOMERS } // Ba tab chính của ứng dụng.
 // Điều hướng nội bộ đơn giản cho demo: danh sách chính, chi tiết khách và form thêm/sửa.
 enum class AppScreen { MAIN, CUSTOMER_DETAIL, CUSTOMER_FORM, SETTINGS, MONEY_LEDGER, VTMAN_EXPORT, CUSTOMER_BACKUP, STREET_NAME_MANAGEMENT }
 
-// Xác định cặp textbox nào trong form sẽ nhận tọa độ sau khi người dùng chọn trên bản đồ.
-private enum class CoordinateTarget {
-    PRIMARY_ADDRESS, // Cập nhật vĩ độ/kinh độ của địa chỉ chính.
-    EXTRA_ADDRESS // Cập nhật vĩ độ/kinh độ của địa chỉ phụ.
-}
-
 @Composable
 fun GiaoHangApp(vm: MainViewModel = viewModel()) {
     var tab by remember { mutableStateOf(Tab.MAP) }
@@ -381,6 +363,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             Box(Modifier.fillMaxSize().padding(padding).background(Background)) {
                 MapScreen(
                     vm = vm,
+                    active = tab == Tab.MAP,
                     focusOrderCode = mapFocusOrderCode,
                     onFocusConsumed = { mapFocusOrderCode = null },
                     onOpenOrder = { code ->
@@ -744,7 +727,6 @@ private fun StreetNameManagementScreen(vm: MainViewModel, onBack: () -> Unit) {
 
 
 private fun fmtMoney(v: Long): String = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(v)
-private fun parseMoney(v: String): Long = v.filter(Char::isDigit).toLongOrNull() ?: 0L
 
 @Composable
 private fun MoneyLedgerScreen(onBack: () -> Unit) {
@@ -1412,7 +1394,7 @@ private fun pointFromStrings(latitude: String, longitude: String): MapPoint? {
 
 // Lấy vị trí hiện tại bằng Android LocationManager, không cần Google Play Services hoặc API key.
 @Composable
-private fun rememberDriverLocation(): State<MapPoint?> {
+private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
     val context = LocalContext.current // Context để kiểm tra quyền và lấy LocationManager.
     val locationState = remember { mutableStateOf<MapPoint?>(null) } // State GPS để Compose tự cập nhật UI.
     var hasPermission by remember {
@@ -1430,8 +1412,8 @@ private fun rememberDriverLocation(): State<MapPoint?> {
     }
 
     // Khi chưa có quyền, chỉ yêu cầu một lần; nếu người dùng từ chối bản đồ vẫn hoạt động bình thường.
-    LaunchedEffect(Unit) {
-        if (!hasPermission) {
+    LaunchedEffect(active) {
+        if (active && !hasPermission) {
             permissionLauncher.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
@@ -1439,8 +1421,8 @@ private fun rememberDriverLocation(): State<MapPoint?> {
     }
 
     // Đăng ký cập nhật GPS chỉ khi composable đang tồn tại và quyền đã được cấp.
-    DisposableEffect(context, hasPermission) {
-        if (!hasPermission) return@DisposableEffect onDispose { }
+    DisposableEffect(context, hasPermission, active) {
+        if (!hasPermission || !active) return@DisposableEffect onDispose { }
         val manager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as LocationManager
         val listener = android.location.LocationListener { location ->
             locationState.value = MapPoint(location.latitude, location.longitude) // Cập nhật marker tài xế.
@@ -1464,37 +1446,6 @@ private fun rememberDriverLocation(): State<MapPoint?> {
         }
     }
     return locationState // Trả State để nơi gọi đọc bằng .value.
-}
-
-// Mở Google Maps bên ngoài bằng Intent navigation URI; ứng dụng không tự tính route.
-// Gọi Goong Geocoding để lấy tọa độ WGS84 từ địa chỉ khách hàng.
-private suspend fun geocodeAddressWithGoong(address: String): MapPoint? = withContext(Dispatchers.IO) {
-    if (address.isBlank()) return@withContext null
-    val encoded = URLEncoder.encode(address.trim(), "UTF-8")
-    val url = URL("https://rsapi.goong.io/Geocode?address=$encoded&api_key=$GOONG_API_KEY")
-    val connection = (url.openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 10000
-        readTimeout = 10000
-        setRequestProperty("Accept", "application/json")
-    }
-    try {
-        if (connection.responseCode !in 200..299) return@withContext null
-        val body = connection.inputStream.bufferedReader().use { it.readText() }
-        val results = JSONObject(body).optJSONArray("results") ?: return@withContext null
-        if (results.length() == 0) return@withContext null
-        val location = results.optJSONObject(0)
-            ?.optJSONObject("geometry")
-            ?.optJSONObject("location")
-            ?: return@withContext null
-        val lat = location.optDouble("lat", Double.NaN)
-        val lng = location.optDouble("lng", Double.NaN)
-        if (lat.isNaN() || lng.isNaN()) null else pointFromStrings(lat.toString(), lng.toString())
-    } catch (_: Exception) {
-        null
-    } finally {
-        connection.disconnect()
-    }
 }
 
 private fun uiNormPhone(raw: String): String {
@@ -1594,6 +1545,7 @@ private fun openGoogleNavigation(context: android.content.Context, point: MapPoi
 @Composable
 fun MapScreen(
     vm: MainViewModel,
+    active: Boolean,
     focusOrderCode: String? = null,
     onFocusConsumed: () -> Unit = {},
     onOpenOrder: (String) -> Unit = {}
@@ -1677,6 +1629,7 @@ fun MapScreen(
     val displayOrders = orderedGroups.map(::groupRepresentative)
 
     BaseMapScreen(
+        active = active,
         orders = displayOrders,
         customers = vm.customers,
         anchorPoint = vm.routeAnchorPoint(),
@@ -1809,6 +1762,7 @@ fun MapScreen(
 
 @Composable
 private fun BaseMapScreen(
+    active: Boolean,
     orders: List<Order>,
     customers: List<Customer>,
     anchorPoint: MapPoint?,
@@ -1833,7 +1787,7 @@ private fun BaseMapScreen(
     onImportStt: () -> Unit
 ) {
     val context = LocalContext.current
-    val driverLocation by rememberDriverLocation()
+    val driverLocation by rememberDriverLocation(active)
     var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
 
@@ -1871,6 +1825,7 @@ private fun BaseMapScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GoongOrderMap(
                 modifier = Modifier.fillMaxSize(),
+                active = active,
                 orders = mappedOrders,
                 driverLocation = driverLocation,
                 selectedOrderNumber = if (editingStt) null else selectedMarker?.number,
@@ -2369,6 +2324,7 @@ private fun goongStyle(context: android.content.Context): String =
 @Composable
 private fun GoongOrderMap(
     modifier: Modifier,
+    active: Boolean,
     orders: List<MapOrderMarker>,
     driverLocation: MapPoint?,
     selectedOrderNumber: Int?,
@@ -2400,6 +2356,18 @@ private fun GoongOrderMap(
     val currentEditingStt by rememberUpdatedState(editingStt)
     val currentOnOrderSelected by rememberUpdatedState(onOrderSelected)
     val currentOnEditStt by rememberUpdatedState(onEditStt)
+    val currentActive by rememberUpdatedState(active)
+
+    LaunchedEffect(active) {
+        mapView.visibility = if (active) android.view.View.VISIBLE else android.view.View.INVISIBLE
+        if (active) {
+            mapView.onStart()
+            mapView.onResume()
+        } else {
+            mapView.onPause()
+            mapView.onStop()
+        }
+    }
 
     LaunchedEffect(map, inlineEditorMarker, showInlineEditor) {
         if (!showInlineEditor) return@LaunchedEffect
@@ -2418,10 +2386,10 @@ private fun GoongOrderMap(
     DisposableEffect(mapView, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_START -> if (currentActive) mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> if (currentActive) mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> if (currentActive) mapView.onPause()
+                Lifecycle.Event.ON_STOP -> if (currentActive) mapView.onStop()
                 else -> Unit
             }
         }
@@ -2836,14 +2804,29 @@ fun OrderListScreen(
     onCustomerClick: (Order) -> Unit
 ) {
     val context = LocalContext.current
-    val allGroups = buildDeliveryGroups(vm.orders, vm.customers)
-    val activeGroups = allGroups.filterNot { g -> g.orders.all { it.locallyDelivered || isTerminalOrderStatus(it.status) } }
-    val deliveredGroups = allGroups.filter { g -> g.orders.all { it.locallyDelivered } }
-    val terminalGroups = allGroups.filter { g -> g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) } }
+    val ordersSnapshot = vm.orders.toList()
+    val customersSnapshot = vm.customers.toList()
+    val allGroups = remember(ordersSnapshot, customersSnapshot) {
+        buildDeliveryGroups(ordersSnapshot, customersSnapshot)
+    }
+    val activeGroups = remember(allGroups) {
+        allGroups.filterNot { g -> g.orders.all { it.locallyDelivered || isTerminalOrderStatus(it.status) } }
+    }
+    val deliveredGroups = remember(allGroups) {
+        allGroups.filter { g -> g.orders.all { it.locallyDelivered } }
+    }
+    val terminalGroups = remember(allGroups) {
+        allGroups.filter { g -> g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) } }
+    }
+    val groupHasCoordinate = remember(allGroups) {
+        allGroups.associate { it.key to deliveryGroupHasCoordinate(it) }
+    }
     // Numbering base = active + locally delivered route stops, in original route order.
     // Terminal VTMan statuses never consume a route STT.
-    val numberedRouteGroups = allGroups.filterNot { g ->
-        g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
+    val numberedRouteGroups = remember(allGroups) {
+        allGroups.filterNot { g ->
+            g.orders.all { !it.locallyDelivered && isTerminalOrderStatus(it.status) }
+        }
     }
     var keyword by remember { mutableStateOf("") }
     var mapCustomerFilterId by remember { mutableStateOf<Long?>(null) }
@@ -2875,13 +2858,21 @@ fun OrderListScreen(
 
     // Tab Chi tiết đơn: các điểm CHƯA có tọa độ thật luôn nằm đầu danh sách.
     // Chỉ đổi thứ tự hiển thị; activeGroups vẫn giữ thứ tự tuyến gốc để STT đã tạo không bị lệch.
-    val matchedActiveGroups = activeGroups.filter(::matches)
-    val pendingGroups = matchedActiveGroups.filterNot(::deliveryGroupHasCoordinate)
-    val locatedGroups = matchedActiveGroups.filter(::deliveryGroupHasCoordinate)
-    val visibleGroups = pendingGroups + locatedGroups + deliveredGroups.filter(::matches) + terminalGroups.filter(::matches)
-    val filteredOrders = if (q.isBlank()) vm.orders else vm.orders.filter { o ->
-        o.code.contains(q, true) || o.customer.contains(q, true) || o.phone.contains(q, true) ||
-            o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true) || matchesCodSearch(o.amount, q)
+    val matchedActiveGroups = remember(activeGroups, q, mapCustomerFilterId) { activeGroups.filter(::matches) }
+    val pendingGroups = remember(matchedActiveGroups, groupHasCoordinate) {
+        matchedActiveGroups.filterNot { groupHasCoordinate[it.key] == true }
+    }
+    val locatedGroups = remember(matchedActiveGroups, groupHasCoordinate) {
+        matchedActiveGroups.filter { groupHasCoordinate[it.key] == true }
+    }
+    val visibleGroups = remember(pendingGroups, locatedGroups, deliveredGroups, terminalGroups, q, mapCustomerFilterId) {
+        pendingGroups + locatedGroups + deliveredGroups.filter(::matches) + terminalGroups.filter(::matches)
+    }
+    val filteredOrders = remember(ordersSnapshot, q) {
+        if (q.isBlank()) ordersSnapshot else ordersSnapshot.filter { o ->
+            o.code.contains(q, true) || o.customer.contains(q, true) || o.phone.contains(q, true) ||
+                o.address.contains(q, true) || o.shop.contains(q, true) || o.item.contains(q, true) || matchesCodSearch(o.amount, q)
+        }
     }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
@@ -3022,7 +3013,7 @@ fun OrderListScreen(
                 ) {
                     items(visibleGroups, key = { it.key }) { group ->
                         val delivered = group.orders.all { it.locallyDelivered }
-                        val routeStt = if (delivered || !vm.routeNumberingEnabled || !deliveryGroupHasCoordinate(group)) {
+                        val routeStt = if (delivered || !vm.routeNumberingEnabled || groupHasCoordinate[group.key] != true) {
                             null
                         } else {
                             vm.routeSttForGroup(group.orders.map(Order::code))
@@ -4711,24 +4702,6 @@ private fun RouteStateCircle(number: Int?, hasCoordinate: Boolean, selected: Boo
     }
 }
 
-@Composable
-fun NumberCircle(number: Int, selected: Boolean) {
-    Box(
-        Modifier
-            .size(28.dp) // Bong bóng STT lớn hơn một nấc.
-            .clip(CircleShape)
-            .background(if (selected) Orange else Color(0xFF4E5B6B)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            "$number",
-            color = Color.White,
-            fontSize = 13.sp, // Số STT lớn hơn một nấc.
-            fontWeight = FontWeight.ExtraBold
-        )
-    }
-}
-
 // ================================================================
 // 11. VIEWMODEL
 // ================================================================
@@ -4793,12 +4766,6 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         routeAnchorLat = prefs.getString("route_anchor_lat_v1", routeAnchorLat).orEmpty()
         routeAnchorLng = prefs.getString("route_anchor_lng_v1", routeAnchorLng).orEmpty()
         return pointFromStrings(routeAnchorLat, routeAnchorLng)
-    }
-
-    fun setRouteAnchor(point: MapPoint) {
-        routeAnchorLat = "%.6f".format(java.util.Locale.US, point.latitude)
-        routeAnchorLng = "%.6f".format(java.util.Locale.US, point.longitude)
-        prefs.edit().putString("route_anchor_lat_v1", routeAnchorLat).putString("route_anchor_lng_v1", routeAnchorLng).apply()
     }
 
     fun enableRouteNumbering() {
@@ -4890,13 +4857,6 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             obj.put(key, obj.optDouble(key, 0.0) + 1.0)
         }
         prefs.edit().putString("route_learning_v1", obj.toString()).apply()
-    }
-
-    fun learnedRouteWeight(from: MapPoint, to: MapPoint): Double {
-        val obj = runCatching { JSONObject(prefs.getString("route_learning_v1", "{}") ?: "{}") }.getOrElse { JSONObject() }
-        val scale = 500.0
-        fun cell(p: MapPoint) = "${kotlin.math.floor(p.latitude * scale).toInt()},${kotlin.math.floor(p.longitude * scale).toInt()}"
-        return obj.optDouble("${cell(from)}>${cell(to)}", 0.0)
     }
 
     private val orderState = mutableStateListOf<Order>()
@@ -5177,8 +5137,6 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         val i=orderState.indexOfFirst { it.code==updated.code }
         if(i>=0){ orderState[i]=updated; savePersistentData() }
     }
-
-    fun deleteOrder(code: String) { if(orderState.removeAll { it.code==code }) savePersistentData() }
 
     fun markDeliveredGroup(code: String) {
         val base = orderState.firstOrNull { it.code == code } ?: return
