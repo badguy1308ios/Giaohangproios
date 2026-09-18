@@ -1199,6 +1199,10 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
                             context.startService(
                                 android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java)
+                                    .putExtra(
+                                        com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_AUTO_EXPORT_LOCKED,
+                                        true
+                                    )
                             )
                             Toast.makeText(
                                 context,

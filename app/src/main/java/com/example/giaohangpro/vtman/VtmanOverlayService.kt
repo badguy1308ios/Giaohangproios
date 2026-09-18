@@ -31,6 +31,7 @@ class VtmanOverlayService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val connectionWait = VtmanConnectionWait()
     private var selectionGeneration = 0
+    private var autoExportLocked = false
 
     private fun accessibilityEnabled(): Boolean {
         // Một service đang kết nối thật luôn được xem là đã bật. Tránh trường hợp
@@ -110,7 +111,11 @@ class VtmanOverlayService : Service() {
         override fun run() {
             checkPendingStart()
             val s = VtmanQueueController.snapshot()
-            status.text = "Đã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            status.text = if (autoExportLocked) {
+                "Auto Export ${s.processed}/${s.total} • Lưu ${s.written} • Bỏ ${s.skipped}"
+            } else {
+                "Đã xử lý ${s.processed}/${s.total} · Lấy được ${s.written} · Bỏ qua ${s.skipped}\n${s.status}"
+            }
             val service = VtmanQueueController.service
             val partialCount = service?.partialAutoCount() ?: 0
             if (::runPauseButton.isInitialized) {
@@ -130,6 +135,9 @@ class VtmanOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra(EXTRA_AUTO_EXPORT_LOCKED, false) == true) {
+            autoExportLocked = true
+        }
         if (!::panel.isInitialized) showPanel()
         return START_NOT_STICKY
     }
@@ -152,25 +160,54 @@ class VtmanOverlayService : Service() {
         instance = this
         panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(18, 12, 18, 12)
+            if (autoExportLocked) setPadding(12, 5, 12, 6) else setPadding(18, 12, 18, 12)
             background = GradientDrawable().apply { setColor(Color.rgb(194, 78, 20)); cornerRadius = 24f }
         }
-        status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; maxLines = 6 }
+        status = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = if (autoExportLocked) 12f else 13f
+            maxLines = if (autoExportLocked) 1 else 6
+            gravity = Gravity.CENTER
+            if (autoExportLocked) ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
-        fun button(label: String, action: () -> Unit) = Button(this).apply { text = label; setOnClickListener { action() } }
+        fun button(label: String, action: () -> Unit) = Button(this).apply {
+            text = label
+            setOnClickListener { action() }
+            if (autoExportLocked) {
+                textSize = 11f
+                isAllCaps = false
+                minHeight = 0
+                minimumHeight = 0
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(2, 0, 2, 0)
+            }
+        }
         runPauseButton = button("Chạy") { toggleRunPause() }
-        row.addView(runPauseButton, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(runPauseButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f))
         skipButton = button("Bỏ qua") { skipOrUsePartial() }.apply { isEnabled = false }
-        row.addView(skipButton, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button("Tắt") { cancelStart(); stopSelf() }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(skipButton, LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f))
+        row.addView(
+            button("Tắt") { cancelStart(); stopSelf() },
+            LinearLayout.LayoutParams(0, if (autoExportLocked) 48 else -2, 1f)
+        )
         panel.addView(status)
         panel.addView(row)
-        makeDraggable(panel)
+        if (!autoExportLocked) makeDraggable(panel)
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
         val params = WindowManager.LayoutParams(
-            760, -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            if (autoExportLocked) (screenWidth * 0.94f).toInt() else 760,
+            -2,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP; y = 140 }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = if (autoExportLocked) (screenHeight * 0.205f).toInt() else 140
+            x = 0
+        }
         runCatching { windowManager.addView(panel, params) }
             .onSuccess { handler.post(refresh) }
             .onFailure { VtmanQueueController.fail("Không mở được popup VTMan: ${it.message}") }
@@ -232,6 +269,7 @@ class VtmanOverlayService : Service() {
     }
 
     companion object {
+        const val EXTRA_AUTO_EXPORT_LOCKED = "AUTO_EXPORT_LOCKED"
         @Volatile private var instance: VtmanOverlayService? = null
 
         fun notifyAccessibilityConnected() {
