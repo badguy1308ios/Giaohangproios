@@ -538,19 +538,21 @@ class VtmanAccessibilityService : AccessibilityService() {
                 return
             }
             resetRetry(mv)
-            returnDeadline = now + 12_000L
+            returnDeadline = now + 9_000L
+            nextBackAt = now + 500L
 
-            // Chỉ Back đúng một lần. Sau đó tuyệt đối không Back thêm,
-            // chỉ chờ VTMan hiện lại tiêu đề Gạch phát offline.
-            performGlobalAction(GLOBAL_ACTION_BACK)
             if (phonePickerVisible) {
+                // Giữ đúng cơ chế VTMan Export thường: đóng bảng chọn số trước.
+                performGlobalAction(GLOBAL_ACTION_BACK)
                 mode=6
-                VtmanQueueController.report("Đã lấy SĐT đầu tiên $phone · đang chờ Gạch phát offline")
+                VtmanQueueController.report("Đã lấy SĐT đầu tiên $phone · đang đóng danh sách số")
             } else {
+                // Chưa Back ngay khi vừa đọc được số ở ứng dụng ngoài.
+                // Chờ màn hình ổn định rồi waitReturn mới phát lệnh Back.
                 mode=5
-                VtmanQueueController.report("Đã lấy SĐT $phone · đang chờ Gạch phát offline")
+                VtmanQueueController.report("Đã lấy SĐT $phone · đang quay lại Gạch phát offline")
             }
-            schedule(120)
+            schedule(250)
             return
         }
 
@@ -559,51 +561,57 @@ class VtmanAccessibilityService : AccessibilityService() {
         } else schedule(180)
     }
 
-    private fun isGachPhatOffline(root: AccessibilityNodeInfo): Boolean {
-        if (root.packageName?.toString() != pkg) return false
-        return root.collectStrings().any { it.contains("Gạch phát offline", ignoreCase = true) }
-    }
+    private fun waitPhonePickerDismissed(root: AccessibilityNodeInfo) {
+        val now = System.currentTimeMillis()
+        val pickerVisible = root.collectStrings()
+            .any { it.contains("Chọn số điện thoại để gọi", true) }
+        if (pickerVisible) {
+            if (now > returnDeadline) {
+                VtmanQueueController.fail("Đã lấy SĐT nhưng không đóng được danh sách số")
+                mode = 0
+                return
+            }
+            if (now >= nextBackAt) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                nextBackAt = now + 700L
+            }
+            schedule(180)
+            return
+        }
 
-    private fun continueAfterReturningOffline(message: String) {
         mode = if (VtmanQueueController.nextWaybill() == null) 0 else 2
         if (mode == 0) {
             completeAutoRun("Hoàn tất toàn bộ MVĐ")
         } else {
-            VtmanQueueController.report(message)
-            schedule(180)
+            VtmanQueueController.report("Đã lưu SĐT đầu tiên · tiếp tục đơn kế")
+            schedule(350)
         }
-    }
-
-    private fun waitPhonePickerDismissed(root: AccessibilityNodeInfo) {
-        val now = System.currentTimeMillis()
-        if (isGachPhatOffline(root)) {
-            continueAfterReturningOffline("Đã về Gạch phát offline · tiếp tục đơn kế")
-            return
-        }
-        if (now > returnDeadline) {
-            VtmanQueueController.fail("Đã Back một lần nhưng chưa thấy Gạch phát offline")
-            mode = 0
-            return
-        }
-
-        // Không Back lần hai dù popup hệ thống cập nhật chậm.
-        schedule(100)
     }
 
     private fun waitReturn(root: AccessibilityNodeInfo) {
-        val now = System.currentTimeMillis()
-        if (isGachPhatOffline(root)) {
-            continueAfterReturningOffline("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
-            return
-        }
-        if (now > returnDeadline) {
-            VtmanQueueController.fail("Đã Back một lần nhưng chưa thấy Gạch phát offline")
-            mode = 0
+        val currentPkg = root.packageName?.toString()
+        if (currentPkg == pkg) {
+            mode = if (VtmanQueueController.nextWaybill() == null) 0 else 2
+            if (mode == 0) {
+                completeAutoRun("Hoàn tất toàn bộ MVĐ")
+            } else {
+                VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
+                schedule(450)
+            }
             return
         }
 
-        // Chỉ đợi tiêu đề xuất hiện, tuyệt đối không phát thêm lệnh Back.
-        schedule(120)
+        val now = System.currentTimeMillis()
+        if (now > returnDeadline) {
+            VtmanQueueController.fail("Không tự quay lại được Gạch phát offline")
+            mode = 0
+            return
+        }
+        if (now >= nextBackAt) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            nextBackAt = now + 1_800L
+        }
+        schedule(250)
     }
 
     private fun clearVtmanSearchField() {
