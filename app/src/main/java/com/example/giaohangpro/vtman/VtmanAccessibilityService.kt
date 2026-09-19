@@ -38,7 +38,6 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var tickScheduled = false
     private var lastAutoNavigationTapAt = 0L
     private var autoEntryCheckScheduled = false
-    private var autoBeginScheduled = false
     private var autoWorkflowStartedAt = 0L
     private var retryWaybill = ""
     private var retryAttempt = 0
@@ -150,9 +149,22 @@ class VtmanAccessibilityService : AccessibilityService() {
                     return
                 }
                 search?.recycle()
+
+                // Không chờ bộ đếm hoặc thời gian cố định. Khi cây trợ năng đã thấy
+                // ít nhất một MVĐ hợp lệ cạnh trạng thái TT thì bắt đầu ngay.
+                val visibleWaybills = root.collectResultPositionedTexts().visibleWaybillCodes()
+                if (visibleWaybills.isEmpty()) {
+                    VtmanQueueController.report("Đang chờ danh sách MVĐ hiển thị")
+                    scheduleAutoEntryCheck(180L)
+                    return
+                }
+
                 autoWorkflowStartedAt = 0L
+                VtmanQueueController.report(
+                    "Đã thấy MVĐ ${visibleWaybills.first()} · bắt đầu Auto Export"
+                )
                 showAutoOverlay()
-                scheduleAutoBegin()
+                begin()
                 return
             }
 
@@ -218,15 +230,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         }, delayMs)
     }
 
-    private fun scheduleAutoBegin() {
-        if (autoBeginScheduled) return
-        autoBeginScheduled = true
-        h.postDelayed({
-            autoBeginScheduled = false
-            if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) begin()
-        }, 350L)
-    }
-
     override fun onUnbind(intent: Intent?): Boolean {
         detach()
         return super.onUnbind(intent)
@@ -246,7 +249,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         h.removeCallbacksAndMessages(null)
         tickScheduled = false
         autoEntryCheckScheduled = false
-        autoBeginScheduled = false
         autoWorkflowStartedAt = 0L
         rootMissingSince = null
         phoneReadNotBefore = 0L
@@ -389,7 +391,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoBeginScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
