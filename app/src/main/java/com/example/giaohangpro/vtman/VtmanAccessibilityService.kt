@@ -123,6 +123,41 @@ class VtmanAccessibilityService : AccessibilityService() {
                 return
             }
 
+            // Bắt đầu theo chính nội dung MVĐ đang hiển thị, không phụ thuộc
+            // vị trí icon/nhãn TT và không chờ bộ đếm thời gian.
+            val visibleWaybill = findVisibleWaybill(strings)
+            if (visibleWaybill != null && VtmanQueueController.hasPendingAutoExport()) {
+                val search = root.findSearch()
+                val oldQuery = search?.text?.toString()?.trim().orEmpty()
+                if (oldQuery.isNotEmpty()) {
+                    val arguments = Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                            ""
+                        )
+                    }
+                    val cleared = search?.performAction(
+                        AccessibilityNodeInfo.ACTION_SET_TEXT,
+                        arguments
+                    ) == true
+                    search?.recycle()
+                    if (cleared) {
+                        VtmanQueueController.report("Đã xóa ô tìm kiếm · đang chờ danh sách đầy đủ")
+                        scheduleAutoEntryCheck(180L)
+                    } else {
+                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan")
+                    }
+                    return
+                }
+                search?.recycle()
+
+                autoWorkflowStartedAt = 0L
+                VtmanQueueController.report("Đã thấy MVĐ $visibleWaybill · bắt đầu Auto Export")
+                showAutoOverlay()
+                begin()
+                return
+            }
+
             if (isOfflineList) {
                 val search = root.findSearch()
                 val oldQuery = search?.text?.toString()?.trim().orEmpty()
@@ -139,32 +174,16 @@ class VtmanAccessibilityService : AccessibilityService() {
                     ) == true
                     search?.recycle()
                     if (cleared) {
-                        VtmanQueueController.report("Auto Export: đã xóa ô tìm kiếm, đang tải lại danh sách")
-                        scheduleAutoEntryCheck(450L)
+                        VtmanQueueController.report("Đã xóa ô tìm kiếm · đang chờ MVĐ")
+                        scheduleAutoEntryCheck(180L)
                     } else {
-                        VtmanQueueController.fail(
-                            "Không xóa được ô tìm kiếm VTMan. Hãy xóa thủ công rồi bấm Chạy."
-                        )
+                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan")
                     }
                     return
                 }
                 search?.recycle()
-
-                // Không chờ bộ đếm hoặc thời gian cố định. Khi cây trợ năng đã thấy
-                // ít nhất một MVĐ hợp lệ cạnh trạng thái TT thì bắt đầu ngay.
-                val visibleWaybills = root.collectResultPositionedTexts().visibleWaybillCodes()
-                if (visibleWaybills.isEmpty()) {
-                    VtmanQueueController.report("Đang chờ danh sách MVĐ hiển thị")
-                    scheduleAutoEntryCheck(180L)
-                    return
-                }
-
-                autoWorkflowStartedAt = 0L
-                VtmanQueueController.report(
-                    "Đã thấy MVĐ ${visibleWaybills.first()} · bắt đầu Auto Export"
-                )
-                showAutoOverlay()
-                begin()
+                VtmanQueueController.report("Đang chờ MVĐ xuất hiện")
+                scheduleAutoEntryCheck(180L)
                 return
             }
 
@@ -187,6 +206,26 @@ class VtmanAccessibilityService : AccessibilityService() {
         } finally {
             root.recycle()
         }
+    }
+
+    private fun findVisibleWaybill(strings: List<String>): String? {
+        val tokenRegex = Regex(
+            "(?<![A-Z0-9])([A-Z0-9]{8,24})(?![A-Z0-9])",
+            RegexOption.IGNORE_CASE
+        )
+        strings.forEach { value ->
+            tokenRegex.findAll(value).forEach { match ->
+                val token = match.groupValues[1].uppercase()
+                val looksLikeWaybill = when {
+                    token.all(Char::isDigit) -> token.length in 11..14
+                    else -> token.length >= 10 &&
+                        token.any(Char::isDigit) &&
+                        token.any(Char::isLetter)
+                }
+                if (looksLikeWaybill) return token
+            }
+        }
+        return null
     }
 
     private fun extractDeliveryCount(strings: List<String>): Int? {
