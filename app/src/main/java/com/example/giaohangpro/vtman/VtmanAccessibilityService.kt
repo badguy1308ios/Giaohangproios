@@ -38,6 +38,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var tickScheduled = false
     private var lastAutoNavigationTapAt = 0L
     private var autoEntryCheckScheduled = false
+    private var autoBeginScheduled = false
     private var autoWorkflowStartedAt = 0L
     private var retryWaybill = ""
     private var retryAttempt = 0
@@ -218,12 +219,12 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun scheduleAutoBegin() {
-        if (autoEntryCheckScheduled) return
-        autoEntryCheckScheduled = true
+        if (autoBeginScheduled) return
+        autoBeginScheduled = true
         h.postDelayed({
-            autoEntryCheckScheduled = false
+            autoBeginScheduled = false
             if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) begin()
-        }, 180L)
+        }, 350L)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -245,6 +246,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         h.removeCallbacksAndMessages(null)
         tickScheduled = false
         autoEntryCheckScheduled = false
+        autoBeginScheduled = false
         autoWorkflowStartedAt = 0L
         rootMissingSince = null
         phoneReadNotBefore = 0L
@@ -387,7 +389,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoBeginScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {

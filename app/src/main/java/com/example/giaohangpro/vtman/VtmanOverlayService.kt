@@ -172,53 +172,43 @@ class VtmanOverlayService : Service() {
             return
         }
 
+        val size = (46 * resources.displayMetrics.density).toInt()
         val box = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 5, 5, 5)
+            gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.rgb(194, 78, 20))
-                cornerRadius = 24f
+                cornerRadius = size / 2f
             }
-        }
-        val dragArea = TextView(this).apply {
-            text = "Đang chuẩn bị Auto Export…"
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setPadding(8, 5, 8, 5)
         }
         val close = TextView(this).apply {
             text = "×"
             setTextColor(Color.WHITE)
-            textSize = 20f
+            textSize = 22f
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnClickListener { stopSelf() }
         }
-        box.addView(dragArea, LinearLayout.LayoutParams(0, 54, 1f))
-        box.addView(close, LinearLayout.LayoutParams(54, 54))
+        box.addView(close, LinearLayout.LayoutParams(size, size))
         waitingPanel = box
 
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
+        val margin = (10 * resources.displayMetrics.density).toInt()
         val params = WindowManager.LayoutParams(
-            (screenWidth * 0.72f).toInt(),
-            -2,
+            size,
+            size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = 0
+            gravity = Gravity.TOP or Gravity.START
+            x = screenWidth - size - margin
             y = (screenHeight * 0.11f).toInt()
         }
         runCatching {
             windowManager.addView(box, params)
-            makeOverlayDraggable(dragArea, box)
+            makeStopPopupDraggable(close, box)
         }.onFailure {
             waitingPanel = null
-            VtmanQueueController.fail("Không mở được popup chờ Auto Export: ${it.message}")
+            VtmanQueueController.fail("Không mở được nút tắt Auto Export: ${it.message}")
         }
     }
 
@@ -235,6 +225,10 @@ class VtmanOverlayService : Service() {
             stopSelf(); return
         }
         instance = this
+        if (autoExportLocked) {
+            showCompactAutoPanel()
+            return
+        }
         panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             if (autoExportLocked) setPadding(12, 5, 12, 6) else setPadding(18, 12, 18, 12)
@@ -309,6 +303,89 @@ class VtmanOverlayService : Service() {
         runCatching { windowManager.addView(panel, params) }
             .onSuccess { handler.post(refresh) }
             .onFailure { VtmanQueueController.fail("Không mở được popup VTMan: ${it.message}") }
+    }
+
+    private fun showCompactAutoPanel() {
+        val size = (46 * resources.displayMetrics.density).toInt()
+        panel = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(194, 78, 20))
+                cornerRadius = size / 2f
+            }
+        }
+        val close = TextView(this).apply {
+            text = "×"
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            gravity = Gravity.CENTER
+        }
+        panel.addView(close, LinearLayout.LayoutParams(size, size))
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val margin = (10 * resources.displayMetrics.density).toInt()
+        val params = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = screenWidth - size - margin
+            y = (screenHeight * 0.11f).toInt()
+        }
+        runCatching {
+            windowManager.addView(panel, params)
+            makeStopPopupDraggable(close, panel)
+        }.onFailure {
+            VtmanQueueController.fail("Không mở được nút tắt Auto Export: ${it.message}")
+        }
+    }
+
+    private fun makeStopPopupDraggable(handle: View, target: View) {
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var moved = false
+        val threshold = 8 * resources.displayMetrics.density
+        handle.setOnTouchListener { _, event ->
+            val params = target.layoutParams as? WindowManager.LayoutParams
+                ?: return@setOnTouchListener false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - downX
+                    val deltaY = event.rawY - downY
+                    if (!moved && (kotlin.math.abs(deltaX) > threshold ||
+                            kotlin.math.abs(deltaY) > threshold)
+                    ) {
+                        moved = true
+                    }
+                    if (moved) {
+                        params.x = startX + deltaX.toInt()
+                        params.y = startY + deltaY.toInt()
+                        runCatching { windowManager.updateViewLayout(target, params) }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) stopSelf()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
     }
 
     private fun makeOverlayDraggable(handle: View, target: View) {
