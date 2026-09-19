@@ -2570,7 +2570,6 @@ private fun GoongOrderMap(
     val groupedOrderMarkers = remember(orders) { groupMapOrderMarkers(orders) }
     val currentGroupedOrderMarkers by rememberUpdatedState(groupedOrderMarkers)
     val currentSelectedOrderNumber by rememberUpdatedState(selectedOrderNumber)
-    val currentEditingStt by rememberUpdatedState(editingStt)
     val currentOnOrderSelected by rememberUpdatedState(onOrderSelected)
     val currentActive by rememberUpdatedState(active)
 
