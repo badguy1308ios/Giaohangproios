@@ -25,8 +25,6 @@ object VtmanQueueController {
     private var active: VtmanOrderRecord? = null
     private var callPoint: CallPoint? = null
     private var pendingAutoCount = 0
-    private var pendingAutoDiscovery = false
-    private var autoFallbackCount = 0
     private var autoLogEnabled = false
     private val autoRunLog = mutableListOf<String>()
     private var appContext: Context? = null
@@ -36,14 +34,13 @@ object VtmanQueueController {
 
     @Synchronized fun attachContext(context: Context) {
         appContext = context.applicationContext
-        if (queue.isEmpty() && completed.isEmpty() && pendingAutoCount == 0 && !pendingAutoDiscovery) restoreCheckpoint()
+        if (queue.isEmpty() && completed.isEmpty() && pendingAutoCount == 0) restoreCheckpoint()
     }
 
     @Synchronized fun load(waybills: List<String>, preserveAutoLog: Boolean = false) {
         queue.clear()
         queue.addAll(waybills.map(String::trim).filter(String::isNotBlank).distinct())
-        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null
-        pendingAutoCount = 0; pendingAutoDiscovery = false; autoFallbackCount = 0; error = ""
+        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null; pendingAutoCount = 0; error = ""
         if (!preserveAutoLog) {
             autoLogEnabled = false
             autoRunLog.clear()
@@ -56,69 +53,10 @@ object VtmanQueueController {
         queue.clear(); completed.clear(); skipped.clear()
         index = 0; active = null; callPoint = null; error = ""
         pendingAutoCount = count.coerceIn(1, 500)
-        pendingAutoDiscovery = false
-        autoFallbackCount = 0
         autoLogEnabled = true
         autoRunLog.clear()
         appendAutoLog("Bắt đầu · $pendingAutoCount MVĐ")
         status = "Auto Export đã sẵn sàng · cần lấy $pendingAutoCount MVĐ. Mở Gạch phát offline."
-        persistCheckpoint()
-    }
-
-    @Synchronized fun prepareAutoDiscovery(fallbackCount: Int?) {
-        queue.clear(); completed.clear(); skipped.clear()
-        index = 0; active = null; callPoint = null; error = ""
-        pendingAutoCount = 0
-        pendingAutoDiscovery = true
-        autoFallbackCount = fallbackCount?.coerceIn(1, 500) ?: 0
-        autoLogEnabled = true
-        autoRunLog.clear()
-        appendAutoLog(
-            if (autoFallbackCount > 0) "Bắt đầu tự đọc tổng MVĐ · dự phòng $autoFallbackCount"
-            else "Bắt đầu tự đọc tổng MVĐ"
-        )
-        status = "Đang mở VTMan để đọc số lượng tại Tổng giao"
-        persistCheckpoint()
-    }
-
-    @Synchronized fun hasPendingAutoWorkflow(): Boolean =
-        pendingAutoDiscovery || pendingAutoCount > 0
-
-    @Synchronized fun isAutoCountDiscoveryPending(): Boolean = pendingAutoDiscovery
-
-    @Synchronized fun resolveAutoCount(count: Int, source: String): Boolean {
-        if (!pendingAutoDiscovery || count <= 0) return false
-        pendingAutoCount = count.coerceIn(1, 500)
-        pendingAutoDiscovery = false
-        appendAutoLog("Đã đọc $pendingAutoCount MVĐ từ $source")
-        status = "Đã xác định $pendingAutoCount MVĐ · đang mở Gạch phát offline"
-        persistCheckpoint()
-        return true
-    }
-
-    @Synchronized fun useFallbackAutoCount(reason: String): Boolean {
-        if (!pendingAutoDiscovery || autoFallbackCount <= 0) return false
-        pendingAutoCount = autoFallbackCount
-        pendingAutoDiscovery = false
-        appendAutoLog("Dùng số dự phòng $pendingAutoCount MVĐ · $reason")
-        status = "Dùng số dự phòng $pendingAutoCount MVĐ · đang mở Gạch phát offline"
-        persistCheckpoint()
-        return true
-    }
-
-    @Synchronized fun fallbackAutoCount(): Int = autoFallbackCount
-
-    @Synchronized fun cancelPendingAutoWorkflow() {
-        if (!pendingAutoDiscovery && pendingAutoCount <= 0) return
-        appendAutoLog("Đã tắt Auto Export bởi người dùng")
-        pendingAutoDiscovery = false
-        pendingAutoCount = 0
-        autoFallbackCount = 0
-        active = null
-        callPoint = null
-        error = ""
-        status = "Đã tắt Auto Export"
-        autoLogEnabled = false
         persistCheckpoint()
     }
 
@@ -268,7 +206,7 @@ object VtmanQueueController {
 
     private fun persistCheckpoint() {
         val context = appContext ?: return
-        val activeSession = pendingAutoDiscovery || pendingAutoCount > 0 || index < queue.size
+        val activeSession = pendingAutoCount > 0 || index < queue.size
         val state = JSONObject().apply {
             put("active", activeSession)
             put("queue", JSONArray().apply { queue.forEach(::put) })
@@ -276,8 +214,6 @@ object VtmanQueueController {
             put("skipped", JSONArray().apply { skipped.forEach(::put) })
             put("index", index)
             put("pendingAutoCount", pendingAutoCount)
-            put("pendingAutoDiscovery", pendingAutoDiscovery)
-            put("autoFallbackCount", autoFallbackCount)
             put("autoLogEnabled", autoLogEnabled)
             put("runLog", JSONArray().apply { autoRunLog.forEach(::put) })
         }
@@ -309,8 +245,6 @@ object VtmanQueueController {
             }
             index = state.optInt("index", 0).coerceIn(0, queue.size)
             pendingAutoCount = state.optInt("pendingAutoCount", 0).coerceIn(0, 500)
-            pendingAutoDiscovery = state.optBoolean("pendingAutoDiscovery", false)
-            autoFallbackCount = state.optInt("autoFallbackCount", 0).coerceIn(0, 500)
             autoLogEnabled = state.optBoolean("autoLogEnabled", true)
             autoRunLog.clear()
             state.optJSONArray("runLog")?.let { values ->
@@ -319,15 +253,8 @@ object VtmanQueueController {
             active = null
             callPoint = null
             error = ""
-            status = if (pendingAutoDiscovery) {
-                "Đã khôi phục · đang chờ đọc số lượng từ Tổng giao"
-            } else {
-                "Đã khôi phục tiến độ · tiếp tục ${queue.getOrNull(index).orEmpty()}"
-            }
-            appendAutoLog(
-                if (pendingAutoDiscovery) "↻ Khôi phục bước đọc tổng MVĐ"
-                else "↻ Khôi phục tiến độ tại ${queue.getOrNull(index).orEmpty()}"
-            )
+            status = "Đã khôi phục tiến độ · tiếp tục ${queue.getOrNull(index).orEmpty()}"
+            appendAutoLog("↻ Khôi phục tiến độ tại ${queue.getOrNull(index).orEmpty()}")
         }.onFailure {
             prefs.edit().remove(KEY_STATE).apply()
         }

@@ -1167,7 +1167,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                "App sẽ tự mở VTMan, vào Giao hàng để đọc Tổng giao, sau đó mở Gạch phát offline và lấy dữ liệu. Số bên dưới chỉ dùng dự phòng khi VTMan không đọc được tổng.",
+                "Nhập đúng số lượng MVĐ đang có trong danh sách Gạch phát offline. App sẽ tự về đầu danh sách, gom đủ mã rồi lấy dữ liệu và SĐT.",
                 color = Navy,
                 fontSize = 13.sp
             )
@@ -1175,15 +1175,17 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 value = countText,
                 onValueChange = { countText = it.filter(Char::isDigit).take(3) },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Số lượng dự phòng (không bắt buộc)") },
-                placeholder = { Text("Chỉ nhập khi cần, ví dụ: 25") },
+                label = { Text("Số lượng MVĐ cần lấy") },
+                placeholder = { Text("Ví dụ: 25") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
             Button(
                 onClick = {
-                    val fallbackCount = countText.toIntOrNull()?.takeIf { it > 0 }
+                    val count = countText.toIntOrNull()
                     when {
+                        count == null || count <= 0 ->
+                            Toast.makeText(context, "Nhập số lượng MVĐ lớn hơn 0", Toast.LENGTH_SHORT).show()
                         !android.provider.Settings.canDrawOverlays(context) ->
                             context.startActivity(
                                 android.content.Intent(
@@ -1192,25 +1194,13 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 )
                             )
                         else -> {
-                            com.example.giaohangpro.vtman.VtmanQueueController.attachContext(
-                                context.applicationContext
-                            )
-                            com.example.giaohangpro.vtman.VtmanQueueController.prepareAutoDiscovery(
-                                fallbackCount
-                            )
+                            com.example.giaohangpro.vtman.VtmanQueueController.prepareAutoExport(count)
                             importedCount = 0
                             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
                             context.startService(
-                                android.content.Intent(
-                                    context,
-                                    com.example.giaohangpro.vtman.VtmanOverlayService::class.java
-                                )
+                                android.content.Intent(context, com.example.giaohangpro.vtman.VtmanOverlayService::class.java)
                                     .putExtra(
                                         com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_AUTO_EXPORT_LOCKED,
-                                        true
-                                    )
-                                    .putExtra(
-                                        com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_DEFER_PANEL,
                                         true
                                     )
                             )
@@ -1225,7 +1215,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 context.startActivity(vtmanIntent)
                                 Toast.makeText(
                                     context,
-                                    "Đang mở VTMan để đọc Tổng giao…",
+                                    "Đang mở VTMan và vào Gạch phát offline…",
                                     Toast.LENGTH_LONG
                                 ).show()
                             } else {

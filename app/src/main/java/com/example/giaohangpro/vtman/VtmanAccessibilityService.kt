@@ -38,7 +38,6 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var tickScheduled = false
     private var lastAutoNavigationTapAt = 0L
     private var autoEntryCheckScheduled = false
-    private var autoWorkflowStartedAt = 0L
     private var retryWaybill = ""
     private var retryAttempt = 0
     private val tick = Runnable { tickScheduled = false; safely { process() } }
@@ -56,107 +55,22 @@ class VtmanAccessibilityService : AccessibilityService() {
             schedule(120)
             return
         }
-        if (mode == 0 && VtmanQueueController.hasPendingAutoWorkflow()) {
+        if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) {
             val eventPackage = event?.packageName?.toString().orEmpty()
             if (eventPackage.isBlank() || eventPackage == packageName) return
             handlePendingAutoNavigation()
         }
     }
-
     private fun handlePendingAutoNavigation() {
-        if (autoWorkflowStartedAt == 0L) autoWorkflowStartedAt = SystemClock.elapsedRealtime()
-        val root = rootInActiveWindow ?: run {
-            scheduleAutoEntryCheck(500L)
-            return
-        }
+        val root = rootInActiveWindow ?: return
         try {
             val activePackage = root.packageName?.toString().orEmpty()
-            if (activePackage != VTMAN_PACKAGE_NAME) {
-                scheduleAutoEntryCheck(500L)
-                return
-            }
+            if (activePackage != VTMAN_PACKAGE_NAME) return
 
             val strings = root.collectStrings()
-            val isHome = strings.any { it.equals("Giao hàng", true) } &&
-                strings.any { it.contains("Gạch phát offline", true) }
-            val isDelivery = strings.any { it.contains("Tổng giao", true) } &&
-                strings.any { it.contains("đơn hàng", true) }
-            val isOfflineList = strings.any { it.contains("Gạch phát offline", true) } &&
-                strings.any { it.contains("Danh sách phát", true) }
-            val now = SystemClock.elapsedRealtime()
-
-            if (VtmanQueueController.isAutoCountDiscoveryPending()) {
-                if (isDelivery) {
-                    val count = extractDeliveryCount(strings)
-                    if (count != null && VtmanQueueController.resolveAutoCount(count, "Tổng giao")) {
-                        VtmanQueueController.report("Đã đọc $count MVĐ · đang quay lại trang chính VTMan")
-                        lastAutoNavigationTapAt = now
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        scheduleAutoEntryCheck(500L)
-                        return
-                    }
-                } else if (isHome) {
-                    val delivery = root.findExactTextBounds("Giao hàng")
-                    if (delivery != null && now - lastAutoNavigationTapAt >= 2_000L) {
-                        lastAutoNavigationTapAt = now
-                        VtmanQueueController.report("Auto Export: đang mở Giao hàng để đọc tổng MVĐ")
-                        tap(delivery.exactCenterX(), delivery.exactCenterY())
-                    }
-                    scheduleAutoEntryCheck(600L)
-                    return
-                } else if (isOfflineList && now - lastAutoNavigationTapAt >= 2_000L) {
-                    lastAutoNavigationTapAt = now
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    scheduleAutoEntryCheck(600L)
-                    return
-                }
-
-                if (now - autoWorkflowStartedAt >= 50_000L) {
-                    if (!VtmanQueueController.useFallbackAutoCount("không đọc được Tổng giao")) {
-                        VtmanQueueController.fail(
-                            "Không đọc được số lượng tại Tổng giao. Nhập số dự phòng rồi chạy lại."
-                        )
-                        return
-                    }
-                }
-                scheduleAutoEntryCheck(600L)
-                return
-            }
-
-            // Bắt đầu theo chính nội dung MVĐ đang hiển thị, không phụ thuộc
-            // vị trí icon/nhãn TT và không chờ bộ đếm thời gian.
-            val visibleWaybill = findVisibleWaybill(strings)
-            if (visibleWaybill != null && VtmanQueueController.hasPendingAutoExport()) {
-                val search = root.findSearch()
-                val oldQuery = search?.text?.toString()?.trim().orEmpty()
-                if (oldQuery.isNotEmpty()) {
-                    val arguments = Bundle().apply {
-                        putCharSequence(
-                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                            ""
-                        )
-                    }
-                    val cleared = search?.performAction(
-                        AccessibilityNodeInfo.ACTION_SET_TEXT,
-                        arguments
-                    ) == true
-                    search?.recycle()
-                    if (cleared) {
-                        VtmanQueueController.report("Đã xóa ô tìm kiếm · đang chờ danh sách đầy đủ")
-                        scheduleAutoEntryCheck(180L)
-                    } else {
-                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan")
-                    }
-                    return
-                }
-                search?.recycle()
-
-                autoWorkflowStartedAt = 0L
-                VtmanQueueController.report("Đã thấy MVĐ $visibleWaybill · bắt đầu Auto Export")
-                showAutoOverlay()
-                begin()
-                return
-            }
+            val isOfflineList =
+                strings.any { it.contains("Gạch phát offline", true) } &&
+                    strings.any { it.contains("Danh sách phát", true) }
 
             if (isOfflineList) {
                 val search = root.findSearch()
@@ -174,87 +88,27 @@ class VtmanAccessibilityService : AccessibilityService() {
                     ) == true
                     search?.recycle()
                     if (cleared) {
-                        VtmanQueueController.report("Đã xóa ô tìm kiếm · đang chờ MVĐ")
-                        scheduleAutoEntryCheck(180L)
+                        VtmanQueueController.report("Auto Export: đã xóa ô tìm kiếm, đang tải lại danh sách")
+                        scheduleAutoEntryCheck(450L)
                     } else {
-                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan")
+                        VtmanQueueController.fail("Không xóa được ô tìm kiếm VTMan. Hãy xóa thủ công rồi bấm Chạy.")
                     }
                     return
                 }
                 search?.recycle()
-                VtmanQueueController.report("Đang chờ MVĐ xuất hiện")
-                scheduleAutoEntryCheck(180L)
+                scheduleAutoBegin()
                 return
             }
 
-            if (isHome) {
-                val offline = root.findExactTextBounds("Gạch phát offline")
-                if (offline != null && now - lastAutoNavigationTapAt >= 2_000L) {
-                    lastAutoNavigationTapAt = now
-                    VtmanQueueController.report("Auto Export: đang mở Gạch phát offline")
-                    tap(offline.exactCenterX(), offline.exactCenterY())
-                }
-                scheduleAutoEntryCheck(600L)
-                return
-            }
-
-            if (isDelivery && now - lastAutoNavigationTapAt >= 2_000L) {
+            val now = SystemClock.elapsedRealtime()
+            val entryBounds = root.findExactTextBounds("Gạch phát offline")
+            if (entryBounds != null && now - lastAutoNavigationTapAt >= 2_500L) {
                 lastAutoNavigationTapAt = now
-                performGlobalAction(GLOBAL_ACTION_BACK)
+                VtmanQueueController.report("Auto Export: đang mở Gạch phát offline")
+                tap(entryBounds.exactCenterX(), entryBounds.exactCenterY())
             }
-            scheduleAutoEntryCheck(600L)
         } finally {
             root.recycle()
-        }
-    }
-
-    private fun findVisibleWaybill(strings: List<String>): String? {
-        val tokenRegex = Regex(
-            "(?<![A-Z0-9])([A-Z0-9]{8,24})(?![A-Z0-9])",
-            RegexOption.IGNORE_CASE
-        )
-        strings.forEach { value ->
-            tokenRegex.findAll(value).forEach { match ->
-                val token = match.groupValues[1].uppercase()
-                val looksLikeWaybill = when {
-                    token.all(Char::isDigit) -> token.length in 11..14
-                    else -> token.length >= 10 &&
-                        token.any(Char::isDigit) &&
-                        token.any(Char::isLetter)
-                }
-                if (looksLikeWaybill) return token
-            }
-        }
-        return null
-    }
-
-    private fun extractDeliveryCount(strings: List<String>): Int? {
-        val joined = strings.joinToString(" ")
-        val total = Regex(
-            "Tổng\\s*giao\\s*\\(\\s*(\\d{1,3})\\s*\\)",
-            RegexOption.IGNORE_CASE
-        ).find(joined)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val orders = strings.firstNotNullOfOrNull { value ->
-            Regex("^(\\d{1,3})\\s*đơn hàng$", RegexOption.IGNORE_CASE)
-                .find(value.trim())?.groupValues?.getOrNull(1)?.toIntOrNull()
-        }
-        return when {
-            total != null && orders != null && total == orders && total > 0 -> total
-            total != null && orders == null && total > 0 -> total
-            orders != null && total == null && orders > 0 -> orders
-            else -> null
-        }
-    }
-
-    private fun showAutoOverlay() {
-        if (VtmanOverlayService.showDeferredAutoPanel()) return
-        runCatching {
-            startService(
-                Intent(this, VtmanOverlayService::class.java)
-                    .putExtra(VtmanOverlayService.EXTRA_AUTO_EXPORT_LOCKED, true)
-            )
-        }.onFailure {
-            VtmanQueueController.fail("Không mở được popup Auto Export: ${it.message}")
         }
     }
 
@@ -263,10 +117,19 @@ class VtmanAccessibilityService : AccessibilityService() {
         autoEntryCheckScheduled = true
         h.postDelayed({
             autoEntryCheckScheduled = false
-            if (mode == 0 && VtmanQueueController.hasPendingAutoWorkflow()) {
+            if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) {
                 safely { handlePendingAutoNavigation() }
             }
         }, delayMs)
+    }
+
+    private fun scheduleAutoBegin() {
+        if (autoEntryCheckScheduled) return
+        autoEntryCheckScheduled = true
+        h.post {
+            autoEntryCheckScheduled = false
+            if (mode == 0 && VtmanQueueController.hasPendingAutoExport()) begin()
+        }
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -288,7 +151,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         h.removeCallbacksAndMessages(null)
         tickScheduled = false
         autoEntryCheckScheduled = false
-        autoWorkflowStartedAt = 0L
         rootMissingSince = null
         phoneReadNotBefore = 0L
         pausedMode = 0
@@ -430,7 +292,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; autoEntryCheckScheduled=false; autoWorkflowStartedAt=0L; lastAutoNavigationTapAt=0L; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
