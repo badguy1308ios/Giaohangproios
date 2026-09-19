@@ -1167,7 +1167,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                "Nhập đúng số lượng MVĐ đang có trong danh sách Gạch phát offline. App sẽ tự về đầu danh sách, gom đủ mã rồi lấy dữ liệu và SĐT.",
+                "Tách làm 2 bước: đầu tiên lấy và lưu danh sách MVĐ; sau đó mới Export dữ liệu đơn và SĐT. Danh sách MVĐ được giữ trong bộ nhớ để không phải quét lại khi sửa lỗi.",
                 color = Navy,
                 fontSize = 13.sp
             )
@@ -1215,7 +1215,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 context.startActivity(vtmanIntent)
                                 Toast.makeText(
                                     context,
-                                    "Đang mở VTMan và vào Gạch phát offline…",
+                                    "Bước 1: đang mở VTMan để lấy và lưu MVĐ…",
                                     Toast.LENGTH_LONG
                                 ).show()
                             } else {
@@ -1237,7 +1237,64 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             ) {
                 Icon(Icons.Default.PlayArrow, null)
                 Spacer(Modifier.width(7.dp))
-                Text("BẮT ĐẦU AUTO EXPORT", fontWeight = FontWeight.Bold)
+                Text("1. LẤY VÀ LƯU MVĐ", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = {
+                    when {
+                        !android.provider.Settings.canDrawOverlays(context) ->
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        !com.example.giaohangpro.vtman.VtmanQueueController.requestDataExport() ->
+                            Toast.makeText(
+                                context,
+                                "Chưa có danh sách MVĐ. Hãy chạy bước 1 trước.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        else -> {
+                            snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                            context.startService(
+                                android.content.Intent(
+                                    context,
+                                    com.example.giaohangpro.vtman.VtmanOverlayService::class.java
+                                ).putExtra(
+                                    com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_AUTO_EXPORT_LOCKED,
+                                    true
+                                )
+                            )
+                            val vtmanIntent = context.packageManager.getLaunchIntentForPackage(
+                                com.example.giaohangpro.vtman.VtmanAccessibilityService.VTMAN_PACKAGE_NAME
+                            )
+                            if (vtmanIntent != null) {
+                                vtmanIntent.addFlags(
+                                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                                )
+                                context.startActivity(vtmanIntent)
+                                Toast.makeText(
+                                    context,
+                                    "Bước 2: mở Gạch phát offline để Export dữ liệu đơn",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else {
+                                com.example.giaohangpro.vtman.VtmanQueueController.fail(
+                                    "Không tìm thấy ứng dụng VTMan trên điện thoại"
+                                )
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangeDark),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, null)
+                Spacer(Modifier.width(7.dp))
+                Text("2. EXPORT DỮ LIỆU ĐƠN", fontWeight = FontWeight.Bold)
             }
             OutlinedButton(
                 onClick = {

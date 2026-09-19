@@ -25,6 +25,7 @@ object VtmanQueueController {
     private var active: VtmanOrderRecord? = null
     private var callPoint: CallPoint? = null
     private var pendingAutoCount = 0
+    private var pendingDataExport = false
     private var autoLogEnabled = false
     private val autoRunLog = mutableListOf<String>()
     private var appContext: Context? = null
@@ -40,7 +41,8 @@ object VtmanQueueController {
     @Synchronized fun load(waybills: List<String>, preserveAutoLog: Boolean = false) {
         queue.clear()
         queue.addAll(waybills.map(String::trim).filter(String::isNotBlank).distinct())
-        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null; pendingAutoCount = 0; error = ""
+        completed.clear(); skipped.clear(); index = 0; active = null; callPoint = null
+        pendingAutoCount = 0; pendingDataExport = false; error = ""
         if (!preserveAutoLog) {
             autoLogEnabled = false
             autoRunLog.clear()
@@ -52,6 +54,7 @@ object VtmanQueueController {
     @Synchronized fun prepareAutoExport(count: Int) {
         queue.clear(); completed.clear(); skipped.clear()
         index = 0; active = null; callPoint = null; error = ""
+        pendingDataExport = false
         pendingAutoCount = count.coerceIn(1, 500)
         autoLogEnabled = true
         autoRunLog.clear()
@@ -86,10 +89,38 @@ object VtmanQueueController {
         return count
     }
 
+    @Synchronized fun requestDataExport(): Boolean {
+        if (queue.getOrNull(index) == null) {
+            fail("Chưa có danh sách MVĐ để Export dữ liệu")
+            return false
+        }
+        pendingAutoCount = 0
+        pendingDataExport = true
+        error = ""
+        autoLogEnabled = true
+        appendAutoLog("Bắt đầu bước 2 · Export dữ liệu ${queue.size - index} MVĐ")
+        status = "Đã có ${queue.size} MVĐ · mở Gạch phát offline để Export dữ liệu"
+        persistCheckpoint()
+        return true
+    }
+
+    @Synchronized fun hasPendingDataExport(): Boolean = pendingDataExport
+    @Synchronized fun hasPendingAutoAction(): Boolean =
+        pendingAutoCount > 0 || pendingDataExport
+
+    @Synchronized fun consumePendingDataExport(): Boolean {
+        val requested = pendingDataExport
+        pendingDataExport = false
+        return requested
+    }
+
     @Synchronized fun isAutoSession(): Boolean = autoLogEnabled
     @Synchronized fun hasResumableSession(): Boolean = autoLogEnabled && queue.getOrNull(index) != null
     @Synchronized fun nextWaybill(): String? = queue.getOrNull(index)
-    @Synchronized fun setCallPoint(x: Float, y: Float) { callPoint = CallPoint(x, y) }
+    @Synchronized fun setCallPoint(x: Float, y: Float) {
+        callPoint = CallPoint(x, y)
+        persistCheckpoint()
+    }
     @Synchronized fun callPoint(): CallPoint? = callPoint
     @Synchronized fun clearCallPoint() { callPoint = null }
     @Synchronized fun clearActiveForRetry() { active = null }
