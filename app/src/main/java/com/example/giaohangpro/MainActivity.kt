@@ -3933,9 +3933,12 @@ fun CustomerListScreen(
     val nameQuery = normalizeCustomerSearch(keyword)
     val filteredCustomers = customers.filter { customer -> // Tạo danh sách mới chỉ gồm các khách phù hợp từ khóa.
         val query = keyword.trim() // Xóa khoảng trắng thừa ở đầu và cuối từ khóa.
+        val matchesAnyPhone = sequenceOf(customer.phone)
+            .plus(customer.extraPhones.asSequence().map(CustomerPhone::number))
+            .any { phone -> matchesPhoneSearch(phone, query) }
         query.isBlank() || // Nếu chưa nhập gì thì giữ nguyên toàn bộ danh sách.
             normalizeCustomerSearch(customer.name).contains(nameQuery) || // Cho phép tìm theo tên, không phân biệt hoa/thường.
-            customer.phone.contains(query, ignoreCase = true) || // Cho phép tìm theo số điện thoại.
+            matchesAnyPhone || // Tìm cả SĐT chính/phụ với dạng 0, 84, +84 và ký tự phân cách.
             customer.address.contains(query, ignoreCase = true) // Cho phép tìm theo địa chỉ.
     }
 
