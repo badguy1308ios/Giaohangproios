@@ -3193,7 +3193,8 @@ fun OrderListScreen(
                             delivered = delivered,
                             onNumberClick = { group.orders.firstOrNull()?.let(onNumberClick) },
                             onCustomerClick = { group.orders.firstOrNull()?.let(onCustomerClick) },
-                            onDelivered = { pendingDeliveredGroup = group }
+                            onDelivered = { pendingDeliveredGroup = group },
+                            onRedeliver = { group.orders.firstOrNull()?.let { vm.redeliverGroup(it.code) } }
                         )
                     }
                 }
@@ -3473,7 +3474,8 @@ private fun DeliveryGroupCard(
     delivered: Boolean,
     onNumberClick: () -> Unit,
     onCustomerClick: () -> Unit,
-    onDelivered: () -> Unit
+    onDelivered: () -> Unit,
+    onRedeliver: () -> Unit
 ) {
     val context = LocalContext.current
     val primary = group.orders.first()
@@ -3528,7 +3530,12 @@ private fun DeliveryGroupCard(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) }
+                    when {
+                        delivered || group.orders.all { normalizeOrderStatus(it.status) == "TT505" } ->
+                            ActionButton("Giao lại", Icons.Default.RestartAlt, filled = true, buttonWeight = 1.28f, onClick = onRedeliver)
+                        else ->
+                            ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered)
+                    }
                     ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                     ActionButton("Zalo", Icons.Default.Chat, onClick = { openZalo() })
                     ActionButton("SMS", Icons.Default.Sms, onClick = { openSms() })
@@ -3556,6 +3563,7 @@ private fun DeliveryGroupCard(
             onNumberClick = onNumberClick,
             onCustomerClick = onCustomerClick,
             onDelivered = onDelivered,
+            onRedeliver = onRedeliver,
             onZalo = { openZalo() },
             onSms = { openSms() },
             onCall = { openCall() }
@@ -3617,6 +3625,7 @@ private fun SingleOrderDetailCard(
     onNumberClick: () -> Unit,
     onCustomerClick: () -> Unit,
     onDelivered: () -> Unit,
+    onRedeliver: () -> Unit,
     onZalo: () -> Unit,
     onSms: () -> Unit,
     onCall: () -> Unit
@@ -3650,7 +3659,12 @@ private fun SingleOrderDetailCard(
             }
             Spacer(Modifier.height(7.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (!delivered) { ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered) }
+                when {
+                    delivered || normalizeOrderStatus(order.status) == "TT505" ->
+                        ActionButton("Giao lại", Icons.Default.RestartAlt, filled = true, buttonWeight = 1.28f, onClick = onRedeliver)
+                    else ->
+                        ActionButton("Đã giao", Icons.Default.CheckCircle, filled = true, buttonWeight = 1.28f, onClick = onDelivered)
+                }
                 ActionButton("Bank", Icons.Default.AccountBalance, onClick = {})
                 ActionButton("Zalo", Icons.Default.Chat, onClick = onZalo)
                 ActionButton("SMS", Icons.Default.Sms, onClick = onSms)
@@ -5297,6 +5311,34 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             if (orderState[i].code in codes) {
                 orderState[i] = orderState[i].copy(locallyDelivered = true)
             }
+        }
+        savePersistentData()
+    }
+
+    // Chỉ dùng bởi nút "Giao lại" ở tab Chi tiết đơn.
+    // Đơn vừa được đánh dấu "Đã giao" giữ nguyên STT cũ trong routeSttState, nên chỉ cần bỏ dấu cục bộ.
+    // Đơn nạp vào sẵn TT505 chưa có STT thì được gán STT mới ở cuối tuyến.
+    fun redeliverGroup(code: String) {
+        val group = buildDeliveryGroups(orderState, customerState)
+            .firstOrNull { g -> g.orders.any { it.code == code } } ?: return
+        val codes = group.orders.map { it.code }
+        val wasLocallyDelivered = group.orders.any { it.locallyDelivered }
+
+        orderState.indices.forEach { i ->
+            if (orderState[i].code in codes) {
+                val order = orderState[i]
+                orderState[i] = order.copy(
+                    locallyDelivered = false,
+                    status = if (!wasLocallyDelivered && normalizeOrderStatus(order.status) == "TT505") "TT500" else order.status
+                )
+            }
+        }
+
+        if (!wasLocallyDelivered && codes.none { routeSttState[it] != null }) {
+            val nextStt = (routeSttState.values.maxOrNull() ?: 0) + 1
+            codes.forEach { routeSttState[it] = nextStt }
+            persistRouteStt()
+            if (!routeNumberingEnabled) enableRouteNumbering()
         }
         savePersistentData()
     }
