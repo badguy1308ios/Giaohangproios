@@ -710,8 +710,12 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
         VtmanQueueController.load(codes, preserveAutoLog = true)
+        val backupFile = VtmanQueueController.saveWaybillBackupCsv(codes)
         VtmanQueueController.setCallPoint(autoCallX, autoCallY)
         VtmanQueueController.addAutoLog("✓ Đã lưu ${codes.size} MVĐ vào bộ nhớ")
+        if (backupFile == null) {
+            VtmanQueueController.addAutoLog("⚠ Chưa tạo được file CSV dự phòng trong Download")
+        }
         autoTarget = 0
         autoWaybills.clear()
         autoLastSignature = ""
