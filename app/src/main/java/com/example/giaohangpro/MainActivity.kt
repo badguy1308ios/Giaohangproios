@@ -1133,6 +1133,27 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
     var countText by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf(com.example.giaohangpro.vtman.VtmanQueueController.snapshot()) }
     var importedCount by remember { mutableIntStateOf(0) }
+    val importWaybillCsvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: error("Không đọc được file")
+            }.onSuccess { csvText ->
+                val count = com.example.giaohangpro.vtman.VtmanQueueController.importWaybillsFromCsv(csvText)
+                snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                if (count > 0) {
+                    importedCount = 0
+                    Toast.makeText(context, "Đã nạp $count MVĐ từ file CSV", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, snapshot.error.ifBlank { "File CSV không có MVĐ hợp lệ" }, Toast.LENGTH_LONG).show()
+                }
+            }.onFailure {
+                Toast.makeText(context, "Không đọc được file CSV: ${it.message.orEmpty()}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1167,7 +1188,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                "Tách làm 2 bước: đầu tiên lấy và lưu danh sách MVĐ; sau đó mới Export dữ liệu đơn và SĐT. Danh sách MVĐ được giữ trong bộ nhớ để không phải quét lại khi sửa lỗi.",
+                "Tách làm 2 bước: lấy MVĐ trước, sau đó mới Export dữ liệu đơn và SĐT. Sau bước 1 app tự lưu file CSV dự phòng vào Download; nếu bộ nhớ MVĐ bị mất, dùng nút Nạp MVĐ từ file CSV để tiếp tục bước 2 mà không phải quét lại.",
                 color = Navy,
                 fontSize = 13.sp
             )
@@ -1239,9 +1260,29 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.width(7.dp))
                 Text("1. LẤY VÀ LƯU MVĐ", fontWeight = FontWeight.Bold)
             }
+            OutlinedButton(
+                onClick = {
+                    importWaybillCsvLauncher.launch(
+                        arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv")
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.FolderOpen, null)
+                Spacer(Modifier.width(7.dp))
+                Text("NẠP MVĐ TỪ FILE CSV", fontWeight = FontWeight.Bold)
+            }
             Button(
                 onClick = {
                     when {
+                        !com.example.giaohangpro.vtman.VtmanQueueController.hasLoadedWaybills() -> {
+                            Toast.makeText(
+                                context,
+                                "Không còn MVĐ trong bộ nhớ. Hãy bấm NẠP MVĐ TỪ FILE CSV để chọn file đã lưu trong Download.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                         !android.provider.Settings.canDrawOverlays(context) ->
                             context.startActivity(
                                 android.content.Intent(
@@ -1252,7 +1293,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                         !com.example.giaohangpro.vtman.VtmanQueueController.requestDataExport() ->
                             Toast.makeText(
                                 context,
-                                "Chưa có danh sách MVĐ. Hãy chạy bước 1 trước.",
+                                "Không còn MVĐ trong bộ nhớ. Hãy nạp file CSV đã lưu trước đó.",
                                 Toast.LENGTH_SHORT
                             ).show()
                         else -> {
