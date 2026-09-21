@@ -1,6 +1,14 @@
 package com.example.giaohangpro.vtman
 
 import android.content.Context
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -87,6 +95,72 @@ object VtmanQueueController {
         val count = pendingAutoCount
         pendingAutoCount = 0
         return count
+    }
+
+    @Synchronized fun hasLoadedWaybills(): Boolean = queue.getOrNull(index) != null
+
+    @Synchronized fun importWaybillsFromCsv(text: String): Int {
+        val codes = text.lineSequence()
+            .map { line ->
+                val raw = line.trim().removePrefix("\uFEFF")
+                val first = if (raw.startsWith("\"")) {
+                    raw.drop(1).substringBefore("\"").replace("\"\"", "\"")
+                } else raw.substringBefore(',').substringBefore(';')
+                first.trim().uppercase()
+            }
+            .filter { it.isNotBlank() }
+            .filterNot { it in setOf("MA_VAN_DON", "MÃ VẬN ĐƠN", "MVĐ", "MVD", "WAYBILL") }
+            .filter { code -> code.length in 8..24 && code.any(Char::isDigit) && code.all { it.isLetterOrDigit() } }
+            .distinct()
+            .toList()
+        if (codes.isEmpty()) {
+            fail("File CSV không có MVĐ hợp lệ")
+            return 0
+        }
+        load(codes)
+        autoLogEnabled = true
+        appendAutoLog("↥ Đã nạp ${codes.size} MVĐ từ file CSV")
+        status = "Đã nạp ${codes.size} MVĐ từ file · sẵn sàng Export dữ liệu đơn"
+        persistCheckpoint()
+        return codes.size
+    }
+
+    @Synchronized fun saveWaybillBackupCsv(waybills: List<String>): String? {
+        val context = appContext ?: return null
+        val codes = waybills.map(String::trim).filter(String::isNotBlank).distinct()
+        if (codes.isEmpty()) return null
+        val fileName = "AutoExport_MVD_" +
+            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".csv"
+        val csv = buildString {
+            append("MA_VAN_DON\n")
+            codes.forEach { append('\"').append(it.replace("\"", "\"\"")).append("\"\n") }
+        }
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: error("Không tạo được file trong Download")
+                context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+                    ?: error("Không mở được file CSV")
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!dir.exists()) dir.mkdirs()
+                File(dir, fileName).writeText(csv, Charsets.UTF_8)
+            }
+            appendAutoLog("✓ Đã lưu dự phòng $fileName")
+            status = "Đã lưu ${codes.size} MVĐ · file dự phòng: Download/$fileName"
+            persistCheckpoint()
+            fileName
+        }.getOrElse {
+            appendAutoLog("⚠ Không lưu được file CSV: ${it.message.orEmpty()}")
+            persistCheckpoint()
+            null
+        }
     }
 
     @Synchronized fun requestDataExport(): Boolean {
