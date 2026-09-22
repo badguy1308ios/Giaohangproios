@@ -143,15 +143,6 @@ class VtmanOverlayService : Service() {
             autoExportLocked = true
         }
         if (!::panel.isInitialized) showPanel()
-        // Auto Export phải tự khởi động sau khi VTMan được đưa lên foreground.
-        // Không phụ thuộc vào việc VTMan có phát thêm AccessibilityEvent hay không.
-        if (autoExportLocked && VtmanQueueController.hasPendingAutoAction()) {
-            handler.postDelayed({
-                if (autoExportLocked && VtmanQueueController.hasPendingAutoAction()) {
-                    requestStart()
-                }
-            }, 700L)
-        }
         return START_NOT_STICKY
     }
 
