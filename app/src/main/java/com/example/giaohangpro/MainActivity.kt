@@ -1225,30 +1225,11 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                         true
                                     )
                             )
-                            val vtmanIntent = context.packageManager.getLaunchIntentForPackage(
-                                com.example.giaohangpro.vtman.VtmanAccessibilityService.VTMAN_PACKAGE_NAME
-                            )
-                            if (vtmanIntent != null) {
-                                vtmanIntent.addFlags(
-                                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                                )
-                                context.startActivity(vtmanIntent)
-                                Toast.makeText(
-                                    context,
-                                    "Bước 1: đang mở VTMan để lấy và lưu MVĐ…",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            } else {
-                                com.example.giaohangpro.vtman.VtmanQueueController.fail(
-                                    "Không tìm thấy ứng dụng VTMan trên điện thoại"
-                                )
-                                Toast.makeText(
-                                    context,
-                                    "Không tìm thấy ứng dụng VTMan",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
+                            Toast.makeText(
+                                context,
+                                "Bước 1 đã sẵn sàng. Hải tự mở VTMan và vào Gạch phát offline, rồi bấm Chạy.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
                 },
