@@ -17,6 +17,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
+import android.text.InputType
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -210,6 +212,44 @@ class VtmanOverlayService : Service() {
             }
             header.addView(close, LinearLayout.LayoutParams(52, 42))
             panel.addView(header)
+            val delayRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(8, 0, 8, 4)
+            }
+            val delayLabel = TextView(this).apply {
+                text = "Back đầu (ms):"
+                setTextColor(Color.WHITE)
+                textSize = 11f
+            }
+            val delayInput = EditText(this).apply {
+                val saved = getSharedPreferences("vtman_auto_export", MODE_PRIVATE)
+                    .getLong("first_back_delay_ms", 500L)
+                setText(saved.toString())
+                setTextColor(Color.WHITE)
+                setHintTextColor(Color.LTGRAY)
+                textSize = 12f
+                gravity = Gravity.CENTER
+                inputType = InputType.TYPE_CLASS_NUMBER
+                isSingleLine = true
+                setPadding(4, 0, 4, 0)
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        val ms = text.toString().toLongOrNull()?.coerceIn(0L, 10_000L) ?: 500L
+                        setText(ms.toString())
+                        getSharedPreferences("vtman_auto_export", MODE_PRIVATE).edit()
+                            .putLong("first_back_delay_ms", ms).apply()
+                        VtmanQueueController.service?.setFirstBackDelayMs(ms)
+                    }
+                }
+            }
+            VtmanQueueController.service?.setFirstBackDelayMs(
+                getSharedPreferences("vtman_auto_export", MODE_PRIVATE)
+                    .getLong("first_back_delay_ms", 500L)
+            )
+            delayRow.addView(delayLabel, LinearLayout.LayoutParams(0, 54, 1f))
+            delayRow.addView(delayInput, LinearLayout.LayoutParams(170, 54))
+            panel.addView(delayRow)
             panel.addView(row)
         } else {
             row.addView(
