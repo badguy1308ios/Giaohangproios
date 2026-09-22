@@ -200,8 +200,8 @@ class VtmanOverlayService : Service() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            header.addView(View(this), LinearLayout.LayoutParams(52, 42))
-            header.addView(status, LinearLayout.LayoutParams(0, 42, 1f))
+            header.addView(View(this), LinearLayout.LayoutParams(44, 48))
+            header.addView(status, LinearLayout.LayoutParams(0, 48, 1f))
             val close = TextView(this).apply {
                 text = "×"
                 setTextColor(Color.WHITE)
@@ -210,7 +210,7 @@ class VtmanOverlayService : Service() {
                 setBackgroundColor(Color.TRANSPARENT)
                 setOnClickListener { cancelStart(); stopSelf() }
             }
-            header.addView(close, LinearLayout.LayoutParams(52, 42))
+            header.addView(close, LinearLayout.LayoutParams(64, 48))
             panel.addView(header)
             val delayRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -233,15 +233,17 @@ class VtmanOverlayService : Service() {
                 inputType = InputType.TYPE_CLASS_NUMBER
                 isSingleLine = true
                 setPadding(4, 0, 4, 0)
-                setOnFocusChangeListener { _, hasFocus ->
-                    if (!hasFocus) {
-                        val ms = text.toString().toLongOrNull()?.coerceIn(0L, 10_000L) ?: 500L
-                        setText(ms.toString())
+                setSelectAllOnFocus(true)
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                        val ms = s?.toString()?.toLongOrNull()?.coerceIn(0L, 10_000L) ?: return
                         getSharedPreferences("vtman_auto_export", MODE_PRIVATE).edit()
                             .putLong("first_back_delay_ms", ms).apply()
                         VtmanQueueController.service?.setFirstBackDelayMs(ms)
                     }
-                }
+                    override fun afterTextChanged(s: android.text.Editable?) = Unit
+                })
             }
             VtmanQueueController.service?.setFirstBackDelayMs(
                 getSharedPreferences("vtman_auto_export", MODE_PRIVATE)
@@ -266,7 +268,7 @@ class VtmanOverlayService : Service() {
             if (autoExportLocked) (screenWidth * 0.94f).toInt() else 760,
             -2,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            if (autoExportLocked) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
