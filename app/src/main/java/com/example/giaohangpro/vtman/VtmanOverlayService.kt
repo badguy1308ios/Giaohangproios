@@ -34,6 +34,7 @@ class VtmanOverlayService : Service() {
     private val connectionWait = VtmanConnectionWait()
     private var selectionGeneration = 0
     private var autoExportLocked = false
+    private var showBackDelayInput = false
     private var completionClose = false
 
     private fun accessibilityEnabled(): Boolean {
@@ -144,6 +145,7 @@ class VtmanOverlayService : Service() {
         if (intent?.getBooleanExtra(EXTRA_AUTO_EXPORT_LOCKED, false) == true) {
             autoExportLocked = true
         }
+        showBackDelayInput = intent?.getBooleanExtra(EXTRA_SHOW_BACK_DELAY_INPUT, false) == true
         if (!::panel.isInitialized) showPanel()
         return START_NOT_STICKY
     }
@@ -212,6 +214,7 @@ class VtmanOverlayService : Service() {
             }
             header.addView(close, LinearLayout.LayoutParams(64, 48))
             panel.addView(header)
+            if (showBackDelayInput) {
             val delayRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -252,6 +255,7 @@ class VtmanOverlayService : Service() {
             delayRow.addView(delayLabel, LinearLayout.LayoutParams(0, 54, 1f))
             delayRow.addView(delayInput, LinearLayout.LayoutParams(170, 54))
             panel.addView(delayRow)
+            }
             panel.addView(row)
         } else {
             row.addView(
@@ -268,7 +272,7 @@ class VtmanOverlayService : Service() {
             if (autoExportLocked) (screenWidth * 0.94f).toInt() else 760,
             -2,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            if (autoExportLocked) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            if (showBackDelayInput) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -337,6 +341,7 @@ class VtmanOverlayService : Service() {
 
     companion object {
         const val EXTRA_AUTO_EXPORT_LOCKED = "AUTO_EXPORT_LOCKED"
+        const val EXTRA_SHOW_BACK_DELAY_INPUT = "SHOW_BACK_DELAY_INPUT"
         @Volatile private var instance: VtmanOverlayService? = null
 
         fun notifyAccessibilityConnected() {
