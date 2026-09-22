@@ -528,10 +528,17 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        mode = if (VtmanQueueController.nextWaybill() == null) 0 else 2
-        if (mode == 0) {
-            completeAutoRun("Hoàn tất toàn bộ MVĐ")
+        if (VtmanQueueController.nextWaybill() == null) {
+            // Đơn cuối cũng phải quay sạch về VTMan giống các đơn giữa danh sách.
+            // Không hoàn tất ngay khi vừa đóng popup/dialer, tránh để SĐT cuối còn
+            // nằm ở ứng dụng gọi và bị phiên Auto Export sau đọc nhầm.
+            returnDeadline = now + 9_000L
+            nextBackAt = now + firstBackDelayMs
+            mode = 5
+            VtmanQueueController.report("Đã lấy SĐT đơn cuối · đang quay lại Gạch phát offline")
+            schedule(180)
         } else {
+            mode = 2
             VtmanQueueController.report("Đã lưu SĐT đầu tiên · tiếp tục đơn kế")
             schedule(350)
         }
@@ -542,6 +549,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (currentPkg == pkg) {
             mode = if (VtmanQueueController.nextWaybill() == null) 0 else 2
             if (mode == 0) {
+                // Chỉ đánh dấu hoàn tất sau khi cửa sổ active đã thật sự trở về VTMan.
                 completeAutoRun("Hoàn tất toàn bộ MVĐ")
             } else {
                 VtmanQueueController.report("Đã trở lại Gạch phát offline · tiếp tục đơn kế")
