@@ -26,6 +26,13 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var resultDeadline = 0L
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
+    private var firstBackDelayMs = 500L
+
+    fun setFirstBackDelayMs(value: Long) {
+        firstBackDelayMs = value.coerceIn(0L, 10_000L)
+    }
+
+    fun getFirstBackDelayMs(): Long = firstBackDelayMs
     private var autoTarget = 0
     private val autoWaybills = linkedSetOf<String>()
     private var autoSeekingTop = false
@@ -461,7 +468,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             }
             resetRetry(mv)
             returnDeadline = now + 9_000L
-            nextBackAt = now + 500L
+            nextBackAt = now + firstBackDelayMs
 
             if (phonePickerVisible) {
                 // Giữ đúng cơ chế VTMan Export thường: đóng bảng chọn số trước.
