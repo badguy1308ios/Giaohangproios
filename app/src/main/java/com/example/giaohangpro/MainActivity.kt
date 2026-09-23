@@ -1286,9 +1286,6 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                 ).putExtra(
                                     com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_AUTO_EXPORT_LOCKED,
                                     true
-                                ).putExtra(
-                                    com.example.giaohangpro.vtman.VtmanOverlayService.EXTRA_SHOW_BACK_DELAY_INPUT,
-                                    true
                                 )
                             )
                             val vtmanIntent = context.packageManager.getLaunchIntentForPackage(
