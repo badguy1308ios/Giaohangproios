@@ -16,8 +16,6 @@ import android.view.accessibility.AccessibilityManager
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.inputmethod.InputMethodManager
-import android.content.Context
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -28,7 +26,6 @@ class VtmanOverlayService : Service() {
     private lateinit var status: TextView
     private lateinit var runPauseButton: Button
     private lateinit var skipButton: Button
-    private var delayInput: EditText? = null
     private var selector: View? = null
     private var marker: View? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -63,27 +60,7 @@ class VtmanOverlayService : Service() {
             .any { it == expected }
     }
 
-    private fun releaseDelayInputFocus() {
-        val input = delayInput ?: return
-        val ms = input.text.toString().toLongOrNull()?.coerceIn(0L, 10_000L) ?: 500L
-        input.setText(ms.toString())
-        getSharedPreferences("vtman_auto_export", MODE_PRIVATE).edit()
-            .putLong("first_back_delay_ms", ms).apply()
-        VtmanQueueController.service?.setFirstBackDelayMs(ms)
-        input.clearFocus()
-        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-            .hideSoftInputFromWindow(input.windowToken, 0)
-        if (::panel.isInitialized) {
-            val p = panel.layoutParams as? WindowManager.LayoutParams ?: return
-            if (p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE == 0) {
-                p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                windowManager.updateViewLayout(panel, p)
-            }
-        }
-    }
-
     private fun requestStart() {
-        releaseDelayInputFocus()
         val service = VtmanQueueController.service
         if (service?.isPaused() == true) {
             service.resume()
