@@ -311,13 +311,26 @@ class VtmanAccessibilityService : AccessibilityService() {
                 collectAutoWaybills(root)
                 return
             }
-            val mv=VtmanQueueController.nextWaybill() ?: run { mode=0; VtmanQueueController.report("Hoàn tất toàn bộ MVĐ"); return }
+            // Hai trạng thái quay về phải chạy kể cả khi đơn cuối đã finalize và
+            // nextWaybill() == null. Trước đây check queue trước làm mode 5/6 bị
+            // cắt ngang, nên Auto Export báo 92/92 nhưng vẫn nằm ở màn hình gọi.
+            if (mode == 5) {
+                waitReturn(root)
+                return
+            }
+            if (mode == 6) {
+                waitPhonePickerDismissed(root)
+                return
+            }
+            val mv=VtmanQueueController.nextWaybill() ?: run {
+                mode=0
+                VtmanQueueController.report("Hoàn tất toàn bộ MVĐ")
+                return
+            }
             when(mode) {
                 2 -> search(root,mv)
                 3 -> readBlock(root,mv)
                 4 -> readPhone(root,mv)
-                5 -> waitReturn(root)
-                6 -> waitPhonePickerDismissed(root)
             }
         } finally { root.recycle() }
     }
