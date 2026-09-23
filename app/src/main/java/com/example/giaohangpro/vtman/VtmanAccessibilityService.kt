@@ -875,14 +875,11 @@ class VtmanAccessibilityService : AccessibilityService() {
     private fun tap(x:Float,y:Float):Boolean{ val p=Path().apply{moveTo(x,y)}; return dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(p,0,70)).build(),null,null) }
     // Window events must not keep postponing the worker forever.
     private fun schedule(ms:Long){ if(mode>1 && !tickScheduled){ tickScheduled=true; h.postDelayed(tick,ms) } }
-    private fun AccessibilityNodeInfo.phoneScreenSignature(): String =
-        buildString {
-            append(packageName?.toString().orEmpty())
-            append('|')
-            collectStringsTopToBottom().take(24).forEach {
-                append(it.trim())
-                append('\u001F')
-            }
-        }
+    private fun AccessibilityNodeInfo.phoneScreenSignature(): String {
+        val parts = collectStringsTopToBottom()
+            .take(24)
+            .map { it.trim() }
+        return packageName?.toString().orEmpty() + "|" + parts.joinToString("|")
+    }
 
 }
