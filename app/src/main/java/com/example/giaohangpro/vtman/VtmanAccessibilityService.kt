@@ -26,14 +26,6 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var resultDeadline = 0L
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
-    private var phoneSurfaceSeenAfterTap = false
-    private var firstBackDelayMs = 500L
-
-    fun setFirstBackDelayMs(value: Long) {
-        firstBackDelayMs = value.coerceIn(0L, 10_000L)
-    }
-
-    fun getFirstBackDelayMs(): Long = firstBackDelayMs
     private var autoTarget = 0
     private val autoWaybills = linkedSetOf<String>()
     private var autoSeekingTop = false
@@ -241,7 +233,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { phoneSurfaceSeenAfterTap=false; mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
@@ -414,9 +406,6 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
         val now = System.currentTimeMillis()
-        // Mỗi lần bấm gọi phải chờ một màn hình SĐT MỚI xuất hiện.
-        // Không cho readPhone() dùng lại cửa sổ/dialer còn sót từ phiên trước.
-        phoneSurfaceSeenAfterTap = false
         phoneReadNotBefore = now + 250L
         deadline=now+4000L
         mode=4
@@ -454,19 +443,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         val currentPackage = root.packageName?.toString()
         val outsideVtman = currentPackage != pkg
 
-        // Sau khi bấm gọi, chỉ cần thấy popup chọn số hoặc cửa sổ ngoài VTMan.
-        // Không so package trước/sau: dialer thường dùng cùng package ở mọi phiên,
-        // khiến Export bị đứng dù màn hình SĐT mới đã mở.
-        if (phonePickerVisible || outsideVtman) phoneSurfaceSeenAfterTap = true
-        if (!phoneSurfaceSeenAfterTap) {
-            if (now > deadline) {
-                retryCurrentOrFail(mv, "Chưa mở được màn hình SĐT của $mv")
-            } else {
-                schedule(120)
-            }
-            return
-        }
-
         // Khi có bảng chọn nhiều số, chỉ đọc các node nằm dưới tiêu đề popup.
         // Không quét toàn màn hình vì nền phía sau có thể chứa SĐT của MVĐ khác.
         val phoneStrings = when {
@@ -485,9 +461,8 @@ class VtmanAccessibilityService : AccessibilityService() {
                 return
             }
             resetRetry(mv)
-            phoneSurfaceSeenAfterTap = false
             returnDeadline = now + 9_000L
-            nextBackAt = now + firstBackDelayMs
+            nextBackAt = now + 500L
 
             if (phonePickerVisible) {
                 // Giữ đúng cơ chế VTMan Export thường: đóng bảng chọn số trước.
