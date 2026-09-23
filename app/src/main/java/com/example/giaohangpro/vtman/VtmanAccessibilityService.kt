@@ -507,7 +507,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             // Không hoàn tất ngay khi vừa đóng popup/dialer, tránh để SĐT cuối còn
             // nằm ở ứng dụng gọi và bị phiên Auto Export sau đọc nhầm.
             returnDeadline = now + 9_000L
-            nextBackAt = now + firstBackDelayMs
+            nextBackAt = now + 500L
             mode = 5
             VtmanQueueController.report("Đã lấy SĐT đơn cuối · đang quay lại Gạch phát offline")
             schedule(180)
