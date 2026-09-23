@@ -26,6 +26,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var resultDeadline = 0L
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
+    private var phoneScreenBaseline = ""
     private var autoTarget = 0
     private val autoWaybills = linkedSetOf<String>()
     private var autoSeekingTop = false
@@ -418,6 +419,9 @@ class VtmanAccessibilityService : AccessibilityService() {
             retryCurrentOrFail(mv, "Không bấm được nút gọi của $mv")
             return
         }
+        // Ghi dấu màn hình ngay trước khi bấm gọi. readPhone chỉ được nhận SĐT
+        // sau khi cửa sổ/màn hình thực sự đổi, tránh đọc lại dialer của phiên trước.
+        phoneScreenBaseline = root.phoneScreenSignature()
         val now = System.currentTimeMillis()
         phoneReadNotBefore = now + 250L
         deadline=now+4000L
@@ -463,6 +467,16 @@ class VtmanAccessibilityService : AccessibilityService() {
             outsideVtman -> root.collectStringsTopToBottom()
             else -> emptyList()
         }
+
+        // Một phiên mới có thể bắt đầu khi dialer cũ vẫn còn giữ SĐT cuối của phiên trước.
+        // Không nhận bất kỳ số nào cho tới khi màn hình sau cú tap hiện tại khác baseline.
+        val currentPhoneSignature = root.phoneScreenSignature()
+        if (currentPhoneSignature == phoneScreenBaseline) {
+            if (now > deadline) {
+                retryCurrentOrFail(mv, "Màn hình SĐT chưa đổi sau khi bấm gọi", returnToVtman = outsideVtman)
+            } else schedule(120)
+            return
+        }
         VtmanFixedBlockParser.findPhone(phoneStrings)?.let { phone ->
             VtmanQueueController.updatePhone(phone)
             if (VtmanQueueController.missingActiveFields().isNotEmpty()) {
@@ -474,6 +488,7 @@ class VtmanAccessibilityService : AccessibilityService() {
                 return
             }
             resetRetry(mv)
+            phoneScreenBaseline = ""
             returnDeadline = now + 9_000L
             nextBackAt = now + 500L
 
@@ -860,4 +875,14 @@ class VtmanAccessibilityService : AccessibilityService() {
     private fun tap(x:Float,y:Float):Boolean{ val p=Path().apply{moveTo(x,y)}; return dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(p,0,70)).build(),null,null) }
     // Window events must not keep postponing the worker forever.
     private fun schedule(ms:Long){ if(mode>1 && !tickScheduled){ tickScheduled=true; h.postDelayed(tick,ms) } }
+    private fun AccessibilityNodeInfo.phoneScreenSignature(): String =
+        buildString {
+            append(packageName?.toString().orEmpty())
+            append('|')
+            collectStringsTopToBottom().take(24).forEach {
+                append(it.trim())
+                append('\\u001F')
+            }
+        }
+
 }
