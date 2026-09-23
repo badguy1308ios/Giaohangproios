@@ -881,7 +881,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             append('|')
             collectStringsTopToBottom().take(24).forEach {
                 append(it.trim())
-                append('\\u001F')
+                append('\u001F')
             }
         }
 
