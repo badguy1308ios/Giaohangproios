@@ -24,6 +24,9 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var returnDeadline = 0L
     private var nextBackAt = 0L
     private var resultDeadline = 0L
+    private var resultStableWaybill = ""
+    private var resultStableSignature = ""
+    private var resultStableTicks = 0
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
     private var phoneScreenBaseline = ""
@@ -249,7 +252,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; phoneScreenBaseline=""; phoneCandidate=""; phoneCandidateSince=0L; phoneSurfaceSeenAt=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; resultStableWaybill=""; resultStableSignature=""; resultStableTicks=0; phoneReadNotBefore=0L; phoneScreenBaseline=""; phoneCandidate=""; phoneCandidateSince=0L; phoneSurfaceSeenAt=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
@@ -358,6 +361,9 @@ class VtmanAccessibilityService : AccessibilityService() {
         val ok=f.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,a); f.recycle()
         if (!ok) { retryCurrentOrFail(mv, "Không nhập được MVĐ vào Search"); return }
         mode=3
+        resultStableWaybill = mv
+        resultStableSignature = ""
+        resultStableTicks = 0
         resultDeadline=System.currentTimeMillis()+5000L
         VtmanQueueController.report("Đang chờ kết quả $mv")
         schedule(500)
@@ -380,11 +386,39 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Ưu tiên cấu trúc 5 hàng theo vị trí/icon; parser chữ cũ chỉ là
-        // dự phòng cho phiên bản VTMan không cung cấp tọa độ TextView.
+        // Không đọc ngay lúc card vừa đổi MVĐ: UI VTMan có thể cập nhật từng hàng,
+        // tạo một khoảnh khắc MVĐ mới nhưng shop/khách/hàng hóa vẫn là card cũ.
         val positioned = root.collectResultPositionedTexts()
-        val rec = VtmanFixedBlockParser.parsePositioned(positioned, mv)
-            ?: VtmanFixedBlockParser.parse(resultStrings, mv)
+        val currentSignature = positioned
+            .sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
+            .joinToString("\u001E") { "${it.top}:${it.left}:${it.value}" }
+        if (resultStableWaybill != mv || currentSignature != resultStableSignature) {
+            resultStableWaybill = mv
+            resultStableSignature = currentSignature
+            resultStableTicks = 0
+            if (System.currentTimeMillis() < resultDeadline) {
+                schedule(180)
+                return
+            }
+        } else {
+            resultStableTicks++
+            if (resultStableTicks < 1 && System.currentTimeMillis() < resultDeadline) {
+                schedule(180)
+                return
+            }
+        }
+
+        // Nếu Accessibility đã thấy đúng MVĐ bằng tọa độ thì CHỈ dùng parser theo card.
+        // Không fallback sang parser toàn màn hình khi card đang thiếu hàng, vì đó là
+        // đường dễ kéo shop/khách/hàng hóa của MVĐ bên cạnh vào đơn hiện tại.
+        val hasPositionedCurrent = positioned.any {
+            VtmanFixedBlockParser.containsExpectedWaybill(it.value, mv)
+        }
+        val rec = if (hasPositionedCurrent) {
+            VtmanFixedBlockParser.parsePositioned(positioned, mv)
+        } else {
+            VtmanFixedBlockParser.parse(resultStrings, mv)
+        }
         if (rec==null || rec.shop.isBlank() || rec.customer.isBlank() || rec.address.isBlank() ||
             rec.goods.isBlank() || rec.status.isBlank() || rec.cod.isBlank()) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
