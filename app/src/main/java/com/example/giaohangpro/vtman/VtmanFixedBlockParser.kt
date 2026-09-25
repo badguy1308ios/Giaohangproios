@@ -14,6 +14,7 @@ object VtmanFixedBlockParser {
     private val standaloneMoneyRegex = Regex("^\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]\\s*$", RegexOption.IGNORE_CASE)
     private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH|GGC|GGDH|GG1P|PTTX|GBP)$", RegexOption.IGNORE_CASE)
     private val genericServiceCodeRegex = Regex("^[A-Z][A-Z0-9]{1,9}$")
+    private val waybillLikeRegex = Regex("(?<![A-Z0-9])([A-Z0-9]{8,24})(?![A-Z0-9])", RegexOption.IGNORE_CASE)
     // Match address words, not arbitrary substrings in a shop/customer name.
     // Abbreviations need a separator or a place name: "H.Long Thành" is a hint,
     // while the shop "H.1998 Áo Thun" is not.
@@ -47,12 +48,36 @@ object VtmanFixedBlockParser {
             ) ?: return null
 
         val successTop = nodes.asSequence()
-            .filter { it.top > header.top && it.value.equals("Thành công", true) }
+            .filter { it.top > header.bottom + 8 && it.value.equals("Thành công", true) }
             .map(VtmanScreenText::top)
             .minOrNull() ?: Int.MAX_VALUE
 
+        // Search đôi khi còn để lộ 2 card cùng lúc. Nếu chỉ cắt theo nút
+        // "Thành công", dữ liệu card kế tiếp có thể lọt vào card hiện tại.
+        // Dùng hàng TT của đơn kế tiếp làm biên cứng thứ hai.
+        val nextOrderTop = nodes.asSequence()
+            .filter {
+                it.top > header.bottom + 24 &&
+                    statusRegex.containsMatchIn(it.value)
+            }
+            .map { statusNode ->
+                val statusCenter = (statusNode.top + statusNode.bottom) / 2
+                nodes.asSequence()
+                    .filter { candidate ->
+                        val center = (candidate.top + candidate.bottom) / 2
+                        kotlin.math.abs(center - statusCenter) <= 36 &&
+                            waybillLikeRegex.findAll(candidate.value).any { match ->
+                                match.value.any(Char::isDigit)
+                            }
+                    }
+                    .map(VtmanScreenText::top)
+                    .minOrNull() ?: statusNode.top
+            }
+            .minOrNull() ?: Int.MAX_VALUE
+
+        val blockEndTop = minOf(successTop, nextOrderTop)
         val blockNodes = nodes
-            .filter { it.top >= header.top - 8 && it.top < successTop }
+            .filter { it.top >= header.top - 8 && it.top < blockEndTop }
             .sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
         val block = blockNodes.map(VtmanScreenText::value)
         val status = block.asSequence()
@@ -117,7 +142,14 @@ object VtmanFixedBlockParser {
 
         val following = cleaned.drop(start + 1)
         val completionOffset = following.indexOfFirst { it.equals("Thành công", true) }
-        val endExclusive = if (completionOffset >= 0) start + completionOffset + 2 else cleaned.size
+        val completionEnd = if (completionOffset >= 0) start + completionOffset + 2 else cleaned.size
+        // Fallback chữ chỉ dùng khi parser theo tọa độ không đủ dữ liệu. Vẫn khóa
+        // khối tại TT của đơn kế tiếp sau tối thiểu 4 trường nội dung để tránh lấy chéo.
+        val nextOrderStart = cleaned.indices
+            .drop((start + 5).coerceAtMost(cleaned.size))
+            .firstOrNull { i -> statusRegex.containsMatchIn(cleaned[i]) }
+            ?: cleaned.size
+        val endExclusive = minOf(completionEnd, nextOrderStart)
         val block = cleaned.subList(start, endExclusive).filterNot(::isScreenNoise)
 
         val status = block.asSequence()
