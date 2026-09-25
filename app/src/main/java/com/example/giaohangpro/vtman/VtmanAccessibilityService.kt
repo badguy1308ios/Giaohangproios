@@ -112,8 +112,12 @@ class VtmanAccessibilityService : AccessibilityService() {
 
     private fun beginExport() {
         val root = rootInActiveWindow
-        pkg = root?.packageName?.toString()
-        if (pkg.isNullOrBlank() || pkg == packageName) {
+        val activePackage = root?.packageName?.toString()
+        pkg = VTMAN_PACKAGE_NAME
+        // Tuyệt đối không lấy package của cửa sổ đang mở làm "VTMan".
+        // Nếu phiên trước còn nằm ở dialer, cách cũ sẽ coi dialer là app đích
+        // và có thể đọc lại SĐT cuối của phiên trước.
+        if (activePackage != VTMAN_PACKAGE_NAME) {
             root?.recycle()
             VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi thử lại")
             return
@@ -516,7 +520,7 @@ class VtmanAccessibilityService : AccessibilityService() {
                 phone == previousSessionLastPhone
         val requiredStableMs = when {
             looksLikePreviousSessionPhone -> 1_800L
-            firstPhoneOfDataSession -> 850L
+            firstPhoneOfDataSession -> 1_200L
             else -> 320L
         }
         val stableFor = now - phoneCandidateSince
