@@ -27,6 +27,12 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
     private var phoneScreenBaseline = ""
+    private var phoneCandidate = ""
+    private var phoneCandidateSince = 0L
+    private var phoneSurfaceSeenAt = 0L
+    private var firstPhoneOfDataSession = false
+    private var previousSessionLastPhone = ""
+    private var lastAcceptedPhone = ""
     private var autoTarget = 0
     private val autoWaybills = linkedSetOf<String>()
     private var autoSeekingTop = false
@@ -133,6 +139,11 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (requestedDataExport && root != null &&
             VtmanQueueController.nextWaybill() != null
         ) {
+            firstPhoneOfDataSession = true
+            previousSessionLastPhone = lastAcceptedPhone
+            phoneCandidate = ""
+            phoneCandidateSince = 0L
+            phoneSurfaceSeenAt = 0L
             val bounds = Rect().also(root::getBoundsInScreen)
             if (VtmanQueueController.callPoint() == null) {
                 VtmanQueueController.setCallPoint(
@@ -234,7 +245,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; phoneReadNotBefore=0L; phoneScreenBaseline=""; phoneCandidate=""; phoneCandidateSince=0L; phoneSurfaceSeenAt=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
@@ -415,16 +426,19 @@ class VtmanAccessibilityService : AccessibilityService() {
             retryCurrentOrFail(mv, "Màn hình đã đổi trước khi lấy SĐT của $mv")
             return
         }
+        // Chụp trạng thái TRƯỚC cú bấm, rồi xóa toàn bộ ứng viên SĐT của đơn trước.
+        // dispatchGesture là bất đồng bộ nên không ghi baseline sau tap.
+        phoneScreenBaseline = root.phoneScreenSignature()
+        phoneCandidate = ""
+        phoneCandidateSince = 0L
+        phoneSurfaceSeenAt = 0L
         if (!tap(p.x,callY)) {
             retryCurrentOrFail(mv, "Không bấm được nút gọi của $mv")
             return
         }
-        // Ghi dấu màn hình ngay trước khi bấm gọi. readPhone chỉ được nhận SĐT
-        // sau khi cửa sổ/màn hình thực sự đổi, tránh đọc lại dialer của phiên trước.
-        phoneScreenBaseline = root.phoneScreenSignature()
         val now = System.currentTimeMillis()
         phoneReadNotBefore = now + 250L
-        deadline=now+4000L
+        deadline=now+6000L
         mode=4
         VtmanQueueController.report("Đã đọc ${rec.shop.ifBlank { "shop chưa rõ" }} · ${rec.customer}; đang lấy SĐT")
         schedule(250)
@@ -468,16 +482,51 @@ class VtmanAccessibilityService : AccessibilityService() {
             else -> emptyList()
         }
 
-        // Một phiên mới có thể bắt đầu khi dialer cũ vẫn còn giữ SĐT cuối của phiên trước.
-        // Không nhận bất kỳ số nào cho tới khi màn hình sau cú tap hiện tại khác baseline.
+        // Chỉ đọc khi đã thật sự rời màn hình kết quả của VTMan (hoặc popup số đã mở).
+        // Dialer có thể hiện SĐT cũ vài trăm ms trước khi cập nhật số mới, nhất là
+        // đơn đầu của phiên kế tiếp, nên không được chốt "số đầu tiên nhìn thấy".
         val currentPhoneSignature = root.phoneScreenSignature()
-        if (currentPhoneSignature == phoneScreenBaseline) {
+        val phoneSurfaceVisible = phonePickerVisible || outsideVtman
+        if (!phoneSurfaceVisible || currentPhoneSignature == phoneScreenBaseline) {
             if (now > deadline) {
-                retryCurrentOrFail(mv, "Màn hình SĐT chưa đổi sau khi bấm gọi", returnToVtman = outsideVtman)
+                retryCurrentOrFail(mv, "Màn hình SĐT chưa mở sau khi bấm gọi", returnToVtman = outsideVtman)
             } else schedule(120)
             return
         }
-        VtmanFixedBlockParser.findPhone(phoneStrings)?.let { phone ->
+        if (phoneSurfaceSeenAt == 0L) phoneSurfaceSeenAt = now
+
+        val phone = VtmanFixedBlockParser.findPhone(phoneStrings)
+        if (phone.isNullOrBlank()) {
+            if (now > deadline) {
+                retryCurrentOrFail(mv, "Không đọc được SĐT của $mv", returnToVtman = true)
+            } else schedule(140)
+            return
+        }
+
+        if (phone != phoneCandidate) {
+            phoneCandidate = phone
+            phoneCandidateSince = now
+            schedule(140)
+            return
+        }
+
+        val looksLikePreviousSessionPhone =
+            firstPhoneOfDataSession &&
+                previousSessionLastPhone.isNotBlank() &&
+                phone == previousSessionLastPhone
+        val requiredStableMs = when {
+            looksLikePreviousSessionPhone -> 1_800L
+            firstPhoneOfDataSession -> 850L
+            else -> 320L
+        }
+        val stableFor = now - phoneCandidateSince
+        val surfaceFor = now - phoneSurfaceSeenAt
+        if (stableFor < requiredStableMs || surfaceFor < requiredStableMs) {
+            schedule(140)
+            return
+        }
+
+        run {
             VtmanQueueController.updatePhone(phone)
             if (VtmanQueueController.missingActiveFields().isNotEmpty()) {
                 retryCurrentOrFail(mv, "Đơn $mv còn thiếu dữ liệu", returnToVtman = true)
@@ -488,7 +537,13 @@ class VtmanAccessibilityService : AccessibilityService() {
                 return
             }
             resetRetry(mv)
+            lastAcceptedPhone = phone
+            firstPhoneOfDataSession = false
+            previousSessionLastPhone = ""
             phoneScreenBaseline = ""
+            phoneCandidate = ""
+            phoneCandidateSince = 0L
+            phoneSurfaceSeenAt = 0L
             returnDeadline = now + 9_000L
             nextBackAt = now + 500L
 
