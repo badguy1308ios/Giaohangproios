@@ -67,7 +67,7 @@ object VtmanFixedBlockParser {
                         val center = (candidate.top + candidate.bottom) / 2
                         kotlin.math.abs(center - statusCenter) <= 36 &&
                             waybillLikeRegex.findAll(candidate.value).any { match ->
-                                match.value.any(Char::isDigit)
+                                match.value.any { ch -> ch.isDigit() }
                             }
                     }
                     .map(VtmanScreenText::top)
