@@ -1691,14 +1691,23 @@ private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
             locationState.value = MapPoint(location.latitude, location.longitude) // Cập nhật marker tài xế.
         }
         try {
-            // Lấy ngay vị trí cuối cùng để bản đồ có dữ liệu nhanh trước khi GPS cập nhật mới.
+            // Chỉ dùng provider đang bật. Trước đây code luôn ưu tiên GPS_PROVIDER
+            // bằng firstNotNullOfOrNull; GPS cache có thể rất cũ và che mất vị trí
+            // NETWORK mới hơn, khiến marker người dùng đứng sai chỗ.
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            providers.firstNotNullOfOrNull { provider ->
+                .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
+
+            // Chọn last-known MỚI NHẤT giữa các provider, không chọn provider đầu tiên có dữ liệu.
+            providers.mapNotNull { provider ->
                 runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
-            }?.let { locationState.value = MapPoint(it.latitude, it.longitude) }
-            // Cập nhật tối đa mỗi 10 giây hoặc khi di chuyển khoảng 15 m để giảm hao pin.
+            }.maxByOrNull { it.time }?.let { location ->
+                locationState.value = MapPoint(location.latitude, location.longitude)
+            }
+
+            // minTime/minDistance = 0 để nhận fix mới ngay khi vào tab Bản đồ.
+            // Khi rời tab, onDispose vẫn tháo listener nên không chạy GPS nền.
             providers.forEach { provider ->
-                runCatching { manager.requestLocationUpdates(provider, 10_000L, 15f, listener, Looper.getMainLooper()) }
+                runCatching { manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper()) }
             }
         } catch (_: SecurityException) {
             // Quyền có thể bị thu hồi trong lúc chạy; giữ bản đồ hoạt động thay vì crash.
