@@ -1666,37 +1666,70 @@ private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
         }
     }
 
-    // Đăng ký cập nhật GPS chỉ khi composable đang tồn tại và quyền đã được cấp.
+    // Đăng ký cập nhật vị trí chỉ khi composable đang tồn tại và quyền đã được cấp.
     DisposableEffect(context, hasPermission, active) {
         if (!hasPermission || !active) return@DisposableEffect onDispose { }
         val manager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as LocationManager
-        val listener = android.location.LocationListener { location ->
-            locationState.value = MapPoint(location.latitude, location.longitude) // Cập nhật marker tài xế.
-        }
-        try {
-            // Chỉ dùng provider đang bật. Trước đây code luôn ưu tiên GPS_PROVIDER
-            // bằng firstNotNullOfOrNull; GPS cache có thể rất cũ và che mất vị trí
-            // NETWORK mới hơn, khiến marker người dùng đứng sai chỗ.
-            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-                .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
 
-            // Chọn last-known MỚI NHẤT giữa các provider, không chọn provider đầu tiên có dữ liệu.
-            providers.mapNotNull { provider ->
-                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
-            }.maxByOrNull { it.time }?.let { location ->
-                locationState.value = MapPoint(location.latitude, location.longitude)
+        // Không cho một bản tin NETWORK kém chính xác kéo marker khỏi GPS tốt vừa nhận.
+        // Android có thể phát callback từ nhiều provider xen kẽ nên phải chọn "best fix",
+        // thay vì nhận callback nào cuối cùng thì dùng callback đó.
+        var bestLocation: android.location.Location? = null
+        fun acceptLocation(candidate: android.location.Location) {
+            if (candidate.latitude !in -90.0..90.0 || candidate.longitude !in -180.0..180.0) return
+            val current = bestLocation
+            val shouldUse = when {
+                current == null -> true
+                candidate.time > current.time + 120_000L -> true
+                candidate.time + 120_000L < current.time -> false
+                candidate.hasAccuracy() && current.hasAccuracy() ->
+                    candidate.accuracy <= current.accuracy + 25f
+                candidate.hasAccuracy() && !current.hasAccuracy() -> true
+                else -> candidate.time >= current.time
+            }
+            if (shouldUse) {
+                bestLocation = candidate
+                locationState.value = MapPoint(candidate.latitude, candidate.longitude)
+            }
+        }
+
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                acceptLocation(location)
+            }
+            override fun onProviderEnabled(provider: String) = Unit
+            override fun onProviderDisabled(provider: String) = Unit
+            @Suppress("DEPRECATION")
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) = Unit
+        }
+
+        try {
+            // PASSIVE_PROVIDER giúp nhận luôn vị trí mới mà các app/dịch vụ hệ thống
+            // (ví dụ Google Maps) vừa xác định, rất hữu ích trên máy OEM khi GPS direct chậm.
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            ).distinct().filter { provider ->
+                provider == LocationManager.PASSIVE_PROVIDER ||
+                    runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
             }
 
-            // minTime/minDistance = 0 để nhận fix mới ngay khi vào tab Bản đồ.
-            // Khi rời tab, onDispose vẫn tháo listener nên không chạy GPS nền.
+            // Nạp cache theo chất lượng + độ mới, không để cache provider đầu tiên thắng cố định.
+            providers.mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }.sortedBy { it.time }.forEach(::acceptLocation)
+
+            // Xin cập nhật ngay. Nếu một provider không khả dụng thì provider khác vẫn tiếp tục.
             providers.forEach { provider ->
-                runCatching { manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper()) }
+                runCatching {
+                    manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                }
             }
         } catch (_: SecurityException) {
             // Quyền có thể bị thu hồi trong lúc chạy; giữ bản đồ hoạt động thay vì crash.
         }
         onDispose {
-            // Rời tab/màn hình thì dừng GPS để tránh hao pin và tránh giữ reference Activity.
             runCatching { manager.removeUpdates(listener) }
         }
     }
