@@ -1279,6 +1279,8 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                             ).show()
                         else -> {
                             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
+                            // Bước 2 chỉ chuẩn bị queue + popup. Người dùng tự mở VTMan
+                            // và vào Gạch phát offline; không tự launch/chuyển app, không Toast.
                             context.startService(
                                 android.content.Intent(
                                     context,
@@ -1288,25 +1290,6 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                     true
                                 )
                             )
-                            val vtmanIntent = context.packageManager.getLaunchIntentForPackage(
-                                com.example.giaohangpro.vtman.VtmanAccessibilityService.VTMAN_PACKAGE_NAME
-                            )
-                            if (vtmanIntent != null) {
-                                vtmanIntent.addFlags(
-                                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                                )
-                                context.startActivity(vtmanIntent)
-                                Toast.makeText(
-                                    context,
-                                    "Bước 2: mở Gạch phát offline để Export dữ liệu đơn",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            } else {
-                                com.example.giaohangpro.vtman.VtmanQueueController.fail(
-                                    "Không tìm thấy ứng dụng VTMan trên điện thoại"
-                                )
-                            }
                         }
                     }
                 },
