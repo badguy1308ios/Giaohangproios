@@ -52,27 +52,17 @@ jobs:
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           # Giữ 4 artifact APK xanh cũ; build hiện tại upload thành công sẽ là APK xanh thứ 5.
-          mapfile -t KEEP_IDS < <(
-            gh api --paginate "repos/$REPO/actions/runs?branch=main&status=success&per_page=100" \
-              --jq '.workflow_runs[] | select(.id != ('"$CURRENT_RUN_ID"')) | .id' \
-              | head -n 4
-          )
+          gh api --paginate "repos/$REPO/actions/runs?branch=main&status=success&per_page=100" \
+            --jq '.workflow_runs[] | select(.id != ('"$CURRENT_RUN_ID"')) | .id' \
+            | head -n 4 > /tmp/keep-runs.txt
 
           gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
             --jq '.artifacts[] | select(.expired == false) | [.id, .workflow_run.id, .name] | @tsv' \
             > /tmp/artifacts.tsv
 
-          while IFS=
-\t' read -r artifact_id run_id artifact_name; do
+          while IFS="$(printf '\t')" read -r artifact_id run_id artifact_name; do
             [ -z "$artifact_id" ] && continue
-            keep=false
-            for keep_id in "${KEEP_IDS[@]}"; do
-              if [ "$run_id" = "$keep_id" ]; then
-                keep=true
-                break
-              fi
-            done
-            if [ "$keep" = false ]; then
+            if ! grep -Fxq "$run_id" /tmp/keep-runs.txt; then
               echo "Deleting old artifact: $artifact_name (run $run_id)"
               gh api --method DELETE "repos/$REPO/actions/artifacts/$artifact_id"
             fi
