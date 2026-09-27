@@ -121,9 +121,9 @@ class VtmanAccessibilityService : AccessibilityService() {
         // package khác, khiến bấm Chạy không làm gì dù đang đúng Gạch phát offline.
         // Thay vào đó xác nhận chính màn hình bằng tiêu đề/nội dung đặc trưng rồi
         // mới ghi nhận package hiện tại. Cách này vẫn chặn dialer cũ của phiên trước.
-        val onOfflineDeliveryScreen = root?.collectStrings()?.any {
+        val onOfflineDeliveryScreen = root != null && root.collectStrings().any {
             it.contains("Gạch phát offline", ignoreCase = true)
-        } == true
+        }
         if (root == null || activePackage.isBlank() || activePackage == packageName || !onOfflineDeliveryScreen) {
             root?.recycle()
             VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi bấm Chạy lại")
