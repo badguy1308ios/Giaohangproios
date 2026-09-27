@@ -1,0 +1,41 @@
+name: Dọn APK cũ
+run-name: "Dọn APK cũ • giữ 5 APK xanh gần nhất"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: Xóa APK artifact cũ
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep only 5 latest successful APK artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate "repos/$REPO/actions/runs?branch=main&status=success&per_page=100" \
+            --jq '.workflow_runs[] | select(.name == "Build Android APK") | .id' \
+            | head -n 5 > /tmp/keep-runs.txt
+
+          gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | [.id, .workflow_run.id, .name] | @tsv' \
+            > /tmp/artifacts.tsv
+
+          while IFS="$(printf '\t')" read -r artifact_id run_id artifact_name; do
+            [ -z "$artifact_id" ] && continue
+
+            if grep -Fxq "$run_id" /tmp/keep-runs.txt; then
+              printf 'KEEP: %s (run %s)\n' "$artifact_name" "$run_id"
+            else
+              printf 'DELETE: %s (run %s)\n' "$artifact_name" "$run_id"
+              gh api --method DELETE "repos/$REPO/actions/artifacts/$artifact_id"
+            fi
+          done < /tmp/artifacts.tsv
