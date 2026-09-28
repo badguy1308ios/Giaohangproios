@@ -530,7 +530,7 @@ private fun SettingsScreen(
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).background(Background).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             SettingsSection("DỮ LIỆU & ĐỒNG BỘ") {
-                SettingsItem(Icons.Default.SwapHoriz, "IMPORT / EXPORT DỮ LIỆU", "Nhập / xuất khách hàng dạng ZIP, gồm tọa độ và ảnh cổng") { onCustomerBackup() }
+                SettingsItem(Icons.Default.Sync, "ĐỒNG BỘ DỮ LIỆU KHÁCH HÀNG", "Backup cục bộ theo phiên, đặt lịch và khôi phục dữ liệu") { onCustomerBackup() }
                 SettingsDivider()
                 SettingsItem(Icons.Default.FileDownload, "VTMAN EXPORT", "Nạp MVĐ và lấy thông tin đơn trực tiếp từ VTMan") { onVtmanExport() }
                 SettingsDivider()
@@ -1369,106 +1369,133 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Sẵn sàng") }
+    var refresh by remember { mutableIntStateOf(0) }
+    var autoSync by remember(refresh) { mutableStateOf(CustomerLocalSync.isEnabled(context)) }
+    var times by remember(refresh) { mutableStateOf(CustomerLocalSync.scheduledTimes(context)) }
+    var pendingRestore by remember { mutableStateOf<CustomerSyncSession?>(null) }
+    val sessions = remember(refresh) { CustomerLocalSync.sessions(context) }
+    val dateFmt = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()) }
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    fun doSync() {
         scope.launch {
-            busy = true
-            status = "Đang nhập dữ liệu khách hàng..."
-            runCatching { vm.importCustomerBackup(context, uri) }
-                .onSuccess { r ->
-                    status = "Nhập xong: +${r.added} khách mới, cập nhật ${r.updated}, ${r.images} ảnh"
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+            busy = true; status = "Đang đồng bộ thay đổi..."
+            runCatching { withContext(Dispatchers.IO) { CustomerLocalSync.syncNow(context) } }
+                .onSuccess { s ->
+                    status = if (s == null) "Dữ liệu không thay đổi — không tạo phiên mới" else "Đồng bộ xong: " + s.upserts + " cập nhật, " + s.deletes + " xóa • " + s.customerCount + " khách"
+                    refresh++
                 }
-                .onFailure { e ->
-                    status = "Không nhập được file: ${e.message ?: "lỗi không xác định"}"
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
-                }
+                .onFailure { e -> status = "Đồng bộ lỗi: " + (e.message ?: "không xác định") + " • Phiên trước vẫn an toàn" }
             busy = false
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true; status = "Đang nhập ZIP dự phòng..."
+            runCatching { vm.importCustomerBackup(context, uri) }
+                .onSuccess { x -> status = "Nhập xong: +" + x.added + " khách mới, cập nhật " + x.updated }
+                .onFailure { e -> status = "Không nhập được ZIP: " + (e.message ?: "lỗi không xác định") }
+            busy = false
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
-            busy = true
-            status = "Đang xuất dữ liệu khách hàng..."
+            busy = true; status = "Đang xuất ZIP đầy đủ..."
             runCatching { vm.exportCustomerBackup(context, uri) }
-                .onSuccess { r ->
-                    status = "Xuất xong ${r.total} khách, ${r.images} ảnh${if (r.missingImages > 0) ", thiếu ${r.missingImages} ảnh" else ""}"
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
-                }
-                .onFailure { e ->
-                    status = "Không xuất được file: ${e.message ?: "lỗi không xác định"}"
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
-                }
+                .onSuccess { x -> status = "Xuất ZIP xong " + x.total + " khách, " + x.images + " ảnh" }
+                .onFailure { e -> status = "Không xuất được ZIP: " + (e.message ?: "lỗi không xác định") }
             busy = false
         }
     }
 
     Column(Modifier.fillMaxSize().background(Background)) {
-        CustomerPageHeader("IMPORT / EXPORT DỮ LIỆU", onBack)
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Card(
-                Modifier.fillMaxWidth(), RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Border)
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("DỮ LIỆU KHÁCH HÀNG", color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                    Text("Định dạng ZIP tương thích cấu trúc: manifest.json + customers.json + photos/customer_gate/.", color = TextGray, fontSize = 12.sp)
-                    Text("Đối chiếu theo SĐT. Khách đã có sẽ được gộp thêm tên phụ, SĐT phụ, địa chỉ, tọa độ và ảnh cổng mới; dữ liệu trống không ghi đè dữ liệu cũ.", color = TextGray, fontSize = 12.sp)
+        CustomerPageHeader("ĐỒNG BỘ KHÁCH HÀNG", onBack)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("BACKUP CỤC BỘ", color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                    Text("Chỉ lưu khách hàng thêm / sửa / xóa kể từ phiên trước. Dữ liệu nằm trên điện thoại, chưa gửi lên Internet.", color = TextGray, fontSize = 12.sp)
+                    val last = sessions.firstOrNull()
+                    Text(if (last == null) "Chưa có phiên đồng bộ" else "Phiên gần nhất: " + dateFmt.format(java.util.Date(last.createdAt)) + " • " + last.customerCount + " khách", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-
-            Button(
-                enabled = !busy,
-                onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Default.FileDownload, null)
-                Spacer(Modifier.width(8.dp))
-                Text("NHẬP DỮ LIỆU KHÁCH HÀNG", fontWeight = FontWeight.Bold)
+            Button(enabled = !busy, onClick = { doSync() }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("ĐỒNG BỘ NGAY", fontWeight = FontWeight.Bold)
             }
-
-            OutlinedButton(
-                enabled = !busy,
-                onClick = {
-                    val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault()).format(java.util.Date())
-                    exportLauncher.launch("GiaoHangPro_KhachHang_${stamp}.zip")
-                },
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Default.FileUpload, null)
-                Spacer(Modifier.width(8.dp))
-                Text("XUẤT DỮ LIỆU KHÁCH HÀNG", fontWeight = FontWeight.Bold)
-            }
-
-            Card(
-                Modifier.fillMaxWidth(), RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = OrangeLight)
-            ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (busy) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("TỰ ĐỘNG THEO LỊCH", color = Navy, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(if (autoSync) "Lần kế tiếp: " + (CustomerLocalSync.nextSchedule(context) ?: "--") else "Đang tắt", color = TextGray, fontSize = 11.sp)
+                        }
+                        Switch(checked = autoSync, onCheckedChange = { autoSync = it; CustomerLocalSync.setEnabled(context, it); refresh++ })
                     }
+                    times.forEach { time ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Schedule, null, tint = Orange, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(8.dp))
+                            Text(time, modifier = Modifier.weight(1f), color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { times = times - time; CustomerLocalSync.setScheduledTimes(context, times); refresh++ }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.DeleteOutline, "Xóa giờ", tint = TextGray) }
+                        }
+                    }
+                    OutlinedButton(onClick = {
+                        val now = java.util.Calendar.getInstance()
+                        android.app.TimePickerDialog(context, { _, h, m ->
+                            val t = String.format(java.util.Locale.US, "%02d:%02d", h, m)
+                            times = (times + t).distinct().sorted(); CustomerLocalSync.setScheduledTimes(context, times); refresh++
+                        }, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true).show()
+                    }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.AddAlarm, null); Spacer(Modifier.width(6.dp)); Text("THÊM GIỜ ĐỒNG BỘ") }
+                }
+            }
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = OrangeLight)) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (busy) { CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp); Spacer(Modifier.width(9.dp)) }
                     Text(status, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-
-            Text("Quy tắc nhập", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text("• SĐT trùng → cập nhật/gộp vào khách hiện có.\n• Tên hoặc biệt danh mới → thêm vào tên phụ.\n• SĐT mới → thêm SĐT phụ.\n• Địa chỉ mới → thêm địa chỉ phụ.\n• Địa chỉ đã có nhưng thiếu tọa độ → bổ sung tọa độ.\n• Ảnh cổng trong ZIP → lưu vào đúng địa chỉ tương ứng.\n• Không tự xóa dữ liệu đang có.", color = TextGray, fontSize = 12.sp)
+            Text("LỊCH SỬ ĐỒNG BỘ", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            if (sessions.isEmpty()) Text("Chưa có dữ liệu. Bấm Đồng bộ ngay để tạo bản gốc đầu tiên.", color = TextGray, fontSize = 12.sp)
+            sessions.forEachIndexed { index, s ->
+                Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (index == 0) Icons.Default.Verified else Icons.Default.History, null, tint = if (index == 0) Color(0xFF2E7D32) else TextGray); Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(dateFmt.format(java.util.Date(s.createdAt)), color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(s.customerCount.toString() + " khách • +/sửa " + s.upserts + " • xóa " + s.deletes + if (index == 0) " • Bản an toàn" else "", color = TextGray, fontSize = 11.sp)
+                        }
+                        if (index != 0) TextButton(enabled = !busy, onClick = { pendingRestore = s }) { Text("KHÔI PHỤC", fontSize = 11.sp) }
+                    }
+                }
+            }
+            HorizontalDivider(color = Border)
+            Text("IMPORT / EXPORT THỦ CÔNG", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("Giữ ZIP đầy đủ để chuyển máy hoặc lưu ra nơi khác khi cần.", color = TextGray, fontSize = 11.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(enabled = !busy, onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(4.dp)); Text("NHẬP ZIP", fontSize = 11.sp) }
+                OutlinedButton(enabled = !busy, onClick = {
+                    val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault()).format(java.util.Date())
+                    exportLauncher.launch("GiaoHangPro_KhachHang_" + stamp + ".zip")
+                }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.FileUpload, null); Spacer(Modifier.width(4.dp)); Text("XUẤT ZIP", fontSize = 11.sp) }
+            }
         }
     }
+    pendingRestore?.let { s ->
+        AlertDialog(onDismissRequest = { pendingRestore = null }, title = { Text("Khôi phục phiên này?") },
+            text = { Text(dateFmt.format(java.util.Date(s.createdAt)) + " • " + s.customerCount + " khách\n\nDữ liệu hiện tại sẽ được đồng bộ bảo vệ trước khi khôi phục.") },
+            confirmButton = { TextButton(onClick = {
+                pendingRestore = null
+                scope.launch {
+                    busy = true; status = "Đang khôi phục..."
+                    runCatching { withContext(Dispatchers.IO) { CustomerLocalSync.restore(context, s.id) } }
+                        .onSuccess { count -> vm.reloadPersistentData(); status = "Đã khôi phục " + count + " khách"; refresh++ }
+                        .onFailure { e -> status = "Khôi phục lỗi: " + (e.message ?: "không xác định") + " • Dữ liệu hiện tại không bị xóa" }
+                    busy = false
+                }
+            }) { Text("KHÔI PHỤC") } }, dismissButton = { TextButton(onClick = { pendingRestore = null }) { Text("HỦY") } })
+    }
 }
-
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -5173,6 +5200,8 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
+
+    fun reloadPersistentData() { loadPersistentData() }
 
     private fun normalizeCustomerPhone(raw: String): String {
         val digits = raw.filter(Char::isDigit)
