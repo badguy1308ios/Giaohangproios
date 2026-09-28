@@ -117,22 +117,18 @@ class VtmanAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow
         val activePackage = root?.packageName?.toString().orEmpty()
 
-        // Không hard-code package VTMan ở đây. Một số bản/biến thể VTMan dùng
-        // package khác, khiến bấm Chạy không làm gì dù đang đúng Gạch phát offline.
-        // Thay vào đó xác nhận chính màn hình bằng tiêu đề/nội dung đặc trưng rồi
-        // mới ghi nhận package hiện tại. Cách này vẫn chặn dialer cũ của phiên trước.
-        val onOfflineDeliveryScreen = root != null && root.collectStrings().any {
-            it.contains("Gạch phát offline", ignoreCase = true)
-        }
-        if (root == null || activePackage.isBlank() || activePackage == packageName || !onOfflineDeliveryScreen) {
+        // Người dùng tự mở VTMan > Gạch phát offline trước khi bấm Chạy.
+        // Không kiểm tra text tiêu đề vì một số bản VTMan không expose dòng
+        // "Gạch phát offline" qua Accessibility, làm Bước 1 bị chặn dù đang đúng màn hình.
+        if (root == null || activePackage.isBlank() || activePackage == packageName) {
             root?.recycle()
             VtmanQueueController.fail("Mở VTMan ở Gạch phát offline rồi bấm Chạy lại")
             return
         }
-        pkg = activePackage
 
         val requestedAutoCount = VtmanQueueController.consumePendingAutoExport()
         val requestedDataExport = VtmanQueueController.consumePendingDataExport()
+        pkg = activePackage
         if (requestedAutoCount > 0 && root != null) {
             val bounds = Rect().also(root::getBoundsInScreen)
             autoTarget = requestedAutoCount
