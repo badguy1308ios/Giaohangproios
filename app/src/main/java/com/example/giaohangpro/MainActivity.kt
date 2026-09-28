@@ -1205,8 +1205,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                 onClick = {
                     val count = countText.toIntOrNull()
                     when {
-                        count == null || count <= 0 ->
-                            Toast.makeText(context, "Nhập số lượng MVĐ lớn hơn 0", Toast.LENGTH_SHORT).show()
+                        count == null || count <= 0 -> Unit
                         !android.provider.Settings.canDrawOverlays(context) ->
                             context.startActivity(
                                 android.content.Intent(
@@ -1225,11 +1224,6 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                         true
                                     )
                             )
-                            Toast.makeText(
-                                context,
-                                "Bước 1 đã sẵn sàng. Hải tự mở VTMan và vào Gạch phát offline, rồi bấm Chạy.",
-                                Toast.LENGTH_LONG
-                            ).show()
                         }
                     }
                 },
@@ -1257,13 +1251,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
             Button(
                 onClick = {
                     when {
-                        !com.example.giaohangpro.vtman.VtmanQueueController.hasLoadedWaybills() -> {
-                            Toast.makeText(
-                                context,
-                                "Không còn MVĐ trong bộ nhớ. Hãy bấm NẠP MVĐ TỪ FILE CSV để chọn file đã lưu trong Download.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
+                        !com.example.giaohangpro.vtman.VtmanQueueController.hasLoadedWaybills() -> Unit
                         !android.provider.Settings.canDrawOverlays(context) ->
                             context.startActivity(
                                 android.content.Intent(
@@ -1271,12 +1259,7 @@ private fun AutoExportScreen(vm: MainViewModel, onBack: () -> Unit) {
                                     android.net.Uri.parse("package:${context.packageName}")
                                 )
                             )
-                        !com.example.giaohangpro.vtman.VtmanQueueController.requestDataExport() ->
-                            Toast.makeText(
-                                context,
-                                "Không còn MVĐ trong bộ nhớ. Hãy nạp file CSV đã lưu trước đó.",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                        !com.example.giaohangpro.vtman.VtmanQueueController.requestDataExport() -> Unit
                         else -> {
                             snapshot = com.example.giaohangpro.vtman.VtmanQueueController.snapshot()
                             // Bước 2 chỉ chuẩn bị queue + popup. Người dùng tự mở VTMan
