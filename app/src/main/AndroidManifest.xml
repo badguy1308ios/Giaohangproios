@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <package android:name="com.viettelpost.vtman" />
@@ -57,6 +58,12 @@
                 android:resource="@xml/vtman_accessibility_service" />
         </service>
         <service android:name=".vtman.VtmanOverlayService" android:exported="false" />
+
+        <receiver android:name=".CustomerSyncReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
