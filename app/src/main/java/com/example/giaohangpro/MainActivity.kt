@@ -1377,7 +1377,7 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
     val dateFmt = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()) }
     var portableReady by remember(refresh) { mutableStateOf(CustomerLocalSync.portableUri(context) != null) }
 
-    val createSyncFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val createSyncFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             busy = true; status = "Đang tạo file đồng bộ..."
@@ -1462,10 +1462,10 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
                     Text(if (portableReady) "FILE ĐỒNG BỘ ĐÃ LIÊN KẾT" else "CHỌN NƠI LƯU FILE ĐỒNG BỘ", color = Navy, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(if (portableReady) "File nằm ngoài dữ liệu ứng dụng nên vẫn còn khi gỡ GiaoHangPro." else "Chọn một nơi lưu bên ngoài ứng dụng. Chỉ cần chọn một lần; các phiên sau app tự cập nhật file.", color = TextGray, fontSize = 11.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(enabled = !busy, onClick = { createSyncFileLauncher.launch("GiaoHangPro_DongBoKhachHang.json") }, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(enabled = !busy, onClick = { createSyncFileLauncher.launch("GiaoHangPro_DongBoKhachHang.zip") }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Save, null); Spacer(Modifier.width(4.dp)); Text(if (portableReady) "ĐỔI FILE" else "TẠO FILE", fontSize = 11.sp)
                         }
-                        OutlinedButton(enabled = !busy, onClick = { openSyncFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(enabled = !busy, onClick = { openSyncFileLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Restore, null); Spacer(Modifier.width(4.dp)); Text("CHỌN FILE CŨ", fontSize = 11.sp)
                         }
                     }
