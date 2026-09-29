@@ -16,6 +16,8 @@ class DialerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val incomingPhone = intent?.data?.schemeSpecificPart.orEmpty()
+        if (incomingPhone.isNotBlank() && AutoExportDialerBridge.consumeIfNeeded(this, incomingPhone)) { finish(); return }
         number = EditText(this).apply {
             textSize = 28f
             hint = "Nhập số điện thoại"
@@ -24,6 +26,11 @@ class DialerActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 40, 28, 28) }
         root.addView(TextView(this).apply { text = "GiaoHangPro • Điện thoại"; textSize = 22f })
         root.addView(number, LinearLayout.LayoutParams(-1, -2))
+        val customerInfo = TextView(this).apply { textSize=16f }
+        root.addView(customerInfo)
+        fun refreshCustomer() { val x=DialerCustomerLookup.find(this, number.text.toString()); customerInfo.text = if(x==null) "" else x.name+"\n"+x.address }
+        refreshCustomer()
+        number.addTextChangedListener(object:android.text.TextWatcher { override fun beforeTextChanged(s:CharSequence?,st:Int,c:Int,a:Int){}; override fun onTextChanged(s:CharSequence?,st:Int,b:Int,c:Int){refreshCustomer()}; override fun afterTextChanged(e:android.text.Editable?){} })
         val grid = GridLayout(this).apply { columnCount = 3 }
         listOf("1","2","3","4","5","6","7","8","9","*","0","#").forEach { d ->
             grid.addView(Button(this).apply { text=d; textSize=24f; setOnClickListener { number.append(d) } },
