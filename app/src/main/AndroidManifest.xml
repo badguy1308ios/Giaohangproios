@@ -6,64 +6,43 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 
-    <queries>
-        <package android:name="com.viettelpost.vtman" />
-    </queries>
+    <queries><package android:name="com.viettelpost.vtman" /></queries>
 
-    <application
-        android:theme="@style/Theme.GiaoHangPro"
-        android:label="Giao Hàng Pro"
-        android:icon="@drawable/app_icon"
-        android:roundIcon="@drawable/app_icon"
-        android:allowBackup="true"
-        android:supportsRtl="true">
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.example.giaohangpro.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
+    <application android:theme="@style/Theme.GiaoHangPro" android:label="Giao Hàng Pro" android:icon="@drawable/app_icon" android:roundIcon="@drawable/app_icon" android:allowBackup="true" android:supportsRtl="true">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="com.example.giaohangpro.fileprovider" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
-
-        <activity
-            android:name=".PortraitCaptureActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".ContinuousVtmanScanActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
+        <activity android:name=".PortraitCaptureActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".ContinuousVtmanScanActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".SplashActivity" android:exported="true" android:theme="@style/Theme.GiaoHangPro">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name=".MainActivity" android:exported="false" />
-        <service
-            android:name=".vtman.VtmanAccessibilityService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true">
+        <activity android:name=".dialer.DialerActivity" android:exported="true">
             <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="tel" />
             </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/vtman_accessibility_service" />
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <service android:name=".dialer.GhpInCallService" android:permission="android.permission.BIND_INCALL_SERVICE" android:exported="true">
+            <meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" />
+            <meta-data android:name="android.telecom.IN_CALL_SERVICE_RINGING" android:value="true" />
+            <intent-filter><action android:name="android.telecom.InCallService" /></intent-filter>
+        </service>
+        <service android:name=".vtman.VtmanAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/vtman_accessibility_service" />
         </service>
         <service android:name=".vtman.VtmanOverlayService" android:exported="false" />
-
-        <receiver android:name=".CustomerSyncReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
+        <receiver android:name=".CustomerSyncReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter></receiver>
     </application>
 </manifest>
