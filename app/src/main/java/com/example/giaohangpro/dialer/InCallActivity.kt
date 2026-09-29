@@ -11,7 +11,10 @@ class InCallActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(30,60,30,30) }
-        root.addView(TextView(this).apply { text=call?.details?.handle?.schemeSpecificPart ?: "Cuộc gọi"; textSize=30f })
+        val phone=call?.details?.handle?.schemeSpecificPart.orEmpty()
+        val customer=DialerCustomerLookup.find(this,phone)
+        root.addView(TextView(this).apply { text=if(customer==null) phone.ifBlank{"Cuộc gọi"} else customer.name+"\n"+phone+"\n"+customer.address; textSize=26f; gravity=Gravity.CENTER })
+        if(customer?.photoUri?.isNotBlank()==true) root.addView(ImageView(this).apply { runCatching { setImageURI(android.net.Uri.parse(customer.photoUri)) }; adjustViewBounds=true; maxHeight=420 })
         root.addView(Button(this).apply { text="TRẢ LỜI"; setOnClickListener { call?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY) } })
         root.addView(Button(this).apply { text="TỪ CHỐI"; setOnClickListener { call?.reject(false,null) } })
         root.addView(Button(this).apply { text="KẾT THÚC"; setOnClickListener { call?.disconnect(); finish() } })
