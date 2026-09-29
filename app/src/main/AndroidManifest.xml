@@ -12,8 +12,8 @@
 
     <queries><package android:name="com.viettelpost.vtman" /></queries>
 
-    <application android:theme="@style/Theme.GiaoHangPro" android:label="Giao Hàng Pro" android:icon="@drawable/app_icon" android:roundIcon="@drawable/app_icon" android:allowBackup="true" android:supportsRtl="true">
-        <provider android:name="androidx.core.content.FileProvider" android:authorities="com.example.giaohangpro.fileprovider" android:exported="false" android:grantUriPermissions="true">
+    <application android:theme="@style/Theme.GiaoHangPro" android:label="GiaoHangPro Dialer Test" android:icon="@drawable/app_icon" android:roundIcon="@drawable/app_icon" android:allowBackup="true" android:supportsRtl="true">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
         <activity android:name=".PortraitCaptureActivity" android:exported="false" android:screenOrientation="portrait" />
