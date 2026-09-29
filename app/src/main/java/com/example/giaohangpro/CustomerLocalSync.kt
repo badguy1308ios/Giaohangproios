@@ -28,6 +28,7 @@ object CustomerLocalSync {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_SESSIONS = "sessions"
     private const val MAX_SESSIONS = 20
+    private const val KEY_PORTABLE_URI = "portable_uri"
 
     private fun dir(context: Context) = File(context.filesDir, "customer_sync").apply { mkdirs() }
     private fun baseFile(context: Context) = File(dir(context), "base.json")
@@ -102,6 +103,56 @@ object CustomerLocalSync {
         return state
     }
 
+
+    fun portableUri(context: Context): android.net.Uri? =
+        prefs(context).getString(KEY_PORTABLE_URI, null)?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
+
+    fun setPortableUri(context: Context, uri: android.net.Uri) {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+        prefs(context).edit().putString(KEY_PORTABLE_URI, uri.toString()).apply()
+    }
+
+    fun hasCustomers(context: Context): Boolean = currentArray(context).length() > 0
+
+    private fun portableSnapshot(context: Context): JSONObject {
+        val customers = currentArray(context)
+        return JSONObject().apply {
+            put("format", "giaohangpro-customer-sync")
+            put("schemaVersion", 1)
+            put("updatedAt", System.currentTimeMillis())
+            put("customers", customers)
+        }
+    }
+
+    fun writePortableBackup(context: Context) {
+        val uri = portableUri(context) ?: return
+        val text = portableSnapshot(context).toString()
+        // Validate before replacing the user-visible backup.
+        JSONObject(text)
+        context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
+            it.write(text)
+            it.flush()
+        } ?: error("Không mở được file đồng bộ đã chọn")
+    }
+
+    fun importPortableBackup(context: Context, uri: android.net.Uri): Int {
+        val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            ?: error("Không mở được file đồng bộ")
+        val root = JSONObject(raw)
+        check(root.optString("format") == "giaohangpro-customer-sync") { "Không đúng file đồng bộ GiaoHangPro" }
+        val customers = root.optJSONArray("customers") ?: error("File không có dữ liệu khách hàng")
+        // Validate every customer has a stable id before committing.
+        for (i in 0 until customers.length()) check(customers.optJSONObject(i)?.has("id") == true) { "Dữ liệu khách hàng bị lỗi" }
+        appPrefs(context).edit().putString("customers", customers.toString()).commit()
+        setPortableUri(context, uri)
+        // Rebuild local revision history from the restored source of truth.
+        dir(context).deleteRecursively()
+        prefs(context).edit().remove(KEY_SESSIONS).apply()
+        syncNow(context)
+        return customers.length()
+    }
+
     @Synchronized
     fun syncNow(context: Context): CustomerSyncSession? {
         val current = mapById(currentArray(context))
@@ -115,6 +166,7 @@ object CustomerLocalSync {
                 .put("upserts", JSONArray()).put("deletes", JSONArray())
             writeAtomic(deltaFile(context, session.id), marker.toString())
             writeSessions(context, listOf(session))
+            if (portableUri(context) != null) writePortableBackup(context)
             return session
         }
 
@@ -132,6 +184,7 @@ object CustomerLocalSync {
         val sessions = readSessions(context).apply { add(session) }
         writeSessions(context, sessions)
         compactIfNeeded(context)
+        if (portableUri(context) != null) writePortableBackup(context)
         return session
     }
 
