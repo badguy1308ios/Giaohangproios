@@ -115,42 +115,131 @@ object CustomerLocalSync {
 
     fun hasCustomers(context: Context): Boolean = currentArray(context).length() > 0
 
-    private fun portableSnapshot(context: Context): JSONObject {
-        val customers = currentArray(context)
-        return JSONObject().apply {
-            put("format", "giaohangpro-customer-sync")
-            put("schemaVersion", 1)
-            put("updatedAt", System.currentTimeMillis())
-            put("customers", customers)
+    private fun readPhoto(context: Context, source: String): ByteArray? = runCatching {
+        val u = android.net.Uri.parse(source)
+        when (u.scheme) {
+            "content" -> context.contentResolver.openInputStream(u)?.use { it.readBytes() }
+            "file" -> File(requireNotNull(u.path)).takeIf { it.exists() }?.readBytes()
+            else -> File(source).takeIf { it.exists() }?.readBytes()
         }
-    }
+    }.getOrNull()
+
+    private fun optimizedWebp(bytes: ByteArray): ByteArray? = runCatching {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (maxSide / sample > 2400) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        val decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return@runCatching null
+        val longest = maxOf(decoded.width, decoded.height)
+        val bmp = if (longest > 1920) {
+            val scale = 1920f / longest
+            android.graphics.Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
+                .also { if (it !== decoded) decoded.recycle() }
+        } else decoded
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.WEBP, 85, out)
+        bmp.recycle()
+        out.toByteArray()
+    }.getOrNull()
 
     fun writePortableBackup(context: Context) {
         val uri = portableUri(context) ?: return
-        val text = portableSnapshot(context).toString()
-        // Validate before replacing the user-visible backup.
-        JSONObject(text)
-        context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
-            it.write(text)
-            it.flush()
+        val source = currentArray(context)
+        val customers = JSONArray()
+        val photos = linkedMapOf<String, ByteArray>()
+        var photoIndex = 0
+
+        fun packPhoto(value: String): String {
+            if (value.isBlank()) return ""
+            val raw = readPhoto(context, value) ?: return value
+            val webp = optimizedWebp(raw) ?: return value
+            val path = "photos/customer_gate/photo_" + (++photoIndex) + ".webp"
+            photos[path] = webp
+            return path
+        }
+
+        for (i in 0 until source.length()) {
+            val customer = JSONObject(source.getJSONObject(i).toString())
+            customer.put("photoUri", packPhoto(customer.optString("photoUri")))
+            val addresses = customer.optJSONArray("extraAddresses") ?: JSONArray()
+            for (j in 0 until addresses.length()) {
+                val a = addresses.optJSONObject(j) ?: continue
+                a.put("photoUri", packPhoto(a.optString("photoUri")))
+            }
+            customers.put(customer)
+        }
+
+        val manifest = JSONObject().apply {
+            put("format", "giaohangpro-customer-sync")
+            put("schemaVersion", 2)
+            put("updatedAt", System.currentTimeMillis())
+            put("customers", customers.length())
+            put("images", photos.size)
+        }
+        context.contentResolver.openOutputStream(uri, "wt")?.use { raw ->
+            java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(raw)).use { zip ->
+                fun entry(path: String, bytes: ByteArray) {
+                    zip.putNextEntry(java.util.zip.ZipEntry(path)); zip.write(bytes); zip.closeEntry()
+                }
+                entry("customers.json", customers.toString().toByteArray(Charsets.UTF_8))
+                photos.forEach { (path, bytes) -> entry(path, bytes) }
+                entry("manifest.json", manifest.toString().toByteArray(Charsets.UTF_8))
+            }
         } ?: error("Không mở được file đồng bộ đã chọn")
     }
 
     fun importPortableBackup(context: Context, uri: android.net.Uri): Int {
-        val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-            ?: error("Không mở được file đồng bộ")
-        val root = JSONObject(raw)
-        check(root.optString("format") == "giaohangpro-customer-sync") { "Không đúng file đồng bộ GiaoHangPro" }
-        val customers = root.optJSONArray("customers") ?: error("File không có dữ liệu khách hàng")
-        // Validate every customer has a stable id before committing.
-        for (i in 0 until customers.length()) check(customers.optJSONObject(i)?.has("id") == true) { "Dữ liệu khách hàng bị lỗi" }
-        appPrefs(context).edit().putString("customers", customers.toString()).commit()
-        setPortableUri(context, uri)
-        // Rebuild local revision history from the restored source of truth.
-        dir(context).deleteRecursively()
-        prefs(context).edit().remove(KEY_SESSIONS).apply()
-        syncNow(context)
-        return customers.length()
+        val temp = File(context.cacheDir, "customer_sync_restore_" + System.currentTimeMillis()).apply { mkdirs() }
+        try {
+            context.contentResolver.openInputStream(uri)?.use { raw ->
+                java.util.zip.ZipInputStream(java.io.BufferedInputStream(raw)).use { zin ->
+                    while (true) {
+                        val e = zin.nextEntry ?: break
+                        val clean = e.name.replace('\\', '/')
+                        if (clean.contains("..") || clean.startsWith("/")) error("File đồng bộ không hợp lệ")
+                        val out = File(temp, clean)
+                        check(out.canonicalPath.startsWith(temp.canonicalPath + File.separator)) { "File đồng bộ không hợp lệ" }
+                        if (e.isDirectory) out.mkdirs() else { out.parentFile?.mkdirs(); out.outputStream().use { zin.copyTo(it) } }
+                        zin.closeEntry()
+                    }
+                }
+            } ?: error("Không mở được file đồng bộ")
+            val manifestFile = File(temp, "manifest.json")
+            val customersFile = File(temp, "customers.json")
+            check(manifestFile.exists() && customersFile.exists()) { "Không đúng file đồng bộ GiaoHangPro" }
+            val manifest = JSONObject(manifestFile.readText())
+            check(manifest.optString("format") == "giaohangpro-customer-sync") { "Không đúng file đồng bộ GiaoHangPro" }
+            val customers = JSONArray(customersFile.readText())
+            val restoredDir = File(context.filesDir, "customer_gate_photos").apply { mkdirs() }
+
+            fun restorePhoto(path: String): String {
+                if (!path.startsWith("photos/customer_gate/")) return path
+                val src = File(temp, path)
+                if (!src.exists()) return ""
+                val dst = File(restoredDir, "restored_" + java.util.UUID.randomUUID() + ".webp")
+                src.copyTo(dst, overwrite = true)
+                return android.net.Uri.fromFile(dst).toString()
+            }
+
+            for (i in 0 until customers.length()) {
+                val customer = customers.optJSONObject(i) ?: error("Dữ liệu khách hàng bị lỗi")
+                check(customer.has("id")) { "Dữ liệu khách hàng bị lỗi" }
+                customer.put("photoUri", restorePhoto(customer.optString("photoUri")))
+                val addresses = customer.optJSONArray("extraAddresses") ?: JSONArray()
+                for (j in 0 until addresses.length()) {
+                    val a = addresses.optJSONObject(j) ?: continue
+                    a.put("photoUri", restorePhoto(a.optString("photoUri")))
+                }
+            }
+            appPrefs(context).edit().putString("customers", customers.toString()).commit()
+            setPortableUri(context, uri)
+            dir(context).deleteRecursively()
+            prefs(context).edit().remove(KEY_SESSIONS).apply()
+            syncNow(context)
+            return customers.length()
+        } finally { temp.deleteRecursively() }
     }
 
     @Synchronized
