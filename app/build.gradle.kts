@@ -12,7 +12,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.giaohangpro"
+        applicationId = "com.example.giaohangpro.dialertest"
         minSdk = 24
         targetSdk = 35
         versionCode = ciBuildNumber ?: 1
