@@ -1375,6 +1375,39 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
     var pendingRestore by remember { mutableStateOf<CustomerSyncSession?>(null) }
     val sessions = remember(refresh) { CustomerLocalSync.sessions(context) }
     val dateFmt = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()) }
+    var portableReady by remember(refresh) { mutableStateOf(CustomerLocalSync.portableUri(context) != null) }
+
+    val createSyncFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true; status = "Đang tạo file đồng bộ..."
+            runCatching {
+                CustomerLocalSync.setPortableUri(context, uri)
+                withContext(Dispatchers.IO) {
+                    CustomerLocalSync.syncNow(context)
+                    CustomerLocalSync.writePortableBackup(context)
+                }
+            }.onSuccess {
+                portableReady = true; refresh++
+                status = "Đã liên kết file đồng bộ. Từ giờ lịch tự động sẽ cập nhật file này."
+            }.onFailure { e -> status = "Không tạo được file đồng bộ: " + (e.message ?: "lỗi không xác định") }
+            busy = false
+        }
+    }
+
+    val openSyncFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true; status = "Đang khôi phục từ file đồng bộ..."
+            runCatching { withContext(Dispatchers.IO) { CustomerLocalSync.importPortableBackup(context, uri) } }
+                .onSuccess { count ->
+                    vm.reloadPersistentData(); portableReady = true; refresh++
+                    status = "Đã khôi phục " + count + " khách và liên kết lại file đồng bộ."
+                }
+                .onFailure { e -> status = "Không đọc được file đồng bộ: " + (e.message ?: "lỗi không xác định") }
+            busy = false
+        }
+    }
 
     fun doSync() {
         scope.launch {
@@ -1423,6 +1456,20 @@ private fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             Button(enabled = !busy, onClick = { doSync() }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Sync, null); Spacer(Modifier.width(8.dp)); Text("ĐỒNG BỘ NGAY", fontWeight = FontWeight.Bold)
+            }
+            Card(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = if (portableReady) Color(0xFFE6F4EA) else OrangeLight)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(if (portableReady) "FILE ĐỒNG BỘ ĐÃ LIÊN KẾT" else "CHỌN NƠI LƯU FILE ĐỒNG BỘ", color = Navy, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(if (portableReady) "File nằm ngoài dữ liệu ứng dụng nên vẫn còn khi gỡ GiaoHangPro." else "Chọn một nơi lưu bên ngoài ứng dụng. Chỉ cần chọn một lần; các phiên sau app tự cập nhật file.", color = TextGray, fontSize = 11.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(enabled = !busy, onClick = { createSyncFileLauncher.launch("GiaoHangPro_DongBoKhachHang.json") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Save, null); Spacer(Modifier.width(4.dp)); Text(if (portableReady) "ĐỔI FILE" else "TẠO FILE", fontSize = 11.sp)
+                        }
+                        OutlinedButton(enabled = !busy, onClick = { openSyncFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Restore, null); Spacer(Modifier.width(4.dp)); Text("CHỌN FILE CŨ", fontSize = 11.sp)
+                        }
+                    }
+                }
             }
             Card(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
