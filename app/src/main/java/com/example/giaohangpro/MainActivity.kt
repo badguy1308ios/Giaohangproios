@@ -2762,39 +2762,26 @@ private fun GoongOrderMap(
         }
     }
 
-    LaunchedEffect(map, orders, groupedOrderMarkers, driverLocation, selectedOrderNumber, editingStt) {
+    // Rebuild order markers only when route/order marker data changes.
+    // GPS updates and selection must not clear/recreate 100+ order markers.
+    LaunchedEffect(map, groupedOrderMarkers, editingStt) {
         map?.let { readyMap ->
             readyMap.clear()
             driverLocation?.let { point ->
-                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(createDriverMotorbikeBitmap(context))
+                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
+                    .fromBitmap(createDriverMotorbikeBitmap(context))
                 readyMap.addMarker(
                     MarkerOptions().position(LatLng(point.latitude, point.longitude)).icon(driverIcon)
                         .title("🛵 Vị trí hiện tại của tài xế").snippet("GPS đang cập nhật")
                 )
             }
-
-            // Các đơn trùng tọa độ dùng chung một mũi ghim. Cụm đang chọn được vẽ cuối
-            // để luôn nổi phía trên những marker gần kề mà không làm sai tọa độ thật.
-            val drawGroups = if (selectedOrderNumber == null) {
-                groupedOrderMarkers
-            } else {
-                groupedOrderMarkers.sortedBy { group ->
-                    group.markers.any { it.number == selectedOrderNumber }
-                }
-            }
-            drawGroups.forEach { group ->
-                val numbers = group.markers
-                    .filter { it.showNumber }
-                    .map { it.number }
-                    .distinct()
-                    .sorted()
+            groupedOrderMarkers.forEach { group ->
+                val numbers = group.markers.filter { it.showNumber }.map { it.number }.distinct().sorted()
                 val numberBitmap = (
-                    createGroupedNumberBubbleDrawable(context, group.markers, selectedOrderNumber)
+                    createGroupedNumberBubbleDrawable(context, group.markers, null)
                         as android.graphics.drawable.BitmapDrawable
                     ).bitmap
-                val numberIcon = org.maplibre.android.annotations.IconFactory
-                    .getInstance(context)
-                    .fromBitmap(numberBitmap)
+                val numberIcon = org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(numberBitmap)
                 val firstMarker = group.markers.first()
                 val numberText = numbers.joinToString(", ")
                 val groupDescription = if (group.markers.size > 1) {
@@ -2810,24 +2797,24 @@ private fun GoongOrderMap(
                     MarkerOptions()
                         .position(LatLng(group.point.latitude, group.point.longitude))
                         .icon(numberIcon)
-                        .title(
-                            "STT ${numberText.ifBlank { "—" }} • " +
-                                MAP_MARKER_GROUP_PREFIX + group.key
-                        )
+                        .title("STT ${numberText.ifBlank { "—" }} • " + MAP_MARKER_GROUP_PREFIX + group.key)
                         .snippet(groupDescription)
                 )
             }
+        }
+    }
 
-            selectedOrderNumber?.let { number ->
-                orders.firstOrNull { it.number == number }?.let { selected ->
-                    readyMap.animateCamera(
-                        CameraUpdateFactory.newLatLngZoom(
-                            LatLng(selected.point.latitude, selected.point.longitude),
-                            if (selected.hasRealCoordinate) 16.0 else 15.0
-                        )
-                    )
-                }
-            }
+    // Selection only moves the camera. It no longer rebuilds every marker.
+    LaunchedEffect(map, selectedOrderNumber) {
+        val readyMap = map ?: return@LaunchedEffect
+        val number = selectedOrderNumber ?: return@LaunchedEffect
+        orders.firstOrNull { it.number == number }?.let { selected ->
+            readyMap.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(
+                    LatLng(selected.point.latitude, selected.point.longitude),
+                    if (selected.hasRealCoordinate) 16.0 else 15.0
+                )
+            )
         }
     }
 }
