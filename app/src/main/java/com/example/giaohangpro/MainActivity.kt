@@ -1931,11 +1931,8 @@ fun MapScreen(
             val next = draft.toMutableList()
             val moving = next.removeAt(current)
             next.add((target - 1).coerceIn(0, next.size), moving)
+            // Edit STT only in the local draft. Persist/rebuild the route once when Save is pressed.
             draft = next
-            val byKey = activeGroups.associateBy { it.key }
-            val reorderedGroups = next.mapNotNull(byKey::get)
-            vm.reorderOrders(reorderedGroups.flatMap { it.orders.map(Order::code) })
-            vm.replaceRouteStt(reorderedGroups.map { it.orders.map(Order::code) })
         }
         editMarker = null
         editNumberText = ""
@@ -2239,7 +2236,7 @@ private fun BoxScope.MapOrderBottomSheet(
             ?.takeIf { it >= 0 }
             ?: selectedNumber?.let { n -> orders.indexOfFirst { it.number == n } }?.takeIf { it >= 0 }
             ?: -1
-        if (i >= 0) listState.animateScrollToItem(i)
+        if (i >= 0) listState.scrollToItem(i)
     }
     Surface(
         modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
