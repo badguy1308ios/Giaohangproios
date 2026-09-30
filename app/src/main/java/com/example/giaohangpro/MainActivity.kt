@@ -1745,8 +1745,16 @@ private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
                 else -> candidate.time >= current.time
             }
             if (shouldUse) {
+                val previous = bestLocation
                 bestLocation = candidate
-                locationState.value = MapPoint(candidate.latitude, candidate.longitude)
+
+                // LocationManager can emit GPS/NETWORK/PASSIVE callbacks many times per second.
+                // Do not wake Compose/MapLibre for tiny/no-op movements.
+                val movedEnough = previous == null || previous.distanceTo(candidate) >= 5f
+                val staleEnough = previous == null || candidate.time - previous.time >= 5_000L
+                if (movedEnough || staleEnough) {
+                    locationState.value = MapPoint(candidate.latitude, candidate.longitude)
+                }
             }
         }
 
@@ -1780,7 +1788,7 @@ private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
             // Xin cập nhật ngay. Nếu một provider không khả dụng thì provider khác vẫn tiếp tục.
             providers.forEach { provider ->
                 runCatching {
-                    manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                    manager.requestLocationUpdates(provider, 2_000L, 3f, listener, Looper.getMainLooper())
                 }
             }
         } catch (_: SecurityException) {
