@@ -2843,6 +2843,37 @@ private fun GoongOrderMap(
                         .fromBitmap(bitmap)
                 }
         }
+        // MapLibre v9 annotations không có zIndex ổn định cho Marker.
+        // Đưa marker được chọn ra cuối collection để nó được vẽ trên các marker khác,
+        // chỉ remove/add đúng 1 marker thay vì redraw toàn bản đồ.
+        selectedOrderNumber?.let { number ->
+            val selectedGroup = groupedOrderMarkers.firstOrNull { group ->
+                group.markers.any { it.number == number }
+            }
+            if (selectedGroup != null) {
+                val selectedMapMarker = readyMap.markers.firstOrNull { marker ->
+                    marker.title
+                        ?.substringAfter(MAP_MARKER_GROUP_PREFIX, "")
+                        ?.trim() == selectedGroup.key
+                }
+                if (selectedMapMarker != null) {
+                    val numbers = selectedGroup.markers.filter { it.showNumber }
+                        .map { it.number }.distinct().sorted()
+                    val bitmap = (
+                        createGroupedNumberBubbleDrawable(context, selectedGroup.markers, number)
+                            as android.graphics.drawable.BitmapDrawable
+                        ).bitmap
+                    readyMap.removeMarker(selectedMapMarker)
+                    readyMap.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(selectedGroup.point.latitude, selectedGroup.point.longitude))
+                            .icon(org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(bitmap))
+                            .title("STT ${numbers.joinToString(", ").ifBlank { "—" }} • " + MAP_MARKER_GROUP_PREFIX + selectedGroup.key)
+                            .snippet(selectedMapMarker.snippet)
+                    )
+                }
+            }
+        }
         previousSelectedNumber = selectedOrderNumber
 
         selectedOrderNumber?.let { number ->
