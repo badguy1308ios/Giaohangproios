@@ -1788,7 +1788,7 @@ private fun rememberDriverLocation(active: Boolean = true): State<MapPoint?> {
             // Xin cập nhật ngay. Nếu một provider không khả dụng thì provider khác vẫn tiếp tục.
             providers.forEach { provider ->
                 runCatching {
-                    manager.requestLocationUpdates(provider, 2_000L, 3f, listener, Looper.getMainLooper())
+                    manager.requestLocationUpdates(provider, 5_000L, 10f, listener, Looper.getMainLooper())
                 }
             }
         } catch (_: SecurityException) {
