@@ -2812,17 +2812,48 @@ private fun GoongOrderMap(
         }
     }
 
-    // Selection only moves the camera. It no longer rebuilds every marker.
-    LaunchedEffect(map, selectedOrderNumber) {
+    // Khi chọn đơn: giữ hiệu ứng marker xanh như trước nhưng chỉ cập nhật icon
+    // của cụm cũ + cụm mới, không clear/rebuild toàn bộ 100+ marker.
+    var previousSelectedNumber by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(map, selectedOrderNumber, groupedOrderMarkers) {
         val readyMap = map ?: return@LaunchedEffect
-        val number = selectedOrderNumber ?: return@LaunchedEffect
-        orders.firstOrNull { it.number == number }?.let { selected ->
-            readyMap.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(selected.point.latitude, selected.point.longitude),
-                    if (selected.hasRealCoordinate) 16.0 else 15.0
+        val affectedNumbers = setOfNotNull(previousSelectedNumber, selectedOrderNumber)
+        if (affectedNumbers.isNotEmpty()) {
+            readyMap.markers
+                .filter { marker ->
+                    val key = marker.title
+                        ?.substringAfter(MAP_MARKER_GROUP_PREFIX, "")
+                        ?.trim()
+                        .orEmpty()
+                    val group = groupedOrderMarkers.firstOrNull { it.key == key }
+                    group != null && group.markers.any { it.number in affectedNumbers }
+                }
+                .forEach { marker ->
+                    val key = marker.title
+                        ?.substringAfter(MAP_MARKER_GROUP_PREFIX, "")
+                        ?.trim()
+                        .orEmpty()
+                    val group = groupedOrderMarkers.firstOrNull { it.key == key } ?: return@forEach
+                    val bitmap = (
+                        createGroupedNumberBubbleDrawable(context, group.markers, selectedOrderNumber)
+                            as android.graphics.drawable.BitmapDrawable
+                        ).bitmap
+                    marker.icon = org.maplibre.android.annotations.IconFactory
+                        .getInstance(context)
+                        .fromBitmap(bitmap)
+                }
+        }
+        previousSelectedNumber = selectedOrderNumber
+
+        selectedOrderNumber?.let { number ->
+            orders.firstOrNull { it.number == number }?.let { selected ->
+                readyMap.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(selected.point.latitude, selected.point.longitude),
+                        if (selected.hasRealCoordinate) 16.0 else 15.0
+                    )
                 )
-            )
+            }
         }
     }
 }
