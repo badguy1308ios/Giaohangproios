@@ -1975,6 +1975,15 @@ fun MapScreen(
 
     val orderedGroups = if (editing) draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key } } else activeGroups
     val displayOrders = orderedGroups.map(::groupRepresentative)
+    // While editing, numbers must follow the draft immediately so changing STT is visible in the list/map.
+    // Outside edit mode, keep the persisted stable route numbers.
+    val displayedRouteNumbers = if (editing) {
+        orderedGroups.flatMapIndexed { index, group ->
+            group.orders.map { it.code to (index + 1) }
+        }.toMap()
+    } else {
+        stableRouteNumbers
+    }
 
     BaseMapScreen(
         active = active,
@@ -1982,7 +1991,7 @@ fun MapScreen(
         customers = vm.customers,
         anchorPoint = vm.routeAnchorPoint(),
         routeNumberingEnabled = vm.routeNumberingEnabled,
-        stableRouteNumbers = stableRouteNumbers,
+        stableRouteNumbers = displayedRouteNumbers,
         editingStt = editing,
         focusOrderCode = focusOrderCode,
         onFocusConsumed = onFocusConsumed,
@@ -2058,8 +2067,12 @@ fun MapScreen(
         },
         onSaveRoute = {
             val confirmedByKey = activeGroups.associateBy { it.key }
-            vm.learnStreetRoute(draft.mapNotNull { confirmedByKey[it]?.orders?.firstOrNull()?.code })
-            val learnedPoints = draft.mapNotNull { key -> activeGroups.firstOrNull { it.key == key }?.let(::deliveryGroupPoint) }
+            val savedGroups = draft.mapNotNull(confirmedByKey::get)
+            // Draft edits are intentionally cheap; persist the final order only once when Save is pressed.
+            vm.reorderOrders(savedGroups.flatMap { it.orders.map(Order::code) })
+            vm.replaceRouteStt(savedGroups.map { it.orders.map(Order::code) })
+            vm.learnStreetRoute(savedGroups.mapNotNull { it.orders.firstOrNull()?.code })
+            val learnedPoints = savedGroups.mapNotNull(::deliveryGroupPoint)
             vm.learnRoutePattern(learnedPoints)
             editMarker = null
             editNumberText = ""
