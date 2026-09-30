@@ -40,6 +40,22 @@ class DialerActivity : Activity() {
         root.addView(Button(this).apply { text="GỌI"; textSize=20f; setOnClickListener { placeCall() } })
         root.addView(Button(this).apply { text="ĐẶT GIAOHANGPRO LÀM ỨNG DỤNG GỌI MẶC ĐỊNH"; setOnClickListener { requestDialerRole() } })
         setContentView(root)
+
+        // Lần mở Dialer đầu tiên, yêu cầu Android chọn ứng dụng Điện thoại mặc định.
+        // Chỉ tự hỏi một lần để không làm phiền người dùng.
+        maybeRequestDefaultDialerOnFirstOpen()
+    }
+
+    private fun maybeRequestDefaultDialerOnFirstOpen() {
+        val prefs = getSharedPreferences("giaohangpro_dialer", MODE_PRIVATE)
+        if (prefs.getBoolean("asked_default_dialer", false)) return
+        val telecom = getSystemService(TelecomManager::class.java)
+        if (telecom.defaultDialerPackage == packageName) {
+            prefs.edit().putBoolean("asked_default_dialer", true).apply()
+            return
+        }
+        prefs.edit().putBoolean("asked_default_dialer", true).apply()
+        requestDialerRole()
     }
 
     private fun requestDialerRole() {
