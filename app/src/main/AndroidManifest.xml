@@ -23,6 +23,7 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".dialer.InCallActivity" android:exported="false" android:excludeFromRecents="true" android:showOnLockScreen="true" android:turnScreenOn="true" />
         <activity android:name=".dialer.DialerActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
