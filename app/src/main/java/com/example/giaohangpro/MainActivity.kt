@@ -2119,6 +2119,35 @@ fun MapScreen(
     )
 }
 
+private data class CustomerMapLookup(
+    val phone: Map<String, Pair<Int, Customer>>,
+    val name: Map<String, Pair<Int, Customer>>,
+    val address: Map<String, Pair<Int, Customer>>
+) {
+    fun find(order: Order): Customer? {
+        val orderPhone = order.phone.filter(Char::isDigit)
+        val orderName = order.customer.trim().lowercase(java.util.Locale.ROOT)
+        val orderAddress = order.address.trim().lowercase(java.util.Locale.ROOT)
+        return listOfNotNull(
+            phone[orderPhone],
+            name[orderName],
+            address[orderAddress]
+        ).minByOrNull { it.first }?.second
+    }
+}
+
+private fun buildCustomerMapLookup(customers: List<Customer>): CustomerMapLookup {
+    val byPhone = mutableMapOf<String, Pair<Int, Customer>>()
+    val byName = mutableMapOf<String, Pair<Int, Customer>>()
+    val byAddress = mutableMapOf<String, Pair<Int, Customer>>()
+    customers.forEachIndexed { index, customer ->
+        byPhone.putIfAbsent(customer.phone.filter(Char::isDigit), index to customer)
+        byName.putIfAbsent(customer.name.trim().lowercase(java.util.Locale.ROOT), index to customer)
+        byAddress.putIfAbsent(customer.address.trim().lowercase(java.util.Locale.ROOT), index to customer)
+    }
+    return CustomerMapLookup(byPhone, byName, byAddress)
+}
+
 @Composable
 private fun BaseMapScreen(
     active: Boolean,
@@ -2149,16 +2178,26 @@ private fun BaseMapScreen(
     var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
 
-    val mappedOrders = remember(orders, customers, driverLocation, anchorPoint, routeNumberingEnabled, stableRouteNumbers) {
+    // Snapshot the first live GPS point only for orders without a real coordinate.
+    // Later GPS updates move only the driver marker; they must not rebuild every order marker.
+    var pendingOrdersGpsAnchor by remember { mutableStateOf<MapPoint?>(null) }
+    LaunchedEffect(driverLocation) {
+        if (pendingOrdersGpsAnchor == null && driverLocation != null) {
+            pendingOrdersGpsAnchor = driverLocation
+        }
+    }
+    val pendingOrdersPoint = anchorPoint ?: pendingOrdersGpsAnchor ?: DEFAULT_MAP_POINT
+
+    // Build indexed customer lookups once per customer-list change instead of scanning
+    // the whole customer list again for every order on each recomposition.
+    val customerLookup = remember(customers) { buildCustomerMapLookup(customers) }
+
+    val mappedOrders = remember(orders, customerLookup, pendingOrdersPoint, routeNumberingEnabled, stableRouteNumbers) {
         orders.mapIndexed { index, order ->
             val orderPoint = pointFromStrings(order.latitude, order.longitude)
-            val customerPoint = customers.firstOrNull {
-                it.phone.filter(Char::isDigit) == order.phone.filter(Char::isDigit) ||
-                    it.name.equals(order.customer, ignoreCase = true) ||
-                    it.address.equals(order.address, ignoreCase = true)
-            }?.let { pointFromStrings(it.latitude, it.longitude) }
+            val customerPoint = customerLookup.find(order)?.let { pointFromStrings(it.latitude, it.longitude) }
             val realPoint = orderPoint ?: customerPoint
-            val displayPoint = realPoint ?: anchorPoint ?: driverLocation ?: DEFAULT_MAP_POINT
+            val displayPoint = realPoint ?: pendingOrdersPoint
             MapOrderMarker(
                 order,
                 displayPoint,
@@ -2651,6 +2690,7 @@ private data class MapOrderMarkerGroup(
 )
 
 private const val MAP_MARKER_GROUP_PREFIX = "GHP_MAP_GROUP:"
+private const val DRIVER_MARKER_TITLE = "🛵 Vị trí hiện tại của tài xế"
 
 private fun mapMarkerGroupKey(marker: MapOrderMarker): String {
     // Chỉ gom các điểm có tọa độ thật. Đơn chưa có tọa độ đang tạm nằm tại GPS tài xế
@@ -2693,6 +2733,10 @@ private fun GoongOrderMap(
     }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var didInitialDriverFocus by remember { mutableStateOf(false) }
+    val driverIcon = remember(context) {
+        org.maplibre.android.annotations.IconFactory.getInstance(context)
+            .fromBitmap(createDriverMotorbikeBitmap(context))
+    }
     val groupedOrderMarkers = remember(orders) { groupMapOrderMarkers(orders) }
     val currentGroupedOrderMarkers by rememberUpdatedState(groupedOrderMarkers)
     val currentSelectedOrderNumber by rememberUpdatedState(selectedOrderNumber)
@@ -2779,12 +2823,23 @@ private fun GoongOrderMap(
     }
 
     LaunchedEffect(map, driverLocation) {
-        val readyMap = map
-        val point = driverLocation
-        if (!didInitialDriverFocus && readyMap != null && point != null) {
+        val readyMap = map ?: return@LaunchedEffect
+        val point = driverLocation ?: return@LaunchedEffect
+
+        if (!didInitialDriverFocus) {
             readyMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(point.latitude, point.longitude), 16.0))
             didInitialDriverFocus = true
         }
+
+        // GPS updates touch only the driver marker. Order markers stay intact.
+        readyMap.markers.firstOrNull { it.title == DRIVER_MARKER_TITLE }?.let(readyMap::removeMarker)
+        readyMap.addMarker(
+            MarkerOptions()
+                .position(LatLng(point.latitude, point.longitude))
+                .icon(driverIcon)
+                .title(DRIVER_MARKER_TITLE)
+                .snippet("GPS đang cập nhật")
+        )
     }
 
     // Rebuild order markers only when route/order marker data changes.
@@ -2793,11 +2848,9 @@ private fun GoongOrderMap(
         map?.let { readyMap ->
             readyMap.clear()
             driverLocation?.let { point ->
-                val driverIcon = org.maplibre.android.annotations.IconFactory.getInstance(context)
-                    .fromBitmap(createDriverMotorbikeBitmap(context))
                 readyMap.addMarker(
                     MarkerOptions().position(LatLng(point.latitude, point.longitude)).icon(driverIcon)
-                        .title("🛵 Vị trí hiện tại của tài xế").snippet("GPS đang cập nhật")
+                        .title(DRIVER_MARKER_TITLE).snippet("GPS đang cập nhật")
                 )
             }
             groupedOrderMarkers.forEach { group ->
