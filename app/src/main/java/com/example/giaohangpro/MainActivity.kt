@@ -4054,6 +4054,7 @@ fun CustomerListScreen(
             .any { phone -> matchesPhoneSearch(phone, query) }
         query.isBlank() || // Nếu chưa nhập gì thì giữ nguyên toàn bộ danh sách.
             normalizeCustomerSearch(customer.name).contains(nameQuery) || // Cho phép tìm theo tên, không phân biệt hoa/thường.
+            normalizeCustomerSearch(customer.streetName).contains(nameQuery) || // Cho phép lọc theo Tên Đường đã lưu, không phân biệt hoa/thường/dấu.
             matchesAnyPhone || // Tìm cả SĐT chính/phụ với dạng 0, 84, +84 và ký tự phân cách.
             customer.address.contains(query, ignoreCase = true) // Cho phép tìm theo địa chỉ.
     }
@@ -4117,7 +4118,7 @@ private fun CustomerSearchBox( // Ô tìm kiếm có giao diện giống ảnh t
             .heightIn(min = 52.dp), // Đặt chiều cao tối thiểu để ô trông lớn, dễ chạm.
         placeholder = { // Nội dung gợi ý khi chưa nhập.
             Text(
-                text = "Tìm tên, SĐT, địa chỉ", // Đúng nội dung gợi ý theo yêu cầu UI.
+                text = "Tìm tên, SĐT, địa chỉ, tên đường", // Đúng nội dung gợi ý theo yêu cầu UI.
                 color = TextGray, // Dùng màu xám xanh cho chữ gợi ý.
                 fontSize = 15.sp // Cỡ chữ gần với ảnh mẫu.
             )
