@@ -36,3 +36,18 @@ Không sửa tools/, dependency, giao diện hoặc quy tắc STT.
 6. Chọn/lưu/hủy tọa độ ở khách hàng và cài đặt; dẫn đường Google Maps.
 
 Build thành công không thay thế kiểm tra GPS và tương tác thực tế trên thiết bị.
+
+## Sửa lỗi thao tác xuyên tab sau Build #30
+
+Video `1000093276.mp4` cho thấy Google Maps mở khi tab Chi tiết đơn đang hiển thị.
+MapView đã được ẩn, nhưng các nút Compose của danh sách bản đồ vẫn còn được đặt
+phía sau tab khác. Callback dẫn đường chưa kiểm tra tab bản đồ có đang hoạt động.
+
+- Không đặt toàn bộ nội dung bản đồ khi tab bị ẩn để loại khỏi hit testing;
+  vẫn giữ composition, MapView và trạng thái cuộn/chọn/sửa STT.
+- Callback mở dẫn đường, mở đơn, chọn STT và marker kiểm tra trạng thái tab mới nhất.
+- Không thay đổi hành vi nút dẫn đường khi người dùng đang ở tab Bản đồ.
+
+Hải thử chạm và cuộn vùng trống bên dưới đơn đã lọc ở Chi tiết đơn, tương tự
+video; thử thêm vùng trống ở Khách hàng. Google Maps không được tự mở.
+Sau đó quay lại Bản đồ, kiểm tra vị trí/zoom/STT còn giữ và nút dẫn đường vẫn mở được.

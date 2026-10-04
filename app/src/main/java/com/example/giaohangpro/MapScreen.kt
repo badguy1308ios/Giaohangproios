@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.*
@@ -310,6 +311,7 @@ private fun BaseMapScreen(
     onImportStt: () -> Unit
 ) {
     val context = LocalContext.current
+    val currentActive by rememberUpdatedState(active)
     val driverLocation by rememberDriverLocation(active)
     var selectedOrderCode by remember { mutableStateOf<String?>(null) }
     var mapExpanded by remember { mutableStateOf(false) }
@@ -354,7 +356,14 @@ private fun BaseMapScreen(
         onFocusConsumed()
     }
 
-    Column(Modifier.fillMaxSize().background(Background)) {
+    // Keep map/list state composed while changing tabs, but do not place hidden
+    // content: unplaced children cannot receive touches through an overlay tab.
+    Column(Modifier.fillMaxSize().background(Background).layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) {
+            if (active) placeable.placeRelative(0, 0)
+        }
+    }) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GoongOrderMap(
                 modifier = Modifier.fillMaxSize(),
@@ -366,8 +375,10 @@ private fun BaseMapScreen(
                 editingStt = editingStt,
                 onToggleExpand = { mapExpanded = !mapExpanded },
                 onOrderSelected = { marker ->
-                    selectedOrderCode = marker.order.code
-                    if (editingStt) onEditStt(marker)
+                    if (currentActive) {
+                        selectedOrderCode = marker.order.code
+                        if (editingStt) onEditStt(marker)
+                    }
                 }
             )
 
@@ -377,10 +388,12 @@ private fun BaseMapScreen(
                     selectedNumber = selectedMarker?.number,
                     selectedOrderCode = selectedOrderCode,
                     editingStt = editingStt,
-                    onOrderClick = { marker -> if (!editingStt) onOpenOrder(marker.order.code) },
+                    onOrderClick = { marker -> if (currentActive && !editingStt) onOpenOrder(marker.order.code) },
                     onNumberClick = { marker ->
-                        selectedOrderCode = marker.order.code
-                        if (editingStt) onEditStt(marker)
+                        if (currentActive) {
+                            selectedOrderCode = marker.order.code
+                            if (editingStt) onEditStt(marker)
+                        }
                     },
                     editingCode = editingCode,
                     editingNumberText = editingNumberText,
@@ -388,10 +401,12 @@ private fun BaseMapScreen(
                     onCommitEdit = onCommitEdit,
                     onCancelEdit = onCancelEdit,
                     onNavigate = { marker ->
-                        if (marker.hasRealCoordinate) {
-                            openGoogleNavigation(context, marker.point)
-                        } else {
-                            Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
+                        if (currentActive) {
+                            if (marker.hasRealCoordinate) {
+                                openGoogleNavigation(context, marker.point)
+                            } else {
+                                Toast.makeText(context, "Đơn này chưa có tọa độ. Hãy bổ sung trong Khách hàng.", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     },
                     onCreateRoute = onCreateRoute,

@@ -311,6 +311,7 @@ internal fun GoongOrderMap(
                                 .target(LatLng(DEFAULT_MAP_POINT.latitude, DEFAULT_MAP_POINT.longitude))
                                 .zoom(14.0).build()
                             readyMap.setOnMarkerClickListener { clicked ->
+                                if (!currentActive) return@setOnMarkerClickListener true
                                 val groupKey = clicked.title
                                     ?.substringAfter(MAP_MARKER_GROUP_PREFIX, "")
                                     ?.trim()
