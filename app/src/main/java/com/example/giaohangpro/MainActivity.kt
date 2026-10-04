@@ -363,11 +363,15 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                     focusOrderCode = mapFocusOrderCode,
                     onFocusConsumed = { mapFocusOrderCode = null },
                     onOpenOrder = { code ->
-                        returnOrderCode = code
-                        returnOrderCustomerId = buildDeliveryGroups(vm.orders, vm.customers)
-                            .firstOrNull { group -> group.orders.any { it.code == code } }
-                            ?.customer?.id
-                        tab = Tab.ORDERS
+                        // MapScreen stays composed behind other tabs to keep MapView warm.
+                        // Ignore any stray/background map-list click unless the Map tab is actually active.
+                        if (tab == Tab.MAP) {
+                            returnOrderCode = code
+                            returnOrderCustomerId = buildDeliveryGroups(vm.orders, vm.customers)
+                                .firstOrNull { group -> group.orders.any { it.code == code } }
+                                ?.customer?.id
+                            tab = Tab.ORDERS
+                        }
                     }
                 )
 
