@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -2940,7 +2941,8 @@ fun CustomerDetailScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             CustomerDetailContent(
                 customer = customer,
-                modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp)
+                modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                onPhotoClick = { showPhotoMenu = true }
             ) {
                 CustomerSideActions(
                     modifier = Modifier.padding(bottom = 3.dp),
@@ -3042,40 +3044,32 @@ private fun DetailActionButton(label: String, icon: androidx.compose.ui.graphics
 private fun CustomerDetailContent(
     customer: Customer,
     modifier: Modifier = Modifier,
+    onPhotoClick: () -> Unit,
     actions: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-    val bitmap = remember(context, customer.photoUri) {
-        if (customer.photoUri.isBlank()) null else runCatching {
-            val uri = android.net.Uri.parse(customer.photoUri)
-            when (uri.scheme) {
-                "file" -> android.graphics.BitmapFactory.decodeFile(uri.path)
-                else -> context.contentResolver.openInputStream(uri)?.use(android.graphics.BitmapFactory::decodeStream)
-            }
-        }.getOrNull()
-    }
+    val photo by rememberGatePhoto(customer.photoUri)
+    val bitmap = photo.bitmap
     Column(modifier.verticalScroll(rememberScrollState()).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Card(
-            Modifier.fillMaxWidth().then(
+            Modifier.fillMaxWidth().clickable(onClick = onPhotoClick).then(
                 if (bitmap != null) Modifier.aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat())
                 else Modifier.height(306.dp)
             ), RoundedCornerShape(14.dp),
             CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)
         ) {
             Box(Modifier.fillMaxSize()) {
-                if (customer.photoUri.isNotBlank()) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER } },
-                        update = { imageView ->
-                            if (bitmap != null) imageView.setImageBitmap(bitmap) else imageView.setImageDrawable(null)
-                        }
-                    )
+                if (bitmap != null) {
+                    Image(bitmap.asImageBitmap(), "Cổng nhà khách", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else if (photo.loading) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
                 } else {
                     Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Storefront, "Cổng nhà khách", tint = Orange, modifier = Modifier.size(122.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text("Hình cổng nhà khách", color = TextGray, fontSize = 13.sp)
+                        Text(
+                            if (customer.photoUri.isBlank()) "Hình cổng nhà khách" else "Không đọc được ảnh. Chạm để chọn lại.",
+                            color = TextGray, fontSize = 13.sp
+                        )
                     }
                 }
 
@@ -3427,19 +3421,19 @@ private fun CompactInput(label: String, value: String, onValueChange: (String) -
 
 @Composable
 private fun CustomerPhotoCard(photoUri: String = "") {
-    val context = LocalContext.current
+    val photo by rememberGatePhoto(photoUri)
+    val bitmap = photo.bitmap
     Card(modifier = Modifier.fillMaxWidth().height(150.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (photoUri.isNotBlank()) {
-                AndroidView(
-                    factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP } },
-                    update = { image -> runCatching { image.setImageURI(android.net.Uri.parse(photoUri)) }.onFailure { image.setImageDrawable(null) } },
-                    modifier = Modifier.fillMaxSize()
-                )
+            if (bitmap != null) {
+                Image(bitmap.asImageBitmap(), "Cổng nhà khách", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else if (photo.loading) {
+                CircularProgressIndicator()
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Storefront, "Ảnh khách hàng", tint = Orange, modifier = Modifier.size(54.dp))
-                    Spacer(Modifier.height(4.dp)); Text("Hình cổng nhà khách", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(if (photoUri.isBlank()) "Hình cổng nhà khách" else "Không đọc được ảnh. Bấm nút ảnh để chọn lại.", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
