@@ -23,3 +23,17 @@ Hải thử đúng khách bị lỗi trong video: mở ảnh, bấm Sửa, Hủy
 sau đó thử khách đang hoạt động tốt. Nếu ảnh đã mất hoặc không còn quyền đọc,
 bộ tải ảnh không thể phục hồi nội dung: cần chọn lại ảnh hoặc khôi phục bản sao có ảnh.
 Nếu vẫn crash, cần log lỗi runtime để xác định nguyên nhân còn lại.
+
+## Kiểm tra tiếp ngày 08/10
+
+- Ảnh mới chọn từ thư viện được sao chép nguyên nội dung vào filesDir, xác nhận
+  kích thước ảnh trước khi hoàn tất. Nếu không sao chép được, giữ ảnh cũ.
+- Đọc EXIF để ảnh camera hiển thị đúng chiều; chỉ xoay ảnh xem trước đã lấy mẫu.
+- Form Sửa lấy ảnh từ bản nháp địa chỉ chính. Chuyển địa chỉ chính, chọn/chụp/xóa ảnh
+  và lưu đều dùng ảnh tương ứng; địa chỉ phụ giữ ảnh của chính nó.
+- Chờ sao chép ảnh xong mới cho Lưu/chuyển địa chỉ chính/xóa địa chỉ để tránh lưu
+  quá sớm hoặc gán nhầm ảnh trong lúc tác vụ nền đang chạy.
+
+Hải kiểm tra: chọn ảnh, lưu, đóng/mở app; ảnh dọc; chuyển địa chỉ chính rồi lưu
+và đổi lại; thử khách trước đó mất ảnh. Ảnh cũ đã bị xóa/mất quyền đọc không thể
+phục hồi chỉ bằng đổi bộ tải ảnh; cần bản sao có ảnh hoặc chọn ảnh lại.

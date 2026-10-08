@@ -2894,6 +2894,7 @@ fun CustomerDetailScreen(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val photoScope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPhotoMenu by remember { mutableStateOf(false) }
 
@@ -2905,7 +2906,11 @@ fun CustomerDetailScreen(
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
-        onPhotoChanged(uri.toString())
+        photoScope.launch {
+            val stored = storeGatePhoto(context, uri)
+            if (stored != null) onPhotoChanged(stored)
+            else Toast.makeText(context, "Không lưu được ảnh đã chọn. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
+        }
     }
 
     var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -3150,7 +3155,21 @@ fun CustomerFormScreen(
     var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
     var streetName by remember(customer?.id) { mutableStateOf(customer?.streetName.orEmpty()) }
     var note by remember(customer?.id) { mutableStateOf(customer?.note.orEmpty()) }
-    var photoUri by remember(customer?.id) { mutableStateOf(customer?.photoUri.orEmpty()) }
+    val addresses = remember(customer?.id) {
+        mutableStateListOf<AddressDraft>().apply {
+            if (customer == null) add(AddressDraft("", "", "", true)) else {
+                add(AddressDraft(customer.address, customer.latitude, customer.longitude, true, customer.photoUri))
+                addAll(customer.extraAddresses.map { AddressDraft(it.address, it.latitude, it.longitude, false, it.photoUri) })
+            }
+        }
+    }
+    val photoUri = addresses.firstOrNull { it.isPrimary }?.photoUri.orEmpty()
+    var importingPhoto by remember { mutableStateOf(false) }
+    val photoScope = rememberCoroutineScope()
+    fun setPrimaryPhoto(uri: String) {
+        val index = addresses.indexOfFirst { it.isPrimary }
+        if (index >= 0) addresses[index] = addresses[index].copy(photoUri = uri)
+    }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     var expandedPhone by remember { mutableStateOf<Int?>(null) }
     var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
@@ -3161,10 +3180,17 @@ fun CustomerFormScreen(
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        photoUri = uri.toString()
+        importingPhoto = true
+        photoScope.launch {
+            try {
+                val stored = storeGatePhoto(context, uri)
+                if (stored != null) setPrimaryPhoto(stored)
+                else Toast.makeText(context, "Không lưu được ảnh đã chọn. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
+            } finally { importingPhoto = false }
+        }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) pendingCameraUri?.let { photoUri = it.toString() }
+        if (ok) pendingCameraUri?.let { setPrimaryPhoto(it.toString()) }
         pendingCameraUri = null
     }
 
@@ -3176,24 +3202,18 @@ fun CustomerFormScreen(
             }
         }
     }
-    val addresses = remember(customer?.id) {
-        mutableStateListOf<AddressDraft>().apply {
-            if (customer == null) add(AddressDraft("", "", "", true)) else {
-                add(AddressDraft(customer.address, customer.latitude, customer.longitude, true, customer.photoUri))
-                addAll(customer.extraAddresses.map { AddressDraft(it.address, it.latitude, it.longitude, false, it.photoUri) })
-            }
-        }
-    }
+
 
     Column(Modifier.fillMaxSize().background(Background)) {
         CustomerPageHeader(if (customer == null) "THÊM KHÁCH HÀNG" else "SỬA KHÁCH HÀNG", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Box {
                 CustomerPhotoCard(photoUri)
-                Surface(Modifier.align(Alignment.BottomStart).padding(8.dp).size(38.dp).clickable { showFormPhotoMenu = true }, CircleShape, color = Orange) {
+                Surface(Modifier.align(Alignment.BottomStart).padding(8.dp).size(38.dp).clickable(enabled = !importingPhoto) { showFormPhotoMenu = true }, CircleShape, color = Orange) {
                     Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, "Quản lý ảnh", tint = Color.White, modifier = Modifier.size(19.dp)) }
                 }
             }
+            if (importingPhoto) Text("Đang lưu ảnh…", color = TextGray, fontSize = 12.sp)
             names.forEachIndexed { index, value ->
                 Row(verticalAlignment = Alignment.Bottom) {
                     Box(Modifier.weight(1f)) { CompactInput(if (index == 0) "Tên khách hàng" else "Tên / biệt danh", value, { v -> names[index] = v; if (index == 0) name = v }, if (index == 0) "Nhập tên khách hàng" else "Nhập tên hoặc biệt danh") }
@@ -3232,11 +3252,11 @@ fun CustomerFormScreen(
                 Card(Modifier.fillMaxWidth(), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = Color.White), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
                     Column(Modifier.padding(4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = item.isPrimary, onCheckedChange = { checked -> if (checked) addresses.indices.forEach { i -> addresses[i] = addresses[i].copy(isPrimary = i == index) } }, modifier = Modifier.size(34.dp))
+                            Checkbox(checked = item.isPrimary, enabled = !importingPhoto, onCheckedChange = { checked -> if (checked) addresses.indices.forEach { i -> addresses[i] = addresses[i].copy(isPrimary = i == index) } }, modifier = Modifier.size(34.dp))
                             Spacer(Modifier.width(3.dp))
                             OutlinedTextField(value = item.address, onValueChange = { addresses[index] = item.copy(address = it) }, modifier = Modifier.weight(1f), singleLine = true, placeholder = { Text("Địa chỉ", fontSize = 12.sp) })
                             SmallPlusMinus(plus = true) { addresses.add(index + 1, AddressDraft("", "", "", false)) }
-                            if (addresses.size > 1) SmallPlusMinus(plus = false) {
+                            if (addresses.size > 1 && !importingPhoto) SmallPlusMinus(plus = false) {
                                 val wasPrimary = addresses[index].isPrimary; addresses.removeAt(index)
                                 if (wasPrimary && addresses.isNotEmpty()) addresses[0] = addresses[0].copy(isPrimary = true)
                             }
@@ -3295,9 +3315,9 @@ fun CustomerFormScreen(
                 val validPhones = phones.filter { it.number.isNotBlank() }; val validAddresses = addresses.filter { it.address.isNotBlank() }
                 if (name.isBlank() || validPhones.isEmpty() || validAddresses.isEmpty()) validation = true else {
                     val primaryAddress = validAddresses.firstOrNull { it.isPrimary } ?: validAddresses.first(); val primaryPhone = validPhones.first()
-                    onSave(Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), streetName = streetName.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = photoUri))
+                    onSave(Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), streetName = streetName.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = primaryAddress.photoUri))
                 }
-            }, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("LƯU", fontWeight = FontWeight.Bold) }
+            }, enabled = !importingPhoto, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("LƯU", fontWeight = FontWeight.Bold) }
             OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
         }
     }
@@ -3313,7 +3333,7 @@ fun CustomerFormScreen(
                 val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
                 pendingCameraUri = uri; cameraLauncher.launch(uri)
             }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Chụp ảnh mới") }
-            FilledTonalButton(onClick = { photoUri = ""; showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE21B1B)); Spacer(Modifier.width(6.dp)); Text("Xóa ảnh", color = Color(0xFFE21B1B)) }
+            FilledTonalButton(onClick = { setPrimaryPhoto(""); showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE21B1B)); Spacer(Modifier.width(6.dp)); Text("Xóa ảnh", color = Color(0xFFE21B1B)) }
         } }, confirmButton = {}, dismissButton = { TextButton(onClick = { showFormPhotoMenu = false }) { Text("Hủy") } }
     )
 
