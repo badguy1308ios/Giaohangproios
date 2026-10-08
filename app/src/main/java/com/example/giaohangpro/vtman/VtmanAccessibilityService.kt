@@ -509,14 +509,14 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
 
         val strings = root.collectStrings()
-        val phonePickerVisible = strings.any { it.contains("Chọn số điện thoại để gọi", true) }
+        val phonePickerVisible = strings.any(VtmanPhonePicker::isTitle)
         val currentPackage = root.packageName?.toString()
         val outsideVtman = currentPackage != pkg
 
         // Khi có bảng chọn nhiều số, chỉ đọc các node nằm dưới tiêu đề popup.
         // Không quét toàn màn hình vì nền phía sau có thể chứa SĐT của MVĐ khác.
         val phoneStrings = when {
-            phonePickerVisible -> root.collectPhonePickerStringsTopToBottom()
+            phonePickerVisible -> emptyList()
             outsideVtman -> root.collectStringsTopToBottom()
             else -> emptyList()
         }
@@ -534,7 +534,9 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
         if (phoneSurfaceSeenAt == 0L) phoneSurfaceSeenAt = now
 
-        val phone = VtmanFixedBlockParser.findPhone(phoneStrings)
+        val phone = if (phonePickerVisible) {
+            VtmanPhonePicker.firstPhone(root.collectPhonePickerTexts())
+        } else VtmanFixedBlockParser.findPhone(phoneStrings)
         if (phone.isNullOrBlank()) {
             if (now > deadline) {
                 retryCurrentOrFail(mv, "Không đọc được SĐT của $mv", returnToVtman = true)
@@ -608,19 +610,23 @@ class VtmanAccessibilityService : AccessibilityService() {
 
     private fun waitPhonePickerDismissed(root: AccessibilityNodeInfo) {
         val now = System.currentTimeMillis()
-        val pickerVisible = root.collectStrings()
-            .any { it.contains("Chọn số điện thoại để gọi", true) }
+        val pickerVisible = root.collectStrings().any(VtmanPhonePicker::isTitle)
         if (pickerVisible) {
             if (now > returnDeadline) {
                 VtmanQueueController.fail("Đã lấy SĐT nhưng không đóng được danh sách số")
                 mode = 0
                 return
             }
-            if (now >= nextBackAt) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                nextBackAt = now + 700L
-            }
+            // Exactly one Back was already sent when accepting the first phone.
+            // Wait for dismissal; a second Back can leave Gạch phát offline.
             schedule(180)
+            return
+        }
+        if (root.packageName?.toString() != pkg) {
+            if (now > returnDeadline) {
+                VtmanQueueController.fail("Đã đóng danh sách số nhưng chưa thấy màn hình VTMan. Mở Gạch phát offline rồi bấm Chạy.")
+                mode = 0
+            } else schedule(180)
             return
         }
 
@@ -885,31 +891,21 @@ class VtmanAccessibilityService : AccessibilityService() {
             .map(PositionedText::value)
     }
 
-    private fun AccessibilityNodeInfo.collectPhonePickerStringsTopToBottom(): List<String> {
-        data class PositionedText(val top: Int, val bottom: Int, val left: Int, val order: Int, val value: String)
-        val out = mutableListOf<PositionedText>()
-        var order = 0
-        fun walk(n: AccessibilityNodeInfo) {
-            val bounds = Rect().also(n::getBoundsInScreen)
-            sequenceOf(n.text?.toString(), n.contentDescription?.toString(), n.hintText?.toString())
+    private fun AccessibilityNodeInfo.collectPhonePickerTexts(): List<VtmanScreenText> {
+        val out = mutableListOf<VtmanScreenText>()
+        fun walk(node: AccessibilityNodeInfo) {
+            val bounds = Rect().also(node::getBoundsInScreen)
+            sequenceOf(node.text?.toString(), node.contentDescription?.toString(), node.hintText?.toString())
                 .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
-                .forEach { out += PositionedText(bounds.top, bounds.bottom, bounds.left, order++, it) }
-            for (i in 0 until n.childCount) {
-                val child = n.getChild(i) ?: continue
+                .forEach { out += VtmanScreenText(it, bounds.left, bounds.top, bounds.right, bounds.bottom) }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
                 walk(child)
                 child.recycle()
             }
         }
         walk(this)
-        val title = out
-            .filter { it.value.contains("Chọn số điện thoại để gọi", true) }
-            .minByOrNull(PositionedText::top)
-            ?: return emptyList()
-        return out.asSequence()
-            .filter { it.top >= title.bottom - 2 && !it.value.contains("Chọn số điện thoại để gọi", true) }
-            .sortedWith(compareBy<PositionedText> { it.top }.thenBy { it.left }.thenBy { it.order })
-            .map(PositionedText::value)
-            .toList()
+        return out
     }
 
     private fun List<VtmanScreenText>.recipientRowCenterY(expectedWaybill: String, customer: String): Float? {
