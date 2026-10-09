@@ -129,7 +129,8 @@ fun MapScreen(
     BaseMapScreen(
         active = active,
         orders = displayOrders,
-        customers = vm.customers,
+        // Immutable snapshot: remember must invalidate when a customer's saved fix changes.
+        customers = vm.customers.toList(),
         anchorPoint = vm.routeAnchorPoint(),
         routeNumberingEnabled = vm.routeNumberingEnabled,
         stableRouteNumbers = displayedRouteNumbers,
@@ -332,9 +333,8 @@ private fun BaseMapScreen(
 
     val mappedOrders = remember(orders, customerLookup, pendingOrdersPoint, routeNumberingEnabled, stableRouteNumbers) {
         orders.mapIndexed { index, order ->
-            val orderPoint = pointFromStrings(order.latitude, order.longitude)
-            val customerPoint = customerLookup.find(order)?.let { pointFromStrings(it.latitude, it.longitude) }
-            val realPoint = orderPoint ?: customerPoint
+            val (lat, lng) = CustomerCoordinateSafety.preferredCoordinates(customerLookup.find(order), order.latitude, order.longitude)
+            val realPoint = pointFromStrings(lat, lng)
             val displayPoint = realPoint ?: pendingOrdersPoint
             MapOrderMarker(
                 order,

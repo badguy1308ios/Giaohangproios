@@ -410,7 +410,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                     if (returnOrderCode != null) tab = Tab.ORDERS
                 },
                 onEdit = { formIsNew = false; screen = AppScreen.CUSTOMER_FORM },
-                onPhotoChanged = { uri -> vm.updateCustomer(c.copy(photoUri = uri)) },
+                onPhotoChanged = { uri -> vm.updateCustomerPhoto(c.id, uri) },
                 onDelete = { vm.deleteCustomer(c.id); selectedCustomerId = null; screen = AppScreen.MAIN }
             )
         }
@@ -419,9 +419,16 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
             streetNameOptions = vm.streetNames,
             onStreetNameCreated = vm::addStreetName,
             onBack = { screen = if (formIsNew) AppScreen.MAIN else AppScreen.CUSTOMER_DETAIL },
-            onSave = { edited ->
-                selectedCustomerId = if (formIsNew) vm.addCustomer(edited) else { vm.updateCustomer(edited); edited.id }
-                screen = AppScreen.CUSTOMER_DETAIL
+            onSave = { edited, original ->
+                if (formIsNew) {
+                    selectedCustomerId = vm.addCustomer(edited)
+                    screen = AppScreen.CUSTOMER_DETAIL
+                } else if (original != null && vm.updateCustomer(edited, original)) {
+                    selectedCustomerId = edited.id
+                    screen = AppScreen.CUSTOMER_DETAIL
+                } else {
+                    android.widget.Toast.makeText(context, "Khách đã thay đổi trong lúc sửa. Hãy mở lại để tránh ghi đè dữ liệu mới.", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
         )
         AppScreen.SETTINGS -> SettingsScreen(
@@ -1555,9 +1562,10 @@ private fun uiNormPhone(raw: String): String {
 internal data class DeliveryGroup(val key: String, val customer: Customer?, val orders: List<Order>)
 
 internal fun deliveryGroupPoint(group: DeliveryGroup): MapPoint? {
+    val c = group.customer
+    c?.let { pointFromStrings(it.latitude, it.longitude) }?.let { return it }
     group.orders.firstNotNullOfOrNull { pointFromStrings(it.latitude, it.longitude) }?.let { return it }
-    val c = group.customer ?: return null
-    pointFromStrings(c.latitude, c.longitude)?.let { return it }
+    if (c == null) return null
     c.extraAddresses.firstNotNullOfOrNull { pointFromStrings(it.latitude, it.longitude) }?.let { return it }
     return null
 }
@@ -1597,12 +1605,13 @@ private fun groupMoneyText(group: DeliveryGroup): String = fmtMoney(group.orders
 internal fun groupRepresentative(group: DeliveryGroup): Order {
     val first = group.orders.first()
     val c = group.customer
+    val coordinates = CustomerCoordinateSafety.preferredCoordinates(c, first.latitude, first.longitude)
     return first.copy(
         customer = c?.name ?: first.customer,
         phone = c?.phone ?: first.phone,
         address = c?.address?.takeIf(String::isNotBlank) ?: first.address,
-        latitude = c?.latitude?.takeIf(String::isNotBlank) ?: first.latitude,
-        longitude = c?.longitude?.takeIf(String::isNotBlank) ?: first.longitude,
+        latitude = coordinates.first,
+        longitude = coordinates.second,
         amount = groupMoneyText(group),
         item = if (group.orders.size > 1) "${group.orders.size} MVĐ" else first.item
     )
@@ -3149,8 +3158,11 @@ fun CustomerFormScreen(
     streetNameOptions: List<String> = emptyList(),
     onStreetNameCreated: (String) -> Unit = {},
     onBack: () -> Unit,
-    onSave: (Customer) -> Unit
+    onSave: (Customer, Customer?) -> Unit
 ) {
+    val original = remember(customer?.id) { customer }
+    var pendingCoordinateSave by remember(customer?.id) { mutableStateOf<Customer?>(null) }
+    var coordinateError by remember(customer?.id) { mutableStateOf(false) }
     val context = LocalContext.current
     var name by remember(customer?.id) { mutableStateOf(customer?.name.orEmpty()) }
     var streetName by remember(customer?.id) { mutableStateOf(customer?.streetName.orEmpty()) }
@@ -3263,41 +3275,8 @@ fun CustomerFormScreen(
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             fun setCoord(raw: String, latitudeField: Boolean) {
-                                // Có thể paste cả cặp vào BẤT KỲ ô nào. App tự lấy 2 số đầu tiên,
-                                // nhận diện vĩ độ/kinh độ theo miền giá trị và gán đúng hai textbox.
-                                // Ví dụ hợp lệ: "10.796597, 106.950227", "106.950227 10.796597"
-                                // hoặc chuỗi có nhãn như "Vĩ độ: 10.796597 Kinh độ: 106.950227".
-                                val text = raw.trim()
-                                val values = Regex("""[-+]?\d{1,3}(?:[.,]\d+)?""")
-                                    .findAll(text)
-                                    .map { it.value.replace(',', '.') }
-                                    .toList()
-
-                                if (values.size >= 2) {
-                                    val firstText = values[0]
-                                    val secondText = values[1]
-                                    val first = firstText.toDoubleOrNull()
-                                    val second = secondText.toDoubleOrNull()
-
-                                    val latLng = when {
-                                        first != null && second != null && kotlin.math.abs(first) <= 90.0 && kotlin.math.abs(second) <= 180.0 -> firstText to secondText
-                                        first != null && second != null && kotlin.math.abs(second) <= 90.0 && kotlin.math.abs(first) <= 180.0 -> secondText to firstText
-                                        else -> null
-                                    }
-
-                                    if (latLng != null) {
-                                        addresses[index] = addresses[index].copy(
-                                            latitude = latLng.first,
-                                            longitude = latLng.second
-                                        )
-                                        return
-                                    }
-                                }
-
-                                // Nếu chỉ nhập một tọa độ thì giữ toàn bộ số, không giới hạn độ dài.
-                                val value = text.replace(',', '.')
-                                if (latitudeField) addresses[index] = addresses[index].copy(latitude = value)
-                                else addresses[index] = addresses[index].copy(longitude = value)
+                                val (lat, lng) = CustomerCoordinateSafety.input(raw, latitudeField, addresses[index].latitude, addresses[index].longitude)
+                                addresses[index] = addresses[index].copy(latitude = lat, longitude = lng)
                             }
                             OutlinedTextField(item.latitude, { setCoord(it, true) }, Modifier.weight(1f), singleLine = true, label = { Text("Vĩ độ", fontSize = 10.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                             OutlinedTextField(item.longitude, { setCoord(it, false) }, Modifier.weight(1f), singleLine = true, label = { Text("Kinh độ", fontSize = 10.sp) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
@@ -3308,6 +3287,7 @@ fun CustomerFormScreen(
             }
 
             CompactInput("Ghi chú", note, { note = it }, "Ghi chú", singleLine = false, minLines = 2)
+            if (coordinateError) Text("Tọa độ phải đủ cả vĩ độ và kinh độ hợp lệ, hoặc để trống cả hai.", color = Color(0xFFE21B1B), fontSize = 12.sp)
             if (validation) Text("Cần nhập tên, ít nhất 1 SĐT và 1 địa chỉ.", color = Color(0xFFE21B1B), fontSize = 12.sp)
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3315,11 +3295,34 @@ fun CustomerFormScreen(
                 val validPhones = phones.filter { it.number.isNotBlank() }; val validAddresses = addresses.filter { it.address.isNotBlank() }
                 if (name.isBlank() || validPhones.isEmpty() || validAddresses.isEmpty()) validation = true else {
                     val primaryAddress = validAddresses.firstOrNull { it.isPrimary } ?: validAddresses.first(); val primaryPhone = validPhones.first()
-                    onSave(Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), streetName = streetName.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = primaryAddress.photoUri))
+                    val edited = Customer(id = customer?.id ?: 0L, name = name.trim(), phone = primaryPhone.number.trim(), address = primaryAddress.address.trim(), streetName = streetName.trim(), latitude = primaryAddress.latitude.trim(), longitude = primaryAddress.longitude.trim(), initials = createInitials(name), aliases = names.drop(1).map { it.trim() }.filter { it.isNotBlank() }, extraPhones = validPhones.drop(1).map { CustomerPhone(it.number.trim(), if (it.canCall) "Gọi" else if (it.canZalo) "Zalo" else "SMS", it.canCall, it.canZalo, it.canSms) }, extraAddresses = validAddresses.filter { it !== primaryAddress }.map { CustomerAddress(it.address.trim(), it.latitude.trim(), it.longitude.trim(), false, it.photoUri) }, note = note.trim(), primaryCanCall = primaryPhone.canCall, primaryCanZalo = primaryPhone.canZalo, primaryCanSms = primaryPhone.canSms, photoUri = primaryAddress.photoUri)
+                    // Existing malformed legacy coordinates may be preserved by unrelated edits.
+                    val positions = CustomerCoordinateSafety.positions(edited)
+                    val oldPositions = original?.let(CustomerCoordinateSafety::positions).orEmpty()
+                    coordinateError = positions.any { (lat, lng) ->
+                        (lat.isNotBlank() || lng.isNotBlank()) && !CustomerCoordinateSafety.valid(lat, lng) && (lat to lng) !in oldPositions
+                    }
+                    if (!coordinateError) {
+                        if (original != null && positions != oldPositions) pendingCoordinateSave = edited
+                        else onSave(edited, original)
+                    }
                 }
             }, enabled = !importingPhoto, modifier = Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("LƯU", fontWeight = FontWeight.Bold) }
             OutlinedButton(onClick = onBack, modifier = Modifier.height(42.dp), shape = RoundedCornerShape(14.dp)) { Text("Hủy") }
         }
+    }
+
+    pendingCoordinateSave?.let { edited ->
+        fun describe(value: Customer): String = CustomerCoordinateSafety.positions(value).mapIndexed { index, (lat, lng) ->
+            "${if (index == 0) "Chính" else "Phụ $index"}: ${if (lat.isBlank() && lng.isBlank()) "Chưa có tọa độ" else "$lat, $lng"}"
+        }.joinToString("\n")
+        AlertDialog(
+            onDismissRequest = { pendingCoordinateSave = null },
+            title = { Text("Xác nhận đổi tọa độ khách") },
+            text = { Text("Đã lưu:\n${describe(requireNotNull(original))}\n\nSẽ lưu:\n${describe(edited)}", modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { pendingCoordinateSave = null; onSave(edited, original) }) { Text("Đổi tọa độ và lưu") } },
+            dismissButton = { TextButton(onClick = { pendingCoordinateSave = null }) { Text("Quay lại kiểm tra") } }
+        )
     }
 
     if (showFormPhotoMenu) AlertDialog(
@@ -3851,13 +3854,20 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         customerState.add(customer.copy(id=newId)); savePersistentData(); return newId
     }
 
-    fun updateCustomer(updatedCustomer: Customer) {
-        val index=customerState.indexOfFirst { it.id==updatedCustomer.id }
-        if(index>=0){
-            addStreetName(updatedCustomer.streetName)
-            customerState[index]=updatedCustomer
-            savePersistentData()
-        }
+    fun updateCustomerPhoto(id: Long, uri: String) {
+        val index = customerState.indexOfFirst { it.id == id }
+        if (index < 0) return
+        customerState[index] = CustomerCoordinateSafety.updatePhoto(customerState[index], uri)
+        savePersistentData()
+    }
+
+    fun updateCustomer(updatedCustomer: Customer, original: Customer): Boolean {
+        val index = customerState.indexOfFirst { it.id == updatedCustomer.id }
+        if (index < 0 || !CustomerCoordinateSafety.canSave(customerState[index], original)) return false
+        addStreetName(updatedCustomer.streetName)
+        customerState[index] = updatedCustomer
+        savePersistentData()
+        return true
     }
 
     fun deleteCustomer(id: Long) { if(customerState.removeAll { it.id==id }) savePersistentData() }
@@ -4111,8 +4121,9 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                         val a = addrArr.optJSONObject(j) ?: continue
                         val ad = a.optString("address", "").trim()
                         if (ad.isBlank()) continue
-                        val lat = if (a.has("lat") && !a.isNull("lat")) a.optDouble("lat").takeIf { !it.isNaN() }?.toString().orEmpty() else ""
-                        val lng = if (a.has("lng") && !a.isNull("lng")) a.optDouble("lng").takeIf { !it.isNaN() }?.toString().orEmpty() else ""
+                        val rawLat = if (a.isNull("lat")) "" else a.optString("lat", "").trim()
+                        val rawLng = if (a.isNull("lng")) "" else a.optString("lng", "").trim()
+                        val (lat, lng) = CustomerCoordinateSafety.fillEmptyPair("", "", rawLat, rawLng)
                         add(InAddr(ad, lat, lng, a.optBoolean("primary", false), importPhoto(a.optString("housePhoto", ""))))
                     }
                 }
@@ -4172,21 +4183,26 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                     val extrasAddr = c.extraAddresses.toMutableList()
                     importedAddresses.forEach { a ->
                         if (normText(a.address) == normText(mainAddress) && mainAddress.isNotBlank()) {
-                            if (mainLat.isBlank() && a.lat.isNotBlank()) { mainLat = a.lat; changed = true }
-                            if (mainLng.isBlank() && a.lng.isNotBlank()) { mainLng = a.lng; changed = true }
+                            val coordinates = CustomerCoordinateSafety.fillEmptyPair(mainLat, mainLng, a.lat, a.lng)
+                            if (coordinates != (mainLat to mainLng)) {
+                                mainLat = coordinates.first; mainLng = coordinates.second; changed = true
+                            }
                             if (a.photo.isNotBlank() && a.photo != mainPhoto) { mainPhoto = a.photo; changed = true }
                         } else {
                             val ai = extrasAddr.indexOfFirst { normText(it.address) == normText(a.address) }
                             if (ai >= 0) {
                                 val old = extrasAddr[ai]
+                                val coordinates = CustomerCoordinateSafety.fillEmptyPair(old.latitude, old.longitude, a.lat, a.lng)
                                 val nw = old.copy(
-                                    latitude = if (old.latitude.isBlank()) a.lat else old.latitude,
-                                    longitude = if (old.longitude.isBlank()) a.lng else old.longitude,
+                                    latitude = coordinates.first,
+                                    longitude = coordinates.second,
                                     photoUri = if (a.photo.isNotBlank()) a.photo else old.photoUri
                                 )
                                 if (nw != old) { extrasAddr[ai] = nw; changed = true }
                             } else if (mainAddress.isBlank()) {
-                                mainAddress = a.address; mainLat = a.lat; mainLng = a.lng; mainPhoto = a.photo; changed = true
+                                mainAddress = a.address
+                                val coordinates = CustomerCoordinateSafety.fillEmptyPair(mainLat, mainLng, a.lat, a.lng)
+                                mainLat = coordinates.first; mainLng = coordinates.second; mainPhoto = a.photo; changed = true
                             } else {
                                 extrasAddr.add(CustomerAddress(a.address, a.lat, a.lng, false, a.photo)); changed = true
                             }
@@ -4200,7 +4216,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                     if (changed) {
                         c = c.copy(
                             aliases = aliases, extraPhones = extrasPhones, extraAddresses = extrasAddr,
-                            latitude = mainLat, longitude = mainLng, photoUri = mainPhoto, note = mergedNote,
+                            address = mainAddress, latitude = mainLat, longitude = mainLng, photoUri = mainPhoto, note = mergedNote,
                             primaryCanCall = primaryCall, primaryCanZalo = primaryZalo, primaryCanSms = primarySms
                         )
                         merged[idx] = c
@@ -4210,6 +4226,9 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             }
             tempRoot.deleteRecursively()
             CustomerBackupResult(arr.length(), added, updated, arr.length() - added - updated, imageCount, missingImages) to merged
+        }
+        check(CustomerCoordinateSafety.unchangedSinceImport(customerState.toList(), existing)) {
+            "Dữ liệu khách đã thay đổi trong lúc nhập. Chưa ghi đè khách nào; hãy nhập lại ZIP."
         }
         customerState.clear(); customerState.addAll(pair.second); savePersistentData()
         return pair.first
