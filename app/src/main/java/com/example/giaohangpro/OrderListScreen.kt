@@ -533,5 +533,3 @@ fun OrderListScreen(
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("HỦY") } }
     )
 }
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
