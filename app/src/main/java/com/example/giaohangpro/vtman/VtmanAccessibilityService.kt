@@ -371,19 +371,17 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun readBlock(root: AccessibilityNodeInfo, mv: String) {
-        val allStrings=root.collectStrings()
-        if (allStrings.any { it.contains("không có dữ liệu",true) || it.contains("không tìm thấy đơn",true) }) {
-            skipNoDataAndContinue(mv)
-            return
-        }
-
         // Bỏ nội dung ô Search ra khỏi dữ liệu kết quả. Nếu màn hình rỗng thì MVĐ chỉ tồn tại
         // trong ô Search; không được xem đó là một đơn hợp lệ để bấm nút gọi.
         val resultStrings=root.collectResultStrings()
         val hasCurrentResult=resultStrings.any { VtmanFixedBlockParser.containsExpectedWaybill(it,mv) }
         if (!hasCurrentResult) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
-            skipNoDataAndContinue(mv)
+            val explicitlyEmpty = resultStrings.any {
+                it.trim().equals("không có dữ liệu", true) || it.trim().equals("không tìm thấy đơn", true)
+            }
+            if (explicitlyEmpty) skipNoDataAndContinue(mv)
+            else retryCurrentOrFail(mv, "Chưa đọc được kết quả $mv; giữ lại mã để thử lại")
             return
         }
 
@@ -933,7 +931,8 @@ class VtmanAccessibilityService : AccessibilityService() {
                             left = bounds.left,
                             top = bounds.top,
                             right = bounds.right,
-                            bottom = bounds.bottom
+                            bottom = bounds.bottom,
+                            isButton = n.className?.toString()?.endsWith("Button") == true
                         )
                     }
                 }

@@ -5,7 +5,8 @@ data class VtmanScreenText(
     val left: Int,
     val top: Int,
     val right: Int,
-    val bottom: Int
+    val bottom: Int,
+    val isButton: Boolean = false
 )
 
 object VtmanFixedBlockParser {
@@ -22,7 +23,7 @@ object VtmanFixedBlockParser {
         "(?<![\\p{L}\\p{N}])(?:đường|phường|xã|huyện|quận|khu|ấp|tđc)(?![\\p{L}\\p{N}])|(?<![\\p{L}\\p{N}])(?:tp|t|h|đ|x)\\.(?=[\\p{L}]|[\\s\\u00A0]+\\S)|@",
         RegexOption.IGNORE_CASE
     )
-    private val screenNoise = listOf("gạch phát offline", "danh sách phát", "phát thành công", "đồng bộ đơn hàng", "đồng bộ gần nhất", "thành công")
+    private val screenNoise = listOf("gạch phát offline", "danh sách phát", "phát thành công", "đồng bộ đơn hàng", "đồng bộ gần nhất")
 
     /**
      * Đọc theo cấu trúc 5 hàng hiển thị ngay dưới đúng MVĐ:
@@ -47,11 +48,6 @@ object VtmanFixedBlockParser {
                 }.thenBy { it.top }
             ) ?: return null
 
-        val successTop = nodes.asSequence()
-            .filter { it.top > header.bottom + 8 && it.value.equals("Thành công", true) }
-            .map(VtmanScreenText::top)
-            .minOrNull() ?: Int.MAX_VALUE
-
         // Search đôi khi còn để lộ 2 card cùng lúc. Nếu chỉ cắt theo nút
         // "Thành công", dữ liệu card kế tiếp có thể lọt vào card hiện tại.
         // Dùng hàng TT của đơn kế tiếp làm biên cứng thứ hai.
@@ -73,6 +69,19 @@ object VtmanFixedBlockParser {
                     .map(VtmanScreenText::top)
                     .minOrNull() ?: statusNode.top
             }
+            .minOrNull() ?: Int.MAX_VALUE
+
+        // A shop/customer may literally be named "Thành công". Only a button
+        // or a label after the four content rows can terminate the card.
+        val successTop = nodes.asSequence()
+            .filter { it.top > header.bottom + 8 && it.top < nextOrderTop && it.value.equals("Thành công", true) }
+            .filter { candidate ->
+                candidate.isButton || nodes.count {
+                    it.top >= header.bottom && it.top < candidate.top &&
+                        !isHeaderOrNoise(it.value, expectedWaybill)
+                } >= 4
+            }
+            .map(VtmanScreenText::top)
             .minOrNull() ?: Int.MAX_VALUE
 
         val blockEndTop = minOf(successTop, nextOrderTop)
@@ -104,10 +113,8 @@ object VtmanFixedBlockParser {
                     statusRegex.matches(it.trim()) ||
                     isStandaloneMoneyLine(it) ||
                     looksLikeCodLine(it) ||
-                    it.equals("Thành công", true) ||
                     isScreenNoise(it)
             }
-            .distinct()
             .toList()
 
         if (rowValues.size < 4) return null
@@ -141,8 +148,11 @@ object VtmanFixedBlockParser {
         } ?: return null
 
         val following = cleaned.drop(start + 1)
-        val completionOffset = following.indexOfFirst { it.equals("Thành công", true) }
-        val completionEnd = if (completionOffset >= 0) start + completionOffset + 2 else cleaned.size
+        val completionOffset = following.indices.firstOrNull { index ->
+            following[index].equals("Thành công", true) &&
+                following.take(index).count { !isHeaderOrNoise(it, expectedWaybill) } >= 4
+        }
+        val completionEnd = if (completionOffset != null) start + completionOffset + 1 else cleaned.size
         // Fallback chữ chỉ dùng khi parser theo tọa độ không đủ dữ liệu. Vẫn khóa
         // khối tại TT của đơn kế tiếp sau tối thiểu 4 trường nội dung để tránh lấy chéo.
         val nextOrderStart = cleaned.indices
@@ -276,6 +286,10 @@ object VtmanFixedBlockParser {
         val tokens = serviceTokens(line)
         return tokens.isNotEmpty() && tokens.all { serviceCodeRegex.matches(it) }
     }
+
+    private fun isHeaderOrNoise(value: String, expectedWaybill: String): Boolean =
+        containsExpectedWaybill(value, expectedWaybill) || statusRegex.containsMatchIn(value) ||
+            isStandaloneMoneyLine(value) || looksLikeCodLine(value) || isScreenNoise(value)
 
     private fun isScreenNoise(value: String): Boolean {
         val v = value.trim()
