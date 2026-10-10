@@ -39,4 +39,3 @@ internal fun orderStatusColor(status: String): Color = when (normalizeOrderStatu
     "TT505", "TT515" -> Color(0xFFD32F2F)
     else -> Color(0xFF1976D2)
 }
-

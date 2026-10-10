@@ -151,7 +151,7 @@ private fun CopyableWaybillCode(
 }
 
 @Composable
-internal fun GroupedOrderDetail(
+private fun GroupedOrderDetail(
     order: Order,
     delivered: Boolean,
     onCustomerClick: () -> Unit
@@ -408,4 +408,3 @@ fun RowScope.ActionButton(
         }
     }
 }
-

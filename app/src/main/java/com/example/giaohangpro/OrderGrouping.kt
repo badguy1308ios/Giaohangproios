@@ -54,4 +54,3 @@ internal fun groupRepresentative(group: DeliveryGroup): Order {
         item = if (group.orders.size > 1) "${group.orders.size} MVĐ" else first.item
     )
 }
-
