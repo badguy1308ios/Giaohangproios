@@ -371,6 +371,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun readBlock(root: AccessibilityNodeInfo, mv: String) {
+        val allStrings = root.collectStrings()
         // Bỏ nội dung ô Search ra khỏi dữ liệu kết quả. Nếu màn hình rỗng thì MVĐ chỉ tồn tại
         // trong ô Search; không được xem đó là một đơn hợp lệ để bấm nút gọi.
         val resultStrings=root.collectResultStrings()
