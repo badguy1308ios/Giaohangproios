@@ -15,7 +15,7 @@ object VtmanFixedBlockParser {
     private val standaloneMoneyRegex = Regex("^\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]\\s*$", RegexOption.IGNORE_CASE)
     private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH|GGC|GGDH|GG1P|PTTX|GBP)$", RegexOption.IGNORE_CASE)
     private val genericServiceCodeRegex = Regex("^[A-Z][A-Z0-9]{1,9}$")
-    private val waybillLikeRegex = Regex("(?<![A-Z0-9])([A-Z0-9]{8,24})(?![A-Z0-9])", RegexOption.IGNORE_CASE)
+    private val waybillLikeRegex = Regex("(?<![A-Z0-9-])([A-Z0-9]+(?:-[A-Z0-9]+)*)(?![A-Z0-9-])", RegexOption.IGNORE_CASE)
     // Match address words, not arbitrary substrings in a shop/customer name.
     // Abbreviations need a separator or a place name: "H.Long Thành" is a hint,
     // while the shop "H.1998 Áo Thun" is not.
@@ -63,7 +63,7 @@ object VtmanFixedBlockParser {
                         val center = (candidate.top + candidate.bottom) / 2
                         kotlin.math.abs(center - statusCenter) <= 36 &&
                             waybillLikeRegex.findAll(candidate.value).any { match ->
-                                match.value.any { ch -> ch.isDigit() }
+                                VtmanWaybillCodes.isValid(match.value)
                             }
                     }
                     .map(VtmanScreenText::top)
@@ -300,7 +300,7 @@ object VtmanFixedBlockParser {
         val w = expectedWaybill.trim()
         if (w.isBlank()) return false
         return Regex(
-            "(?<![\\p{L}\\p{N}])${Regex.escape(w)}(?![\\p{L}\\p{N}])",
+            "(?<![\\p{L}\\p{N}-])${Regex.escape(w)}(?![\\p{L}\\p{N}-])",
             RegexOption.IGNORE_CASE
         ).containsMatchIn(value)
     }

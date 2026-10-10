@@ -782,30 +782,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun List<VtmanScreenText>.visibleWaybillCodes(): List<String> {
-        val codeRegex = Regex("^[A-Z0-9]{8,24}$", RegexOption.IGNORE_CASE)
-        val combinedRegex = Regex(
-            "(?<![A-Z0-9])([A-Z0-9]{8,24})\\s+TT\\s*(?:500|505|506|507|508|515)\\b",
-            RegexOption.IGNORE_CASE
-        )
-        val statusRegex = Regex("^TT\\s*(?:500|505|506|507|508|515)$", RegexOption.IGNORE_CASE)
-        val nodes = sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
-        val out = linkedSetOf<String>()
-
-        nodes.forEachIndexed { index, node ->
-            combinedRegex.find(node.value)?.groupValues?.getOrNull(1)?.uppercase()?.let(out::add)
-            if (statusRegex.matches(node.value.trim())) {
-                val centerY = (node.top + node.bottom) / 2
-                nodes.take(index).asReversed().firstOrNull { candidate ->
-                    val value = candidate.value.trim()
-                    val candidateCenterY = (candidate.top + candidate.bottom) / 2
-                    candidate.left < node.left &&
-                        kotlin.math.abs(candidateCenterY - centerY) <= 32 &&
-                        codeRegex.matches(value) &&
-                        value.any(Char::isDigit)
-                }?.value?.trim()?.uppercase()?.let(out::add)
-            }
-        }
-        return out.toList()
+        return VtmanWaybillCodes.visible(this)
     }
 
     private fun AccessibilityNodeInfo.performListScroll(action: Int): Boolean {

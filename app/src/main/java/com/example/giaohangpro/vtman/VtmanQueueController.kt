@@ -100,19 +100,7 @@ object VtmanQueueController {
     @Synchronized fun hasLoadedWaybills(): Boolean = queue.getOrNull(index) != null
 
     @Synchronized fun importWaybillsFromCsv(text: String): Int {
-        val codes = text.lineSequence()
-            .map { line ->
-                val raw = line.trim().removePrefix("\uFEFF")
-                val first = if (raw.startsWith("\"")) {
-                    raw.drop(1).substringBefore("\"").replace("\"\"", "\"")
-                } else raw.substringBefore(',').substringBefore(';')
-                first.trim().uppercase()
-            }
-            .filter { it.isNotBlank() }
-            .filterNot { it in setOf("MA_VAN_DON", "MÃ VẬN ĐƠN", "MVĐ", "MVD", "WAYBILL") }
-            .filter { code -> code.length in 8..24 && code.any(Char::isDigit) && code.all { it.isLetterOrDigit() } }
-            .distinct()
-            .toList()
+        val codes = VtmanWaybillCodes.fromCsv(text)
         if (codes.isEmpty()) {
             fail("File CSV không có MVĐ hợp lệ")
             return 0
