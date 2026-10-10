@@ -388,8 +388,9 @@ class VtmanAccessibilityService : AccessibilityService() {
 
         // Không đọc ngay lúc card vừa đổi MVĐ: UI VTMan có thể cập nhật từng hàng,
         // tạo một khoảnh khắc MVĐ mới nhưng shop/khách/hàng hóa vẫn là card cũ.
+        val elements = root.collectResultElements()
         val positioned = root.collectResultPositionedTexts()
-        val currentSignature = positioned
+        val currentSignature = elements.toString() + positioned
             .sortedWith(compareBy<VtmanScreenText> { it.top }.thenBy { it.left })
             .joinToString("\u001E") { "${it.top}:${it.left}:${it.value}" }
         if (resultStableWaybill != mv || currentSignature != resultStableSignature) {
@@ -408,24 +409,14 @@ class VtmanAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Nếu Accessibility đã thấy đúng MVĐ bằng tọa độ thì CHỈ dùng parser theo card.
-        // Không fallback sang parser toàn màn hình khi card đang thiếu hàng, vì đó là
-        // đường dễ kéo shop/khách/hàng hóa của MVĐ bên cạnh vào đơn hiện tại.
-        val hasPositionedCurrent = positioned.any {
-            VtmanFixedBlockParser.containsExpectedWaybill(it.value, mv)
-        }
-        val rec = if (hasPositionedCurrent) {
-            VtmanFixedBlockParser.parsePositioned(positioned, mv)
-        } else {
-            VtmanFixedBlockParser.parse(resultStrings, mv)
-        }
+        val rec = VtmanIconBlockParser.parse(elements, mv)
         if (rec==null || rec.shop.isBlank() || rec.customer.isBlank() || rec.address.isBlank() ||
             rec.goods.isBlank() || rec.status.isBlank() || rec.cod.isBlank()) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
             // A matching order is visible. A parsing failure is not an empty result:
             // retain the current queue item so Chạy retries it instead of losing it.
             val missing = buildList {
-                if (rec == null) add("khối đơn")
+                if (rec == null) add("4 khối icon shop/khách/địa chỉ/hàng hóa (trợ năng thấy ${elements.count { it.image }} phần tử ảnh)")
                 else {
                     if (rec.shop.isBlank()) add("tên shop")
                     if (rec.customer.isBlank()) add("tên khách")
@@ -443,11 +434,8 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Không dùng Y cố định của đơn đầu tiên: khi Search còn nhiều block, tọa độ đó
-        // có thể bấm nút gọi của MVĐ khác. Giữ X do người dùng chọn nhưng khóa Y theo
-        // đúng hàng người nhận của MVĐ hiện tại.
+        // Search shows one order without scrolling. Use the exact point Hải selected.
         val p=VtmanQueueController.callPoint() ?: run { VtmanQueueController.fail("Chưa chọn nút gọi"); mode=0; return }
-        val callY = positioned.recipientRowCenterY(mv, rec.customer) ?: p.y
 
         // Popup cũ phải được đóng trước khi bấm. Nếu không, số của đơn trước có thể
         // bị nhận là số của đơn đang xử lý.
@@ -470,7 +458,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         phoneCandidate = ""
         phoneCandidateSince = 0L
         phoneSurfaceSeenAt = 0L
-        if (!tap(p.x,callY)) {
+        if (!tap(p.x,p.y)) {
             retryCurrentOrFail(mv, "Không bấm được nút gọi của $mv")
             return
         }
@@ -884,16 +872,28 @@ class VtmanAccessibilityService : AccessibilityService() {
         return out
     }
 
-    private fun List<VtmanScreenText>.recipientRowCenterY(expectedWaybill: String, customer: String): Float? {
-        val headerBottom = asSequence()
-            .filter { VtmanFixedBlockParser.containsExpectedWaybill(it.value, expectedWaybill) }
-            .minByOrNull(VtmanScreenText::top)
-            ?.bottom
-            ?: return null
-        return asSequence()
-            .filter { it.top >= headerBottom - 2 && it.value.trim() == customer.trim() }
-            .minByOrNull(VtmanScreenText::top)
-            ?.let { (it.top + it.bottom) / 2f }
+    private fun AccessibilityNodeInfo.collectResultElements(): List<VtmanElement> {
+        val out = mutableListOf<VtmanElement>()
+        fun walk(node: AccessibilityNodeInfo, parent: Int) {
+            if (node.isEditable) return
+            val bounds = Rect().also(node::getBoundsInScreen)
+            val className = node.className?.toString().orEmpty()
+            val visible = node.isVisibleToUser && !bounds.isEmpty
+            val image = className.endsWith("ImageView") || className.endsWith("ImageButton")
+            val index = out.size
+            out += VtmanElement(
+                parent, bounds.left, bounds.top, bounds.right, bounds.bottom,
+                text = if (visible && !image) node.text?.toString()?.trim().orEmpty() else "",
+                image = visible && image
+            )
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child, index)
+                child.recycle()
+            }
+        }
+        walk(this, -1)
+        return out
     }
 
     private fun AccessibilityNodeInfo.collectResultPositionedTexts(): List<VtmanScreenText> {

@@ -227,7 +227,7 @@ object VtmanFixedBlockParser {
         )
     }
 
-    private fun findCod(block: List<String>, expectedWaybill: String): String {
+    internal fun findCod(block: List<String>, expectedWaybill: String): String {
         // 1) Chính xác nhất: tiền nằm trên dòng chứa đúng MVĐ hiện tại.
         val onWaybillRow = block.asSequence()
             .filter { containsExpectedWaybill(it, expectedWaybill) }
