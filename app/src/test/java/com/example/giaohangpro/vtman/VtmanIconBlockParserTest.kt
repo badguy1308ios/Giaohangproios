@@ -45,7 +45,7 @@ class VtmanIconBlockParserTest {
         assertEquals("VIÊN Xương khớp hộp lớn", record.goods)
         assertEquals("COD,PXD", record.service)
         assertEquals("TT505", record.status)
-        assertEquals("350000", record.cod)
+        assertEquals("350,000đ", record.cod)
     }
     @Test fun absentServiceIsAllowed() {
         val record = VtmanIconBlockParser.parse(snapshot(service = false), code)!!
