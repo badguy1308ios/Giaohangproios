@@ -361,19 +361,7 @@ fun GiaoHangApp(vm: MainViewModel = viewModel()) {
                             onDeliveryFocusNext = { order -> mapFocusOrderCode = order.code },
                             onCustomerClick = { order ->
                                 returnOrderCode = order.code
-                                fun normalizedPhone(raw: String): String {
-                                    val digits = raw.filter(Char::isDigit)
-                                    return when {
-                                        digits.startsWith("0084") -> "0" + digits.drop(4)
-                                        digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
-                                        else -> digits
-                                    }
-                                }
-                                val wanted = normalizedPhone(order.phone)
-                                val customer = vm.customers.firstOrNull { c ->
-                                    normalizedPhone(c.phone) == wanted ||
-                                        c.extraPhones.any { normalizedPhone(it.number) == wanted }
-                                }
+                                val customer = vm.findCustomerByPhone(order.phone)
                                 if (customer != null) {
                                     selectedCustomerId = customer.id
                                     screen = AppScreen.CUSTOMER_DETAIL
@@ -1550,14 +1538,7 @@ private fun SettingsItem(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 private fun SettingsDivider() { HorizontalDivider(Modifier.padding(horizontal = 8.dp), thickness = 0.5.dp, color = Border) }
 
 
-private fun uiNormPhone(raw: String): String {
-    val digits = raw.filter(Char::isDigit)
-    return when {
-        digits.startsWith("0084") && digits.length > 4 -> "0" + digits.drop(4)
-        digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
-        else -> digits
-    }
-}
+private fun uiNormPhone(raw: String): String = CustomerPhoneLookup.normalize(raw)
 
 internal data class DeliveryGroup(val key: String, val customer: Customer?, val orders: List<Order>)
 
@@ -1573,17 +1554,12 @@ internal fun deliveryGroupPoint(group: DeliveryGroup): MapPoint? {
 private fun deliveryGroupHasCoordinate(group: DeliveryGroup): Boolean = deliveryGroupPoint(group) != null
 
 internal fun buildDeliveryGroups(orders: List<Order>, customers: List<Customer>): List<DeliveryGroup> {
-    val customerByPhone = mutableMapOf<String, Customer>()
-    customers.forEach { c ->
-        (listOf(c.phone) + c.extraPhones.map { it.number }).forEach { raw ->
-            uiNormPhone(raw).takeIf(String::isNotBlank)?.let { customerByPhone[it] = c }
-        }
-    }
+    val customerByPhone = CustomerPhoneLookup(customers)
     val grouped = linkedMapOf<String, MutableList<Order>>()
     val customerForKey = mutableMapOf<String, Customer?>()
     orders.forEach { order ->
         val normalizedPhone = uiNormPhone(order.phone)
-        val customer = customerByPhone[normalizedPhone]
+        val customer = customerByPhone.find(order.phone)
         val key = when {
             customer != null -> "C:${customer.id}"
             normalizedPhone.isNotBlank() -> "P:$normalizedPhone"
@@ -3810,22 +3786,9 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
 
     fun reloadPersistentData() { loadPersistentData() }
 
-    private fun normalizeCustomerPhone(raw: String): String {
-        val digits = raw.filter(Char::isDigit)
-        return when {
-            digits.startsWith("0084") && digits.length > 4 -> "0" + digits.drop(4)
-            digits.startsWith("84") && digits.length >= 10 -> "0" + digits.drop(2)
-            else -> digits
-        }
-    }
+    private fun normalizeCustomerPhone(raw: String): String = CustomerPhoneLookup.normalize(raw)
 
-    fun findCustomerByPhone(phone: String): Customer? {
-        val wanted = normalizeCustomerPhone(phone)
-        if (wanted.isBlank()) return null
-        return customerState.firstOrNull { customer ->
-            normalizeCustomerPhone(customer.phone) == wanted || customer.extraPhones.any { normalizeCustomerPhone(it.number) == wanted }
-        }
-    }
+    fun findCustomerByPhone(phone: String): Customer? = CustomerPhoneLookup(customerState.toList()).find(phone)
 
     fun ensureCustomerFromImportedOrder(name: String, phone: String, address: String): Customer? {
         val normalized = normalizeCustomerPhone(phone)

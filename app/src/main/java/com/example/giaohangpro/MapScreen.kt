@@ -129,8 +129,6 @@ fun MapScreen(
     BaseMapScreen(
         active = active,
         orders = displayOrders,
-        // Immutable snapshot: remember must invalidate when a customer's saved fix changes.
-        customers = vm.customers.toList(),
         anchorPoint = vm.routeAnchorPoint(),
         routeNumberingEnabled = vm.routeNumberingEnabled,
         stableRouteNumbers = displayedRouteNumbers,
@@ -257,40 +255,10 @@ fun MapScreen(
     )
 }
 
-private data class CustomerMapLookup(
-    val phone: Map<String, Pair<Int, Customer>>,
-    val name: Map<String, Pair<Int, Customer>>,
-    val address: Map<String, Pair<Int, Customer>>
-) {
-    fun find(order: Order): Customer? {
-        val orderPhone = order.phone.filter(Char::isDigit)
-        val orderName = order.customer.trim().lowercase(java.util.Locale.ROOT)
-        val orderAddress = order.address.trim().lowercase(java.util.Locale.ROOT)
-        return listOfNotNull(
-            phone[orderPhone],
-            name[orderName],
-            address[orderAddress]
-        ).minByOrNull { it.first }?.second
-    }
-}
-
-private fun buildCustomerMapLookup(customers: List<Customer>): CustomerMapLookup {
-    val byPhone = mutableMapOf<String, Pair<Int, Customer>>()
-    val byName = mutableMapOf<String, Pair<Int, Customer>>()
-    val byAddress = mutableMapOf<String, Pair<Int, Customer>>()
-    customers.forEachIndexed { index, customer ->
-        byPhone.putIfAbsent(customer.phone.filter(Char::isDigit), index to customer)
-        byName.putIfAbsent(customer.name.trim().lowercase(java.util.Locale.ROOT), index to customer)
-        byAddress.putIfAbsent(customer.address.trim().lowercase(java.util.Locale.ROOT), index to customer)
-    }
-    return CustomerMapLookup(byPhone, byName, byAddress)
-}
-
 @Composable
 private fun BaseMapScreen(
     active: Boolean,
     orders: List<Order>,
-    customers: List<Customer>,
     anchorPoint: MapPoint?,
     routeNumberingEnabled: Boolean,
     stableRouteNumbers: Map<String, Int>,
@@ -327,23 +295,10 @@ private fun BaseMapScreen(
     }
     val pendingOrdersPoint = anchorPoint ?: pendingOrdersGpsAnchor ?: DEFAULT_MAP_POINT
 
-    // Build indexed customer lookups once per customer-list change instead of scanning
-    // the whole customer list again for every order on each recomposition.
-    val customerLookup = remember(customers) { buildCustomerMapLookup(customers) }
-
-    val mappedOrders = remember(orders, customerLookup, pendingOrdersPoint, routeNumberingEnabled, stableRouteNumbers) {
-        orders.mapIndexed { index, order ->
-            val (lat, lng) = CustomerCoordinateSafety.preferredCoordinates(customerLookup.find(order), order.latitude, order.longitude)
-            val realPoint = pointFromStrings(lat, lng)
-            val displayPoint = realPoint ?: pendingOrdersPoint
-            MapOrderMarker(
-                order,
-                displayPoint,
-                stableRouteNumbers[order.code] ?: (index + 1),
-                realPoint != null,
-                routeNumberingEnabled && realPoint != null
-            )
-        }
+    // groupRepresentative already carries coordinates from the matched customer.
+    // Resolving a second customer by name/address here could move the pin to somebody else.
+    val mappedOrders = remember(orders, pendingOrdersPoint, routeNumberingEnabled, stableRouteNumbers) {
+        buildMapOrderMarkers(orders, pendingOrdersPoint, routeNumberingEnabled, stableRouteNumbers)
     }
     val selectedMarker = mappedOrders.firstOrNull { it.order.code == selectedOrderCode }
 
