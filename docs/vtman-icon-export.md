@@ -22,12 +22,16 @@ No guessing field types from shop/customer names, address words or service codes
 
 ## Resume
 
+On the first filtered card, locate the image on the RIGHT of recipient row
+(left icon number 2) and save its center as the fixed call X/Y. No shape/name
+matching, screen-percentage fallback or manual point selection is used.
 Tap the exact saved call X/Y. A manual pause, an error, stopping the popup or
 accessibility reconnect must not clear that point. Starting again with a saved
 point bypasses point selection and re-reads the current waybill with fresh retry
 state. Persist X/Y in the same checkpoint as the queue for process recreation.
 A newly loaded/scanned waybill list starts a new session and clears the point.
-Old checkpoints lacking X/Y retain the existing initial-position behavior.
+Old checkpoints without the recipient_icon source marker discard their old
+coordinates and detect the real call icon from the next filtered card.
 
 ## Verification
 

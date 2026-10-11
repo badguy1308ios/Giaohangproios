@@ -142,4 +142,27 @@ class VtmanIconBlockParserTest {
         assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
     }
 
+    @Test fun callPointIsTheCenterOfRightImageOnSecondIconRow() {
+        val nodes = snapshot()
+        nodes += VtmanElement(0, 540, 160, 580, 200, image = true)
+        nodes += VtmanElement(0, 540, 310, 580, 350, image = true)
+        val card = VtmanIconBlockParser.parseCard(nodes, code)!!
+        assertEquals(CallPoint(560f, 255f), card.callPoint)
+        assertEquals(card.record.shop, card.record.customer)
+    }
+
+    @Test fun callPointWorksWithoutServiceAndWithoutRowParents() {
+        val nodes = snapshot(service = false).map { if (it.parent >= 0) it.copy(parent = 0) else it }
+        val card = VtmanIconBlockParser.parseCard(nodes, code)!!
+        assertEquals(CallPoint(560f, 255f), card.callPoint)
+        assertEquals("", card.record.service)
+    }
+
+    @Test fun missingRightImageDoesNotInventAScreenPercentagePoint() {
+        val nodes = snapshot().filterNot { it.image && it.left > 500 }
+        val card = VtmanIconBlockParser.parseCard(nodes, code)!!
+        assertNull(card.callPoint)
+        assertEquals("Thành công", card.record.customer)
+    }
+
 }

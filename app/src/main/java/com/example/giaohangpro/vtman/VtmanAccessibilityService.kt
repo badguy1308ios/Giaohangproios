@@ -41,8 +41,6 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var autoSeekingTop = false
     private var autoLastSignature = ""
     private var autoStableTicks = 0
-    private var autoCallX = 0f
-    private var autoCallY = 0f
     private var pausedMode = 0
     private var pausedAt = 0L
     private var tickScheduled = false
@@ -138,77 +136,34 @@ class VtmanAccessibilityService : AccessibilityService() {
         val requestedDataExport = VtmanQueueController.consumePendingDataExport()
         pkg = activePackage
         if (requestedAutoCount > 0 && root != null) {
-            val bounds = Rect().also(root::getBoundsInScreen)
             autoTarget = requestedAutoCount
             autoWaybills.clear()
             autoSeekingTop = true
             autoLastSignature = ""
             autoStableTicks = 0
-            autoCallX = bounds.left + bounds.width() * 0.90f
-            autoCallY = bounds.top + bounds.height() * 0.50f
             root.recycle()
             mode = 7
             VtmanQueueController.report("Auto Export: đang đưa danh sách về đầu")
             schedule(250)
             return
         }
-        if (requestedDataExport && root != null &&
-            VtmanQueueController.nextWaybill() != null
-        ) {
+        root.recycle()
+        if (VtmanQueueController.nextWaybill() == null) {
+            VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước")
+            return
+        }
+        if (requestedDataExport) {
             firstPhoneOfDataSession = true
             previousSessionLastPhone = lastAcceptedPhone
             phoneCandidate = ""
             phoneCandidateSince = 0L
             phoneSurfaceSeenAt = 0L
-            val bounds = Rect().also(root::getBoundsInScreen)
-            if (VtmanQueueController.callPoint() == null) {
-                VtmanQueueController.setCallPoint(
-                    bounds.left + bounds.width() * 0.90f,
-                    bounds.top + bounds.height() * 0.50f
-                )
-            }
-            root.recycle()
-            mode = 2
-            VtmanQueueController.report(
-                "Bắt đầu Export dữ liệu · ${VtmanQueueController.nextWaybill()}"
-            )
-            schedule(250)
-            return
         }
-        if (requestedAutoCount <= 0 && root != null &&
-            VtmanQueueController.nextWaybill() != null &&
-            (VtmanQueueController.hasResumableSession() || VtmanQueueController.callPoint() != null)
-        ) {
-            // Restart with the exact last-used X/Y after stop/error/reconnect.
-            // Only old checkpoints with no point need the existing default.
-            if (VtmanQueueController.callPoint() == null) {
-                val bounds = Rect().also(root::getBoundsInScreen)
-                VtmanQueueController.setCallPoint(
-                    bounds.left + bounds.width() * 0.90f,
-                    bounds.top + bounds.height() * 0.50f
-                )
-            }
-            root.recycle()
-            mode = 2
-            VtmanQueueController.report("Đã khôi phục Auto Export · tiếp tục ${VtmanQueueController.nextWaybill()}")
-            schedule(350)
-            return
-        }
-        root?.recycle()
-
-        if (VtmanQueueController.nextWaybill() == null) {
-            VtmanQueueController.fail("Hãy nạp danh sách MVĐ trước")
-            return
-        }
-        mode = 1
-        VtmanQueueController.report("Chạm đúng biểu tượng gọi của đơn đầu tiên")
-        if (!VtmanOverlayService.requestCallPointSelection { x,y ->
-            if (mode == 1 && VtmanQueueController.service === this) {
-                VtmanQueueController.setCallPoint(x,y); mode=2; schedule(100)
-            }
-        }) {
-            VtmanQueueController.fail("Popup VTMan Export chưa mở"); mode=0
-        }
+        // Read the first filtered card to locate the call image beside icon 2.
+        // A saved point is retained for subsequent orders and restarts.
+        mode = 2
+        VtmanQueueController.report("Export dữ liệu · tiếp tục ${VtmanQueueController.nextWaybill()}")
+        schedule(250)
     }
 
     fun isRunning(): Boolean = mode > 1
@@ -421,7 +376,8 @@ class VtmanAccessibilityService : AccessibilityService() {
             }
         }
 
-        val rec = VtmanIconBlockParser.parse(elements, mv)
+        val card = VtmanIconBlockParser.parseCard(elements, mv)
+        val rec = card?.record
         if (rec==null || rec.shop.isBlank() || rec.customer.isBlank() || rec.address.isBlank() ||
             rec.goods.isBlank() || rec.status.isBlank() || rec.cod.isBlank()) {
             if (System.currentTimeMillis()<resultDeadline) { schedule(250); return }
@@ -446,8 +402,14 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Search shows one order without scrolling. Use the exact point Hải selected.
-        val p=VtmanQueueController.callPoint() ?: run { VtmanQueueController.fail("Chưa chọn nút gọi"); mode=0; return }
+        // Detect once from the right-hand image of recipient row (left icon 2).
+        // Reuse its exact center for the remaining queue and after a stop.
+        val p = VtmanQueueController.callPoint() ?: card?.callPoint?.also {
+            VtmanQueueController.setCallPoint(it.x, it.y)
+        } ?: run {
+            retryCurrentOrFail(mv, "Chưa đọc được icon gọi bên phải hàng tên khách")
+            return
+        }
 
         // Popup cũ phải được đóng trước khi bấm. Nếu không, số của đơn trước có thể
         // bị nhận là số của đơn đang xử lý.
@@ -769,7 +731,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
         VtmanQueueController.load(codes, preserveAutoLog = true)
         val backupFile = VtmanQueueController.saveWaybillBackupCsv(codes)
-        VtmanQueueController.setCallPoint(autoCallX, autoCallY)
         VtmanQueueController.addAutoLog("✓ Đã lưu ${codes.size} MVĐ vào bộ nhớ")
         if (backupFile == null) {
             VtmanQueueController.addAutoLog("⚠ Chưa tạo được file CSV dự phòng trong Download")

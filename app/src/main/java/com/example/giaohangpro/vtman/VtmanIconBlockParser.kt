@@ -6,10 +6,15 @@ data class VtmanElement(
     val text: String = "", val image: Boolean = false
 )
 
+data class VtmanParsedCard(val record: VtmanOrderRecord, val callPoint: CallPoint?)
+
 object VtmanIconBlockParser {
     private val statusPattern = Regex("\\bTT\\s*(500|505|506|507|508|515)\\b", RegexOption.IGNORE_CASE)
 
-    fun parse(nodes: List<VtmanElement>, waybill: String): VtmanOrderRecord? {
+    fun parse(nodes: List<VtmanElement>, waybill: String): VtmanOrderRecord? =
+        parseCard(nodes, waybill)?.record
+
+    fun parseCard(nodes: List<VtmanElement>, waybill: String): VtmanParsedCard? {
         val header = nodes.filter { VtmanFixedBlockParser.containsExpectedWaybill(it.text, waybill) }
             .minByOrNull { it.bottom - it.top } ?: return null
         val headerNodes = nodes.filter { it.top < header.bottom && it.bottom > header.top && it.text.isNotBlank() }
@@ -67,7 +72,16 @@ object VtmanIconBlockParser {
         val values = rows.map { row -> row.sortedWith(
             compareBy<VtmanElement> { it.top }.thenBy { it.left }
         ).joinToString(" ") { it.text.trim() } }
-        return VtmanOrderRecord(
+        val recipientIcon = fields.getOrNull(1)
+        val callIcon = if (recipientIcon == null) null else nodes.filter {
+            val centerY = (it.top.toLong() + it.bottom) / 2
+            it.image && it.right > it.left && it.bottom > it.top && it.left > cardMiddle &&
+                centerY >= starts[1] && centerY < (starts.getOrNull(2) ?: end)
+        }.minWithOrNull(compareBy<VtmanElement> {
+            kotlin.math.abs((it.top.toLong() + it.bottom) - (recipientIcon.top.toLong() + recipientIcon.bottom))
+        }.thenByDescending { it.right })
+        val point = callIcon?.let { CallPoint((it.left + it.right) / 2f, (it.top + it.bottom) / 2f) }
+        val record = VtmanOrderRecord(
             waybill = waybill,
             shop = values.getOrNull(0).orEmpty(),
             customer = values.getOrNull(1).orEmpty(),
@@ -78,5 +92,6 @@ object VtmanIconBlockParser {
                 ?.replace(" ", "").orEmpty(),
             cod = VtmanFixedBlockParser.findCod(headerTexts, waybill)
         )
+        return VtmanParsedCard(record, point)
     }
 }

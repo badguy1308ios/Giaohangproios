@@ -306,6 +306,7 @@ object VtmanQueueController {
             put("skipped", JSONArray().apply { skipped.forEach(::put) })
             put("index", index)
             callPoint?.let { point ->
+                put("callPointSource", "recipient_icon")
                 put("callX", point.x.toDouble())
                 put("callY", point.y.toDouble())
             }
@@ -349,7 +350,8 @@ object VtmanQueueController {
             active = null
             val savedX = state.optDouble("callX", Double.NaN)
             val savedY = state.optDouble("callY", Double.NaN)
-            callPoint = if (savedX.isFinite() && savedY.isFinite()) {
+            callPoint = if (state.optString("callPointSource") == "recipient_icon" &&
+                savedX.isFinite() && savedY.isFinite()) {
                 CallPoint(savedX.toFloat(), savedY.toFloat())
             } else null
             error = ""
