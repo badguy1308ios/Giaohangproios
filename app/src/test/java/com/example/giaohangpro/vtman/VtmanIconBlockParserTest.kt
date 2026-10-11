@@ -5,7 +5,10 @@ import org.junit.Test
 
 class VtmanIconBlockParserTest {
     private val code = "SGSIND09102026-01"
-    private fun snapshot(service: Boolean = true, emptyService: Boolean = false): MutableList<VtmanElement> {
+    private fun snapshot(
+        service: Boolean = true, emptyService: Boolean = false,
+        address: List<String> = listOf("đường d33, tại - Khu Dân Cư Lộc An", "X. Lộc An - H. Long Thành - T. Đồng Nai")
+    ): MutableList<VtmanElement> {
         val nodes = mutableListOf(
             VtmanElement(-1, 0, 0, 600, 1000),
             VtmanElement(0, 20, 100, 300, 140, code),
@@ -13,8 +16,7 @@ class VtmanIconBlockParserTest {
             VtmanElement(0, 400, 100, 590, 140, "350,000 đ")
         )
         val fields = mutableListOf(listOf("Thành công"), listOf("Thành công"),
-            listOf("đường d33, tại - Khu Dân Cư Lộc An", "X. Lộc An - H. Long Thành - T. Đồng Nai"),
-            listOf("VIÊN Xương khớp", "hộp lớn"))
+            address, listOf("VIÊN Xương khớp", "hộp lớn"))
         if (service) fields += if (emptyService) emptyList<String>() else listOf("COD,PXD")
         var top = 160
         fields.forEachIndexed { field, lines ->
@@ -62,9 +64,12 @@ class VtmanIconBlockParserTest {
     @Test fun wrongWaybillCannotBeParsed() {
         assertNull(VtmanIconBlockParser.parse(snapshot(), "154069642893"))
     }
-    @Test fun missingRequiredTextIsRejected() {
+    @Test fun missingTextIsLeftEmptyWithoutAnIconCountFailure() {
         val nodes = snapshot().map { if (it.text == "Thành công") it.copy(text = "") else it }
-        assertNull(VtmanIconBlockParser.parse(nodes, code))
+        val record = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("", record.shop)
+        assertEquals("", record.customer)
+        assertEquals("COD,PXD", record.service)
     }
     @Test fun flattenedAccessibilityRowsUseIconPositions() {
         val nodes = snapshot().map { if (it.parent >= 0) it.copy(parent = 0) else it }
@@ -81,6 +86,59 @@ class VtmanIconBlockParserTest {
         nodes += VtmanElement(0, 25, 900, 49, 924, image = true)
         val result = VtmanIconBlockParser.parse(nodes, code)!!
         assertEquals("", result.service)
+        assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
+    }
+
+    @Test fun iconsMayHaveDifferentHorizontalPositionsAndSizes() {
+        val nodes = snapshot().mapIndexed { i, node ->
+            if (node.image && node.left < 100) node.copy(left = 15 + i % 15, right = 60 + i % 10)
+            else node
+        }
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("Thành công", result.shop)
+        assertEquals("Thành công", result.customer)
+        assertEquals("COD,PXD", result.service)
+    }
+
+    @Test fun nestedImagesCountOnceAndExtraIconsDoNotRejectTheOrder() {
+        val nodes = snapshot()
+        val firstIcon = nodes.first { it.image }
+        nodes += firstIcon.copy(left = firstIcon.left + 2, top = firstIcon.top + 2,
+            right = firstIcon.right - 2, bottom = firstIcon.bottom - 2)
+        val footer = nodes.indexOfLast { it.text == "Thành công" }
+        val top = nodes[footer].top
+        nodes[footer] = nodes[footer].copy(top = top + 80, bottom = top + 125)
+        nodes += VtmanElement(0, 25, top, 49, top + 24, image = true)
+        nodes += VtmanElement(0, 80, top, 500, top + 35, "Thông tin khác")
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("Thành công", result.customer)
+        assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
+        assertEquals("COD,PXD", result.service)
+    }
+
+    @Test fun allAddressLinesStayBeforeTheGoodsIconEvenWhenIconIsTopAligned() {
+        val address = listOf("đường d33", "Khu Dân Cư Lộc An", "X. Lộc An", "H. Long Thành - Đồng Nai")
+        val original = snapshot(service = false, address = address)
+        val nodes = original.map { node ->
+            if (node.image && node.left < 100) {
+                val top = original[node.parent].top
+                node.copy(top = top + 4, bottom = top + 28)
+            } else node
+        }
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals(address.joinToString(" "), result.address)
+        assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
+        assertEquals("", result.service)
+    }
+
+    @Test fun oneTextNodeMayContainTheWholeWrappedAddress() {
+        val nodes = snapshot().map { node ->
+            if (node.parent >= 0 && node.text.startsWith("X. Lộc An")) node.copy(text = "")
+            else if (node.text == "đường d33, tại - Khu Dân Cư Lộc An") node.copy(text = "")
+            else node
+        }
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("đường d33, tại - Khu Dân Cư Lộc An X. Lộc An - H. Long Thành - T. Đồng Nai", result.address)
         assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
     }
 

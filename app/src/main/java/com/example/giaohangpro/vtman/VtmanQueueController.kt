@@ -184,7 +184,6 @@ object VtmanQueueController {
         persistCheckpoint()
     }
     @Synchronized fun callPoint(): CallPoint? = callPoint
-    @Synchronized fun clearCallPoint() { callPoint = null }
     @Synchronized fun clearActiveForRetry() { active = null }
 
     @Synchronized fun stage(record: VtmanOrderRecord): Boolean {
@@ -306,6 +305,10 @@ object VtmanQueueController {
             put("completed", JSONArray().apply { completed.values.forEach { put(recordToJson(it)) } })
             put("skipped", JSONArray().apply { skipped.forEach(::put) })
             put("index", index)
+            callPoint?.let { point ->
+                put("callX", point.x.toDouble())
+                put("callY", point.y.toDouble())
+            }
             put("pendingAutoCount", pendingAutoCount)
             put("autoLogEnabled", autoLogEnabled)
             put("runLog", JSONArray().apply { autoRunLog.forEach(::put) })
@@ -344,7 +347,11 @@ object VtmanQueueController {
                 for (i in 0 until values.length()) values.optString(i).takeIf(String::isNotBlank)?.let(autoRunLog::add)
             }
             active = null
-            callPoint = null
+            val savedX = state.optDouble("callX", Double.NaN)
+            val savedY = state.optDouble("callY", Double.NaN)
+            callPoint = if (savedX.isFinite() && savedY.isFinite()) {
+                CallPoint(savedX.toFloat(), savedY.toFloat())
+            } else null
             error = ""
             status = "Đã khôi phục tiến độ · tiếp tục ${queue.getOrNull(index).orEmpty()}"
             appendAutoLog("↻ Khôi phục tiến độ tại ${queue.getOrNull(index).orEmpty()}")

@@ -90,7 +90,6 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (VtmanQueueController.service === this) {
             VtmanQueueController.service = null
             VtmanOverlayService.clearCallPointUi()
-            VtmanQueueController.clearCallPoint()
             diagnostic("disconnected")
             if (wasRunning) VtmanQueueController.fail("Trợ năng mất kết nối. Đã dừng Export; bấm Chạy sau khi dịch vụ kết nối lại.")
         }
@@ -110,6 +109,15 @@ class VtmanAccessibilityService : AccessibilityService() {
     fun begin() = safely {
         if (mode != 0) return@safely
         rootMissingSince = null
+        retryWaybill = ""
+        retryAttempt = 0
+        resultStableWaybill = ""
+        resultStableSignature = ""
+        resultStableTicks = 0
+        phoneCandidate = ""
+        phoneCandidateSince = 0L
+        phoneScreenBaseline = ""
+        VtmanQueueController.clearActiveForRetry()
         beginExport()
     }
 
@@ -168,14 +176,18 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
         if (requestedAutoCount <= 0 && root != null &&
-            VtmanQueueController.hasResumableSession() &&
-            VtmanQueueController.callPoint() == null
+            VtmanQueueController.nextWaybill() != null &&
+            (VtmanQueueController.hasResumableSession() || VtmanQueueController.callPoint() != null)
         ) {
-            val bounds = Rect().also(root::getBoundsInScreen)
-            VtmanQueueController.setCallPoint(
-                bounds.left + bounds.width() * 0.90f,
-                bounds.top + bounds.height() * 0.50f
-            )
+            // Restart with the exact last-used X/Y after stop/error/reconnect.
+            // Only old checkpoints with no point need the existing default.
+            if (VtmanQueueController.callPoint() == null) {
+                val bounds = Rect().also(root::getBoundsInScreen)
+                VtmanQueueController.setCallPoint(
+                    bounds.left + bounds.width() * 0.90f,
+                    bounds.top + bounds.height() * 0.50f
+                )
+            }
             root.recycle()
             mode = 2
             VtmanQueueController.report("Đã khôi phục Auto Export · tiếp tục ${VtmanQueueController.nextWaybill()}")
@@ -253,7 +265,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         schedule(100)
     }
 
-    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; resultStableWaybill=""; resultStableSignature=""; resultStableTicks=0; phoneReadNotBefore=0L; phoneScreenBaseline=""; phoneCandidate=""; phoneCandidateSince=0L; phoneSurfaceSeenAt=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanQueueController.clearCallPoint(); VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
+    fun stop() { mode=0; pausedMode=0; pausedAt=0L; h.removeCallbacksAndMessages(null); tickScheduled=false; rootMissingSince=null; resultStableWaybill=""; resultStableSignature=""; resultStableTicks=0; phoneReadNotBefore=0L; phoneScreenBaseline=""; phoneCandidate=""; phoneCandidateSince=0L; phoneSurfaceSeenAt=0L; autoTarget=0; autoWaybills.clear(); autoSeekingTop=false; autoLastSignature=""; autoStableTicks=0; retryWaybill=""; retryAttempt=0; VtmanOverlayService.clearCallPointUi(); VtmanQueueController.report("Đã dừng") }
 
     private fun resetRetry(waybill: String) {
         if (retryWaybill == waybill) {
@@ -416,7 +428,7 @@ class VtmanAccessibilityService : AccessibilityService() {
             // A matching order is visible. A parsing failure is not an empty result:
             // retain the current queue item so Chạy retries it instead of losing it.
             val missing = buildList {
-                if (rec == null) add("4 khối icon shop/khách/địa chỉ/hàng hóa (trợ năng thấy ${elements.count { it.image }} phần tử ảnh)")
+                if (rec == null) add("icon bên trái thẻ đơn (trợ năng thấy ${elements.count { it.image }} phần tử ảnh)")
                 else {
                     if (rec.shop.isBlank()) add("tên shop")
                     if (rec.customer.isBlank()) add("tên khách")
@@ -883,7 +895,10 @@ class VtmanAccessibilityService : AccessibilityService() {
             val index = out.size
             out += VtmanElement(
                 parent, bounds.left, bounds.top, bounds.right, bounds.bottom,
-                text = if (visible && !image) node.text?.toString()?.trim().orEmpty() else "",
+                text = if (visible && !image) {
+                    node.text?.toString()?.trim()?.takeIf(String::isNotBlank)
+                        ?: node.contentDescription?.toString()?.trim().orEmpty()
+                } else "",
                 image = visible && image
             )
             for (i in 0 until node.childCount) {

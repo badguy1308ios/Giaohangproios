@@ -1,32 +1,43 @@
-# VTMAN export: ordered icon rows
+# VTMAN export: count the left-hand icons
 
-Agreed workflow: enter the exact waybill, wait for the filtered result, do not
-scroll; shop is one line. Read the left image-widget column in order: shop,
-recipient, address, goods, optional service. Use the smallest enclosing
-accessibility row containing that icon and its text; retain all child text lines.
-The right-hand call image is not a field icon. Tap the exact saved call X/Y;
-do not search for the recipient name to calculate another Y.
+Agreed with Hải: search the exact waybill; one filtered card, no scrolling, shop
+fits on one line. Count the image elements on the LEFT of this card from top to
+bottom. Read the text to their right in this order:
 
-An absent or empty fifth service row is valid. Missing required rows retain the
-current waybill and report a parsing failure; they are not treated as no data.
-There is no text-order fallback masquerading as icon recognition.
+1. Shop
+2. Recipient
+3. Address (all lines)
+4. Goods (all lines)
+5. Service, if present; otherwise empty
 
-Capability limit: Android must expose ImageView/ImageButton elements and their
-row hierarchy. Include-not-important-views is requested, but cannot force a
-custom-drawn icon to exist in the accessibility tree. Without that structure,
-export retries then pauses with an image-count diagnostic. Actual VTMAN device
-verification remains required; unit fixtures cannot establish icon exposure.
+There is no icon-shape classification, parent-row requirement, exact 4–5 count
+gate or rejection for equally close text. Nested images at the same position
+count once. Positions after number five are ignored. Text is collected until
+the next icon's row begins; merged parent labels are not repeated alongside
+child text. The call icon on the right and images outside the card are excluded.
 
-Device checks: export a card with wrapped address/goods, one without service,
-and a card with identical shop/recipient names. Verify all CSV fields and phone,
-including the existing two-number picker flow. If a row-structure error appears,
-record the error and obtain a VTMAN accessibility hierarchy before changing the
-parser; do not silently switch to guessed text positions.
+The existing checks for the correct waybill, stable content and missing actual
+required data remain. Service is optional both while parsing and when saving.
+No guessing field types from shop/customer names, address words or service codes.
 
-## Build 45 correction
-The device log reported 10 image elements but no parsed rows. That establishes
-failure before the call tap, not which hierarchy assumption failed. Restrict
-images to the card above its completion action and allow flattened rows to be
-matched by icon/text bounds. Reject text overlapping multiple field icons.
-Hierarchy grouping remains preferred; geometry never substitutes text ordinal
-positions for icons. Tests cover flattened multiline rows and unrelated images.
+## Resume
+
+Tap the exact saved call X/Y. A manual pause, an error, stopping the popup or
+accessibility reconnect must not clear that point. Starting again with a saved
+point bypasses point selection and re-reads the current waybill with fresh retry
+state. Persist X/Y in the same checkpoint as the queue for process recreation.
+A newly loaded/scanned waybill list starts a new session and clears the point.
+Old checkpoints lacking X/Y retain the existing initial-position behavior.
+
+## Verification
+
+Parser fixtures cover different icon positions and sizes, nested/extra images,
+flat accessibility trees, multiline/single-node addresses, identical names,
+absent/empty service, and images outside the order. Queue tests cover retaining
+X/Y and the current waybill after failure, discarding partial data for a retry,
+a new queue, and saving an order without service.
+
+Android still needs to expose generic image elements with bounds. CI fixtures
+do not establish how the installed VTMAN version exposes its screen; real-device
+verification remains necessary. Build 44–45 rejected some visible image layouts;
+the exact-count, parent-group and distance-tie gates have now been removed.
