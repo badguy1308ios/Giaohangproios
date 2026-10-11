@@ -66,8 +66,22 @@ class VtmanIconBlockParserTest {
         val nodes = snapshot().map { if (it.text == "Thành công") it.copy(text = "") else it }
         assertNull(VtmanIconBlockParser.parse(nodes, code))
     }
-    @Test fun unstructuredWholeCardDoesNotGetAssignedToOneField() {
+    @Test fun flattenedAccessibilityRowsUseIconPositions() {
         val nodes = snapshot().map { if (it.parent >= 0) it.copy(parent = 0) else it }
-        assertNull(VtmanIconBlockParser.parse(nodes, code))
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("Thành công", result.customer)
+        assertEquals("đường d33, tại - Khu Dân Cư Lộc An X. Lộc An - H. Long Thành - T. Đồng Nai", result.address)
+        assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
+        assertEquals("COD,PXD", result.service)
     }
+    @Test fun unrelatedImagesOutsideCardDoNotChangeFieldCount() {
+        val nodes = snapshot(service = false)
+        nodes += VtmanElement(0, 0, 20, 40, 60, image = true)
+        nodes += VtmanElement(0, 0, 900, 40, 940, image = true)
+        nodes += VtmanElement(0, 25, 900, 49, 924, image = true)
+        val result = VtmanIconBlockParser.parse(nodes, code)!!
+        assertEquals("", result.service)
+        assertEquals("VIÊN Xương khớp hộp lớn", result.goods)
+    }
+
 }

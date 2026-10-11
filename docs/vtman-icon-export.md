@@ -22,3 +22,11 @@ and a card with identical shop/recipient names. Verify all CSV fields and phone,
 including the existing two-number picker flow. If a row-structure error appears,
 record the error and obtain a VTMAN accessibility hierarchy before changing the
 parser; do not silently switch to guessed text positions.
+
+## Build 45 correction
+The device log reported 10 image elements but no parsed rows. That establishes
+failure before the call tap, not which hierarchy assumption failed. Restrict
+images to the card above its completion action and allow flattened rows to be
+matched by icon/text bounds. Reject text overlapping multiple field icons.
+Hierarchy grouping remains preferred; geometry never substitutes text ordinal
+positions for icons. Tests cover flattened multiline rows and unrelated images.

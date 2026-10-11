@@ -19,9 +19,13 @@ object VtmanIconBlockParser {
             ?.replace(" ", "").orEmpty()
         val nextHeader = nodes.filter { it.top >= header.bottom && statusPattern.containsMatchIn(it.text) }
             .minOfOrNull { it.top } ?: Int.MAX_VALUE
+        // Bound the filtered card before considering image widgets elsewhere on screen.
+        val completionTop = nodes.filter {
+            it.top >= header.bottom && it.top < nextHeader && it.text.trim().equals("Thành công", true)
+        }.maxOfOrNull { it.top } ?: nextHeader
         val images = nodes.indices.filter { i ->
             val n = nodes[i]
-            n.image && n.top >= header.bottom && n.bottom <= nextHeader &&
+            n.image && n.top >= header.bottom && n.bottom <= completionTop &&
                 n.right > n.left && n.bottom > n.top
         }
         // The field icons form the left column. The call icon on the right is
@@ -66,7 +70,10 @@ object VtmanIconBlockParser {
             }
             return null
         }
-        val rows = icons.map(::rowText)
+        // Some accessibility providers flatten the visual rows. In that case,
+        // match text bounds to actual icon bounds instead of requiring a parent.
+        val geometricRows = geometryRows(nodes, icons, header.bottom, nextHeader)
+        val rows = icons.mapIndexed { index, icon -> rowText(icon) ?: geometricRows?.get(index) }
         if (rows.take(4).any { it.isNullOrBlank() }) return null
         return VtmanOrderRecord(
             waybill = waybill, shop = rows[0].orEmpty(), customer = rows[1].orEmpty(),
@@ -75,4 +82,45 @@ object VtmanIconBlockParser {
             cod = VtmanFixedBlockParser.findCod(headerTexts, waybill)
         )
     }
+    private fun geometryRows(
+        nodes: List<VtmanElement>, icons: List<Int>, headerBottom: Int, nextHeader: Int
+    ): List<String>? {
+        val lastIcon = nodes[icons.last()]
+        // The completion action is below the data icons, not a field. A shop or
+        // recipient named Thành công above the final icon remains ordinary data.
+        val end = minOf(nextHeader, nodes.filter {
+            it.text.trim().equals("Thành công", true) && it.top >= lastIcon.bottom
+        }.minOfOrNull { it.top } ?: nextHeader)
+        val rightEdge = icons.maxOf { nodes[it].right }
+        val candidates = nodes.filter {
+            !it.image && it.text.isNotBlank() && it.left >= rightEdge &&
+                it.top >= headerBottom && it.bottom <= end && it.bottom > it.top
+        }.distinctBy { listOf(it.text, it.left, it.top, it.right, it.bottom) }
+        // Ignore aggregate labels enclosing other text elements.
+        val texts = candidates.filter { parent -> candidates.none { child ->
+            child !== parent && child.left >= parent.left && child.right <= parent.right &&
+                child.top >= parent.top && child.bottom <= parent.bottom &&
+                (child.top > parent.top || child.bottom < parent.bottom)
+        } }
+        val rows = List(icons.size) { mutableListOf<VtmanElement>() }
+        for (text in texts) {
+            val distances = icons.map { index ->
+                val icon = nodes[index]
+                when {
+                    text.bottom <= icon.top -> icon.top - text.bottom
+                    text.top >= icon.bottom -> text.top - icon.bottom
+                    else -> 0
+                }
+            }
+            val closest = distances.minOrNull() ?: return null
+            val matches = distances.indices.filter { distances[it] == closest }
+            // Do not assign a merged text block spanning two different fields.
+            if (matches.size != 1) return null
+            rows[matches.single()] += text
+        }
+        return rows.map { row -> row.sortedWith(
+            compareBy<VtmanElement> { it.top }.thenBy { it.left }
+        ).joinToString(" ") { it.text.trim() } }
+    }
+
 }
