@@ -39,13 +39,17 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
-        <activity android:name=".SplashActivity" android:exported="true" android:theme="@style/Theme.GiaoHangPro">
+        <activity android:name=".MainActivity" android:exported="false" />
+        <!-- Keep the installed launcher component, but open MainActivity directly. -->
+        <activity-alias
+            android:name=".SplashActivity"
+            android:targetActivity=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-        <activity android:name=".MainActivity" android:exported="false" />
+        </activity-alias>
         <service
             android:name=".vtman.VtmanAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
