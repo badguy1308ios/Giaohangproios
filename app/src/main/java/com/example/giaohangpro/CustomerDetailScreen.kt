@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,9 +60,15 @@ fun CustomerDetailScreen(
         }
     }
 
-    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingCameraUri by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) pendingCameraUri?.let { onPhotoChanged(it.toString()) }
+        val captured = pendingCameraUri
+        pendingCameraUri = null
+        if (ok && captured != null) photoScope.launch {
+            val stored = storeGatePhoto(context, android.net.Uri.parse(captured))
+            if (stored != null) onPhotoChanged(stored)
+            else Toast.makeText(context, "Ảnh chụp chưa lưu được. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
+        }
     }
 
     fun phoneFor(kind: String): String? {
@@ -127,7 +134,7 @@ fun CustomerDetailScreen(
                         showPhotoMenu = false
                         val file = java.io.File(context.filesDir, "customer_gate_${customer.id}_${System.currentTimeMillis()}.jpg")
                         val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
-                        pendingCameraUri = uri
+                        pendingCameraUri = uri.toString()
                         cameraLauncher.launch(uri)
                     },
                     modifier = Modifier.fillMaxWidth()

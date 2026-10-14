@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
@@ -73,7 +74,7 @@ fun CustomerFormScreen(
     var pickAddressIndex by remember { mutableStateOf<Int?>(null) }
     var validation by remember { mutableStateOf(false) }
     var showFormPhotoMenu by remember { mutableStateOf(false) }
-    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingCameraUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -88,8 +89,18 @@ fun CustomerFormScreen(
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) pendingCameraUri?.let { setPrimaryPhoto(it.toString()) }
+        val captured = pendingCameraUri
         pendingCameraUri = null
+        if (ok && captured != null) {
+            importingPhoto = true
+            photoScope.launch {
+                try {
+                    val stored = storeGatePhoto(context, android.net.Uri.parse(captured))
+                    if (stored != null) setPrimaryPhoto(stored)
+                    else Toast.makeText(context, "Ảnh chụp chưa lưu được. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
+                } finally { importingPhoto = false }
+            }
+        }
     }
 
     val phones = remember(customer?.id) {
@@ -220,7 +231,7 @@ fun CustomerFormScreen(
                 showFormPhotoMenu = false
                 val file = java.io.File(context.filesDir, "customer_gate_${customer?.id ?: 0L}_${System.currentTimeMillis()}.jpg")
                 val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
-                pendingCameraUri = uri; cameraLauncher.launch(uri)
+                pendingCameraUri = uri.toString(); cameraLauncher.launch(uri)
             }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Chụp ảnh mới") }
             FilledTonalButton(onClick = { setPrimaryPhoto(""); showFormPhotoMenu = false }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFE21B1B)); Spacer(Modifier.width(6.dp)); Text("Xóa ảnh", color = Color(0xFFE21B1B)) }
         } }, confirmButton = {}, dismissButton = { TextButton(onClick = { showFormPhotoMenu = false }) { Text("Hủy") } }

@@ -1740,7 +1740,10 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             fun importPhoto(path: String?): String {
                 if (path.isNullOrBlank()) return ""
                 val source = java.io.File(tempRoot, java.io.File(path).name)
-                if (!source.exists()) { missingImages++; return "" }
+                check(source.isFile && source.length() > 0) { "ZIP thiếu ảnh $path; chưa thay dữ liệu khách." }
+                check(gatePhotoBackupBytes(context, android.net.Uri.fromFile(source).toString()) != null) {
+                    "Ảnh trong ZIP bị hỏng; chưa thay dữ liệu khách."
+                }
                 val ext = source.extension.ifBlank { "webp" }
                 val dest = java.io.File(context.filesDir, "customer_gate_import_${System.currentTimeMillis()}_${imageCount}.${ext}")
                 source.copyTo(dest, overwrite = true)
@@ -1943,52 +1946,48 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             fun addManifest(path: String, bytes: ByteArray) {
                 manifestEntries.put(org.json.JSONObject().apply { put("path", path); put("bytes", bytes.size); put("sha256", sha256(bytes)) })
             }
-            fun readPhoto(source: String): ByteArray? = runCatching {
-                val u = android.net.Uri.parse(source)
-                when (u.scheme) {
-                    "content" -> context.contentResolver.openInputStream(u)?.use { it.readBytes() }
-                    "file" -> java.io.File(requireNotNull(u.path)).takeIf { it.exists() }?.readBytes()
-                    else -> java.io.File(source).takeIf { it.exists() }?.readBytes()
+            // Resolve and decode every referenced photo before opening/truncating
+            // the destination ZIP. Never export dangling photo references.
+            val photoTemp = java.io.File(context.cacheDir, "photo_export_${java.util.UUID.randomUUID()}")
+            check(photoTemp.mkdirs()) { "Không tạo được thư mục tạm cho ảnh" }
+            try {
+                val packedPhotos = photoJobs.mapIndexed { index, job ->
+                    val bytes = gatePhotoBackupBytes(context, job.source)
+                        ?: error("Có ảnh khách không đọc được. Chưa ghi đè file sao lưu cũ.")
+                    val file = java.io.File(photoTemp, "$index.webp").apply { writeBytes(bytes) }
+                    job.zipPath to file
                 }
-            }.getOrNull()
-            fun toWebp(bytes: ByteArray): ByteArray? = runCatching {
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
-                val out = java.io.ByteArrayOutputStream()
-                bmp.compress(android.graphics.Bitmap.CompressFormat.WEBP, 90, out)
-                bmp.recycle()
-                out.toByteArray()
-            }.getOrNull()
 
-            val customersBytes = customersJson.toString().toByteArray(Charsets.UTF_8)
-            val evidenceBytes = "[]".toByteArray(Charsets.UTF_8)
-            var writtenImages = 0
-            context.contentResolver.openOutputStream(uri, "w")?.use { rawOut ->
-                java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(rawOut)).use { zout ->
-                    fun writeEntry(path: String, bytes: ByteArray, manifest: Boolean = true) {
-                        zout.putNextEntry(java.util.zip.ZipEntry(path)); zout.write(bytes); zout.closeEntry()
-                        if (manifest) addManifest(path, bytes)
+                val customersBytes = customersJson.toString().toByteArray(Charsets.UTF_8)
+                val evidenceBytes = "[]".toByteArray(Charsets.UTF_8)
+                var writtenImages = 0
+                context.contentResolver.openOutputStream(uri, "w")?.use { rawOut ->
+                    java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(rawOut)).use { zout ->
+                        fun writeEntry(path: String, bytes: ByteArray, manifest: Boolean = true) {
+                            zout.putNextEntry(java.util.zip.ZipEntry(path)); zout.write(bytes); zout.closeEntry()
+                            if (manifest) addManifest(path, bytes)
+                        }
+                        writeEntry("customers.json", customersBytes)
+                        writeEntry("transfer_evidence.json", evidenceBytes)
+                        packedPhotos.forEach { (path, file) ->
+                            writeEntry(path, file.readBytes())
+                            writtenImages++
+                        }
+                        val manifest = org.json.JSONObject().apply {
+                            put("format", "giaohang-customer-backup")
+                            put("schemaVersion", 1)
+                            put("createdAt", System.currentTimeMillis())
+                            put("customers", snapshot.size)
+                            put("transferEvidence", 0)
+                            put("images", writtenImages)
+                            put("missingImages", missingImages)
+                            put("entries", manifestEntries)
+                        }.toString().toByteArray(Charsets.UTF_8)
+                        writeEntry("manifest.json", manifest, manifest = false)
                     }
-                    writeEntry("customers.json", customersBytes)
-                    writeEntry("transfer_evidence.json", evidenceBytes)
-                    photoJobs.forEach { job ->
-                        val sourceBytes = readPhoto(job.source)
-                        val webp = sourceBytes?.let(::toWebp)
-                        if (webp != null) { writeEntry(job.zipPath, webp); writtenImages++ } else missingImages++
-                    }
-                    val manifest = org.json.JSONObject().apply {
-                        put("format", "giaohang-customer-backup")
-                        put("schemaVersion", 1)
-                        put("createdAt", System.currentTimeMillis())
-                        put("customers", snapshot.size)
-                        put("transferEvidence", 0)
-                        put("images", writtenImages)
-                        put("missingImages", missingImages)
-                        put("entries", manifestEntries)
-                    }.toString().toByteArray(Charsets.UTF_8)
-                    writeEntry("manifest.json", manifest, manifest = false)
-                }
-            } ?: error("Không tạo được file ZIP")
-            CustomerBackupResult(snapshot.size, 0, 0, 0, writtenImages, missingImages)
+                } ?: error("Không tạo được file ZIP")
+                CustomerBackupResult(snapshot.size, 0, 0, 0, writtenImages, missingImages)
+            } finally { photoTemp.deleteRecursively() }
         }
     }
 

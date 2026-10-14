@@ -24,14 +24,14 @@ internal suspend fun storeGatePhoto(context: Context, source: Uri): String? = wi
     val temporary = File(dir, target.name + ".part")
     try {
         check(dir.isDirectory || dir.mkdirs())
-        context.contentResolver.openInputStream(source)?.use { input ->
+        openGatePhoto(context, source.toString())?.use { input ->
             temporary.outputStream().use { output -> input.copyTo(output) }
         } ?: error("Cannot read selected photo")
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(temporary.path, bounds)
-        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported or damaged photo" }
+        val decoded = loadGatePhoto(context, temporary.absolutePath)
+            ?: error("Unsupported or damaged photo")
+        decoded.recycle()
         check(temporary.renameTo(target))
-        Uri.fromFile(target).toString()
+        "customer_gate_photos/${target.name}"
     } catch (e: Exception) {
         temporary.delete()
         Log.w("GatePhoto", "Cannot store selected photo", e)
@@ -39,14 +39,26 @@ internal suspend fun storeGatePhoto(context: Context, source: Uri): String? = wi
     }
 }
 
-private fun openGatePhoto(context: Context, source: String): InputStream? {
+internal fun openGatePhoto(context: Context, source: String): InputStream? {
     val uri = Uri.parse(source)
-    return when (uri.scheme) {
-        "content" -> context.contentResolver.openInputStream(uri)
-        "file" -> uri.path?.let { File(it).inputStream() }
-        null -> File(source).inputStream()
-        else -> null
+    val path = if (uri.scheme == null) source else uri.path.orEmpty()
+    // Reuse restored app-owned bytes even when the old absolute path/provider
+    // authority points at a previous installation. Exact path only.
+    if (uri.scheme == null || uri.scheme == "file" ||
+        (uri.scheme == "content" && uri.authority.orEmpty().endsWith(".fileprovider"))) {
+        GatePhotoFiles.local(context.filesDir, path)?.let { return it.inputStream() }
     }
+    return if (uri.scheme == "content") context.contentResolver.openInputStream(uri) else null
+}
+
+internal fun gatePhotoBackupBytes(context: Context, source: String): ByteArray? {
+    val bitmap = loadGatePhoto(context, source) ?: return null
+    return try {
+        java.io.ByteArrayOutputStream().use { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.WEBP, 90, output))
+            output.toByteArray()
+        }
+    } finally { bitmap.recycle() }
 }
 
 private fun loadGatePhoto(context: Context, source: String): Bitmap? {

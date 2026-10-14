@@ -115,35 +115,6 @@ object CustomerLocalSync {
 
     fun hasCustomers(context: Context): Boolean = currentArray(context).length() > 0
 
-    private fun readPhoto(context: Context, source: String): ByteArray? = runCatching {
-        val u = android.net.Uri.parse(source)
-        when (u.scheme) {
-            "content" -> context.contentResolver.openInputStream(u)?.use { it.readBytes() }
-            "file" -> File(requireNotNull(u.path)).takeIf { it.exists() }?.readBytes()
-            else -> File(source).takeIf { it.exists() }?.readBytes()
-        }
-    }.getOrNull()
-
-    private fun optimizedWebp(bytes: ByteArray): ByteArray? = runCatching {
-        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
-        var sample = 1
-        while (maxSide / sample > 2400) sample *= 2
-        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-        val decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return@runCatching null
-        val longest = maxOf(decoded.width, decoded.height)
-        val bmp = if (longest > 1920) {
-            val scale = 1920f / longest
-            android.graphics.Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
-                .also { if (it !== decoded) decoded.recycle() }
-        } else decoded
-        val out = java.io.ByteArrayOutputStream()
-        bmp.compress(android.graphics.Bitmap.CompressFormat.WEBP, 85, out)
-        bmp.recycle()
-        out.toByteArray()
-    }.getOrNull()
-
     fun writePortableBackup(context: Context) {
         val uri = portableUri(context) ?: return
         val source = currentArray(context)
@@ -153,8 +124,8 @@ object CustomerLocalSync {
 
         fun packPhoto(value: String): String {
             if (value.isBlank()) return ""
-            val raw = readPhoto(context, value) ?: return value
-            val webp = optimizedWebp(raw) ?: return value
+            val webp = gatePhotoBackupBytes(context, value)
+                ?: error("Có ảnh khách không đọc được. Chưa ghi đè file sao lưu cũ.")
             val path = "photos/customer_gate/photo_" + (++photoIndex) + ".webp"
             photos[path] = webp
             return path
@@ -215,10 +186,20 @@ object CustomerLocalSync {
             val restoredDir = File(context.filesDir, "customer_gate_photos").apply { mkdirs() }
 
             fun restorePhoto(path: String): String {
-                if (!path.startsWith("photos/customer_gate/")) return path
+                if (path.isBlank()) return ""
+                if (!path.startsWith("photos/customer_gate/")) {
+                    // Old archives may contain a device-only URI, not photo bytes.
+                    check(gatePhotoBackupBytes(context, path) != null) {
+                        "File sao lưu chỉ có đường dẫn ảnh cũ, không có dữ liệu ảnh; chưa thay dữ liệu khách."
+                    }
+                    return path
+                }
                 val src = File(temp, path)
-                if (!src.exists()) return ""
+                check(src.isFile && src.length() > 0) { "File sao lưu thiếu ảnh $path; chưa thay dữ liệu khách." }
                 val dst = File(restoredDir, "restored_" + java.util.UUID.randomUUID() + ".webp")
+                check(gatePhotoBackupBytes(context, android.net.Uri.fromFile(src).toString()) != null) {
+                    "Ảnh trong file sao lưu bị hỏng; chưa thay dữ liệu khách."
+                }
                 src.copyTo(dst, overwrite = true)
                 return android.net.Uri.fromFile(dst).toString()
             }
