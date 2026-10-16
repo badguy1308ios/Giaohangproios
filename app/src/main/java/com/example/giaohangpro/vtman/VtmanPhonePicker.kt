@@ -5,6 +5,11 @@ internal object VtmanPhonePicker {
     private fun normalized(value: String) = value.replace(Regex("\\s+"), " ").trim()
     fun isTitle(value: String) = normalized(value).contains(TITLE, ignoreCase = true)
 
+    // An in-app picker is already proof that tapping Call opened a phone surface.
+    // Its rows may be below the truncated signature of the unchanged order card.
+    fun canReadSurface(pickerVisible: Boolean, outsideVtman: Boolean, signatureChanged: Boolean): Boolean =
+        pickerVisible || (outsideVtman && signatureChanged)
+
     fun firstPhone(texts: List<VtmanScreenText>): String? {
         val titleNodes = texts.filter { isTitle(it.value) }
         if (titleNodes.isEmpty()) return null

@@ -338,7 +338,13 @@ class VtmanAccessibilityService : AccessibilityService() {
     }
 
     private fun readBlock(root: AccessibilityNodeInfo, mv: String) {
-        val allStrings = root.collectStrings()
+        // Dismiss a leftover picker before parsing/searching another card.
+        if (phonePickerTexts(root).any { VtmanPhonePicker.isTitle(it.value) }) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            resultDeadline = System.currentTimeMillis() + 2500L
+            schedule(350)
+            return
+        }
         // Bỏ nội dung ô Search ra khỏi dữ liệu kết quả. Nếu màn hình rỗng thì MVĐ chỉ tồn tại
         // trong ô Search; không được xem đó là một đơn hợp lệ để bấm nút gọi.
         val resultStrings=root.collectResultStrings()
@@ -411,15 +417,6 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Popup cũ phải được đóng trước khi bấm. Nếu không, số của đơn trước có thể
-        // bị nhận là số của đơn đang xử lý.
-        if (allStrings.any { it.contains("Chọn số điện thoại để gọi", true) }) {
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            resultDeadline = System.currentTimeMillis() + 2500L
-            schedule(350)
-            return
-        }
-
         val stillShowsCurrent = root.collectResultStrings()
             .any { VtmanFixedBlockParser.containsExpectedWaybill(it, mv) }
         if (!stillShowsCurrent) {
@@ -469,8 +466,8 @@ class VtmanAccessibilityService : AccessibilityService() {
             return
         }
 
-        val strings = root.collectStrings()
-        val phonePickerVisible = strings.any(VtmanPhonePicker::isTitle)
+        val pickerTexts = phonePickerTexts(root)
+        val phonePickerVisible = pickerTexts.any { VtmanPhonePicker.isTitle(it.value) }
         val currentPackage = root.packageName?.toString()
         val outsideVtman = currentPackage != pkg
 
@@ -486,8 +483,8 @@ class VtmanAccessibilityService : AccessibilityService() {
         // Dialer có thể hiện SĐT cũ vài trăm ms trước khi cập nhật số mới, nhất là
         // đơn đầu của phiên kế tiếp, nên không được chốt "số đầu tiên nhìn thấy".
         val currentPhoneSignature = root.phoneScreenSignature()
-        val phoneSurfaceVisible = phonePickerVisible || outsideVtman
-        if (!phoneSurfaceVisible || currentPhoneSignature == phoneScreenBaseline) {
+        if (!VtmanPhonePicker.canReadSurface(
+                phonePickerVisible, outsideVtman, currentPhoneSignature != phoneScreenBaseline)) {
             if (now > deadline) {
                 retryCurrentOrFail(mv, "Màn hình SĐT chưa mở sau khi bấm gọi", returnToVtman = outsideVtman)
             } else schedule(120)
@@ -496,7 +493,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         if (phoneSurfaceSeenAt == 0L) phoneSurfaceSeenAt = now
 
         val phone = if (phonePickerVisible) {
-            VtmanPhonePicker.firstPhone(root.collectPhonePickerTexts())
+            VtmanPhonePicker.firstPhone(pickerTexts)
         } else VtmanFixedBlockParser.findPhone(phoneStrings)
         if (phone.isNullOrBlank()) {
             if (now > deadline) {
@@ -571,7 +568,7 @@ class VtmanAccessibilityService : AccessibilityService() {
 
     private fun waitPhonePickerDismissed(root: AccessibilityNodeInfo) {
         val now = System.currentTimeMillis()
-        val pickerVisible = root.collectStrings().any(VtmanPhonePicker::isTitle)
+        val pickerVisible = phonePickerTexts(root).any { VtmanPhonePicker.isTitle(it.value) }
         if (pickerVisible) {
             if (now > returnDeadline) {
                 VtmanQueueController.fail("Đã lấy SĐT nhưng không đóng được danh sách số")
@@ -826,6 +823,24 @@ class VtmanAccessibilityService : AccessibilityService() {
         walk(this)
         return out.sortedWith(compareBy<PositionedText> { it.top }.thenBy { it.left }.thenBy { it.order })
             .map(PositionedText::value)
+    }
+
+    private fun phonePickerTexts(activeRoot: AccessibilityNodeInfo): List<VtmanScreenText> {
+        val activeTexts = activeRoot.collectPhonePickerTexts()
+        if (activeRoot.packageName?.toString() == pkg &&
+            activeTexts.any { VtmanPhonePicker.isTitle(it.value) }) return activeTexts
+        // Some devices expose the bottom sheet as another application window.
+        // Do not merge its rows with the background order, overlay or dialer.
+        for (window in windows) {
+            if (window.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val candidate = window.root ?: continue
+            try {
+                if (candidate.packageName?.toString() != pkg) continue
+                val texts = candidate.collectPhonePickerTexts()
+                if (texts.any { VtmanPhonePicker.isTitle(it.value) }) return texts
+            } finally { candidate.recycle() }
+        }
+        return emptyList()
     }
 
     private fun AccessibilityNodeInfo.collectPhonePickerTexts(): List<VtmanScreenText> {
