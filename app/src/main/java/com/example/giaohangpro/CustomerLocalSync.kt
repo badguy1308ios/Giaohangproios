@@ -115,50 +115,108 @@ object CustomerLocalSync {
 
     fun hasCustomers(context: Context): Boolean = currentArray(context).length() > 0
 
+    fun portableStatus(context: Context): String = prefs(context).getString("portable_status", "File bên ngoài: chưa có kết quả ghi nhận")!!
+
+    @Synchronized
     fun writePortableBackup(context: Context) {
         val uri = portableUri(context) ?: return
-        val source = currentArray(context)
-        val customers = JSONArray()
-        val photos = linkedMapOf<String, ByteArray>()
-        var photoIndex = 0
-
-        fun packPhoto(value: String): String {
-            if (value.isBlank()) return ""
-            val webp = gatePhotoBackupBytes(context, value)
-                ?: error("Có ảnh khách không đọc được. Chưa ghi đè file sao lưu cũ.")
-            val path = "photos/customer_gate/photo_" + (++photoIndex) + ".webp"
-            photos[path] = webp
-            return path
-        }
-
-        for (i in 0 until source.length()) {
-            val customer = JSONObject(source.getJSONObject(i).toString())
-            customer.put("photoUri", packPhoto(customer.optString("photoUri")))
-            val addresses = customer.optJSONArray("extraAddresses") ?: JSONArray()
-            for (j in 0 until addresses.length()) {
-                val a = addresses.optJSONObject(j) ?: continue
-                a.put("photoUri", packPhoto(a.optString("photoUri")))
-            }
-            customers.put(customer)
-        }
-
-        val manifest = JSONObject().apply {
-            put("format", "giaohangpro-customer-sync")
-            put("schemaVersion", 2)
-            put("updatedAt", System.currentTimeMillis())
-            put("customers", customers.length())
-            put("images", photos.size)
-        }
-        context.contentResolver.openOutputStream(uri, "wt")?.use { raw ->
-            java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(raw)).use { zip ->
-                fun entry(path: String, bytes: ByteArray) {
-                    zip.putNextEntry(java.util.zip.ZipEntry(path)); zip.write(bytes); zip.closeEntry()
+        val work = File(context.cacheDir, "sync_pack_${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
+        val previousFile = File(work, "previous.zip")
+        var previousZip: java.util.zip.ZipFile? = null
+        var previousCopied = false
+        try {
+            // Preserve the old bytes before opening the destination for writing.
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    previousFile.outputStream().use { input.copyTo(it) }
+                    previousCopied = true
                 }
-                entry("customers.json", customers.toString().toByteArray(Charsets.UTF_8))
-                photos.forEach { (path, bytes) -> entry(path, bytes) }
-                entry("manifest.json", manifest.toString().toByteArray(Charsets.UTF_8))
+                previousZip = java.util.zip.ZipFile(previousFile)
             }
-        } ?: error("Không mở được file đồng bộ đã chọn")
+            val previous = mutableListOf<BackupPhotoReference>()
+            runCatching {
+                val zip = previousZip ?: return@runCatching
+                val m = JSONObject(zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().use { it.readText() })
+                check(m.optString("format") == "giaohangpro-customer-sync")
+                val old = JSONArray(zip.getInputStream(zip.getEntry("customers.json")).bufferedReader().use { it.readText() })
+                for (i in 0 until old.length()) {
+                    val c = old.getJSONObject(i)
+                    fun add(o: JSONObject) { previous += BackupPhotoReference(c.optLong("id"), o.optString("photoSourceKey"), o.optString("photoUri")) }
+                    add(c)
+                    val addresses = c.optJSONArray("extraAddresses") ?: JSONArray()
+                    for (j in 0 until addresses.length()) add(addresses.getJSONObject(j))
+                }
+            }.onFailure { previous.clear() }
+            val customers = currentArray(context) // Detached JSON; never edit the live customer records.
+            val missing = JSONArray()
+            val entries = mutableListOf<Pair<String, File>>()
+            var reused = 0
+            fun pack(o: JSONObject, customer: JSONObject, label: String) {
+                val source = o.optString("photoUri")
+                if (source.isBlank()) return
+                val key = GatePhotoArchive.sourceKey(source)
+                o.put("photoSourceKey", key)
+                var bytes = runCatching { gatePhotoBackupBytes(context, source) }.getOrNull()
+                if (bytes == null) {
+                    val path = PhotoBackupFallback.match(customer.optLong("id"), key, previous)
+                    if (path != null) runCatching {
+                        val zip = previousZip ?: return@runCatching
+                        val entry = zip.getEntry(path) ?: return@runCatching
+                        val oldPhoto = File(work, "fallback.img")
+                        zip.getInputStream(entry).use { input -> oldPhoto.outputStream().use { input.copyTo(it) } }
+                        bytes = gatePhotoBackupBytes(context, oldPhoto.absolutePath)
+                        if (bytes != null) reused++
+                    }
+                }
+                if (bytes == null) {
+                    missing.put(JSONObject().put("id", customer.optLong("id")).put("name", customer.optString("name")).put("addressSlot", label))
+                    o.put("photoMissing", true).put("photoOriginalUri", source).put("photoUri", "")
+                } else {
+                    val path = "photos/customer_gate/photo_${entries.size + 1}.webp"
+                    val file = File(work, "photo_${entries.size + 1}.webp").apply { writeBytes(bytes!!) }
+                    entries += path to file
+                    o.put("photoUri", path).remove("photoMissing")
+                    o.remove("photoOriginalUri")
+                }
+            }
+            for (i in 0 until customers.length()) {
+                val c = customers.getJSONObject(i)
+                pack(c, c, "chính")
+                val addresses = c.optJSONArray("extraAddresses") ?: JSONArray()
+                for (j in 0 until addresses.length()) pack(addresses.getJSONObject(j), c, "phụ ${j + 1}")
+            }
+            val manifest = JSONObject().put("format", "giaohangpro-customer-sync").put("schemaVersion", 3)
+                .put("updatedAt", System.currentTimeMillis()).put("customers", customers.length())
+                .put("images", entries.size).put("reusedImages", reused).put("missingPhotos", missing)
+            val staged = File(work, "ready.zip")
+            java.util.zip.ZipOutputStream(staged.outputStream().buffered()).use { zip ->
+                fun entry(path: String, write: () -> Unit) { zip.putNextEntry(java.util.zip.ZipEntry(path)); write(); zip.closeEntry() }
+                entry("customers.json") { zip.write(customers.toString().toByteArray(Charsets.UTF_8)) }
+                entries.forEach { (path, file) -> entry(path) { file.inputStream().use { it.copyTo(zip) } } }
+                entry("manifest.json") { zip.write(manifest.toString().toByteArray(Charsets.UTF_8)) }
+            }
+            // The archive is complete locally before the external provider is touched.
+            try {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { out -> staged.inputStream().use { it.copyTo(out) } }
+                    ?: error("Không mở được file đồng bộ đã chọn")
+            } catch (e: Exception) {
+                val recovered = previousCopied && previousFile.length() > 0 && runCatching {
+                    val out = context.contentResolver.openOutputStream(uri, "wt") ?: error("Không mở được file cũ")
+                    out.use { previousFile.inputStream().use { input -> input.copyTo(it) } }
+                }.isSuccess
+                error(if (recovered) "Ghi file bên ngoài thất bại; đã ghi trả bản cũ." else "Ghi file bên ngoài thất bại; cần kiểm tra lại file đã chọn.")
+            }
+            val details = (0 until missing.length()).joinToString("\n") {
+                val item = missing.getJSONObject(it)
+                "• ${item.optString("name")} (ID ${item.optLong("id")}, ${item.optString("addressSlot")})"
+            }
+            val status = "File bên ngoài đã cập nhật: ${customers.length()} khách, ${entries.size} ảnh; giữ lại $reused ảnh từ bản trước." +
+                if (missing.length() > 0) "\nThiếu ${missing.length()} ảnh; dữ liệu khách vẫn đã lưu:\n$details" else "\nĐủ ảnh đang được tham chiếu."
+            prefs(context).edit().putString("portable_status", status).apply()
+        } catch (e: Exception) {
+            prefs(context).edit().putString("portable_status", "File bên ngoài chưa cập nhật: ${e.message}").apply()
+            throw e
+        } finally { previousZip?.close(); work.deleteRecursively() }
     }
 
     fun importPortableBackup(context: Context, uri: android.net.Uri): Int {
@@ -207,18 +265,26 @@ object CustomerLocalSync {
             for (i in 0 until customers.length()) {
                 val customer = customers.optJSONObject(i) ?: error("Dữ liệu khách hàng bị lỗi")
                 check(customer.has("id")) { "Dữ liệu khách hàng bị lỗi" }
-                customer.put("photoUri", restorePhoto(customer.optString("photoUri")))
+                fun restoreField(o: JSONObject) {
+                    if (o.optBoolean("photoMissing") && o.optString("photoUri").isBlank()) {
+                        // Explicitly incomplete backups restore customer data without pretending the image exists.
+                        o.put("photoUri", o.optString("photoOriginalUri"))
+                    } else o.put("photoUri", restorePhoto(o.optString("photoUri")))
+                }
+                restoreField(customer)
                 val addresses = customer.optJSONArray("extraAddresses") ?: JSONArray()
                 for (j in 0 until addresses.length()) {
                     val a = addresses.optJSONObject(j) ?: continue
-                    a.put("photoUri", restorePhoto(a.optString("photoUri")))
+                    restoreField(a)
                 }
             }
             appPrefs(context).edit().putString("customers", customers.toString()).commit()
             setPortableUri(context, uri)
             dir(context).deleteRecursively()
             prefs(context).edit().remove(KEY_SESSIONS).apply()
-            syncNow(context)
+            // Do not rewrite the source backup merely by restoring it.
+            val missing = manifest.optJSONArray("missingPhotos")?.length() ?: 0
+            prefs(context).edit().putString("portable_status", "Đã khôi phục ${customers.length()} khách; file nguồn báo thiếu $missing ảnh.").apply()
             return customers.length()
         } finally { temp.deleteRecursively() }
     }

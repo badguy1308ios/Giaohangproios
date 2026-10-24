@@ -28,7 +28,7 @@ internal fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Sẵn sàng") }
+    var status by remember { mutableStateOf(CustomerLocalSync.portableStatus(context)) }
     var refresh by remember { mutableIntStateOf(0) }
     var autoSync by remember(refresh) { mutableStateOf(CustomerLocalSync.isEnabled(context)) }
     var times by remember(refresh) { mutableStateOf(CustomerLocalSync.scheduledTimes(context)) }
@@ -45,11 +45,10 @@ internal fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
                 CustomerLocalSync.setPortableUri(context, uri)
                 withContext(Dispatchers.IO) {
                     CustomerLocalSync.syncNow(context)
-                    CustomerLocalSync.writePortableBackup(context)
                 }
             }.onSuccess {
                 portableReady = true; refresh++
-                status = "Đã liên kết file đồng bộ. Từ giờ lịch tự động sẽ cập nhật file này."
+                status = CustomerLocalSync.portableStatus(context)
             }.onFailure { e -> status = "Không tạo được file đồng bộ: " + (e.message ?: "lỗi không xác định") }
             busy = false
         }
@@ -62,7 +61,7 @@ internal fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
             runCatching { withContext(Dispatchers.IO) { CustomerLocalSync.importPortableBackup(context, uri) } }
                 .onSuccess { count ->
                     vm.reloadPersistentData(); portableReady = true; refresh++
-                    status = "Đã khôi phục " + count + " khách và liên kết lại file đồng bộ."
+                    status = CustomerLocalSync.portableStatus(context)
                 }
                 .onFailure { e -> status = "Không đọc được file đồng bộ: " + (e.message ?: "lỗi không xác định") }
             busy = false
@@ -75,9 +74,10 @@ internal fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
             runCatching { withContext(Dispatchers.IO) { CustomerLocalSync.syncNow(context) } }
                 .onSuccess { s ->
                     status = if (s == null) "Dữ liệu không thay đổi — không tạo phiên mới" else "Đồng bộ xong: " + s.upserts + " cập nhật, " + s.deletes + " xóa • " + s.customerCount + " khách"
+                    status += "\n" + if (CustomerLocalSync.portableUri(context) != null) CustomerLocalSync.portableStatus(context) else "Chưa liên kết file bên ngoài."
                     refresh++
                 }
-                .onFailure { e -> status = "Đồng bộ lỗi: " + (e.message ?: "không xác định") + " • Phiên trước vẫn an toàn" }
+                .onFailure { e -> status = "Đồng bộ lỗi: " + (e.message ?: "không xác định") }
             busy = false
         }
     }
@@ -111,7 +111,7 @@ internal fun CustomerBackupScreen(vm: MainViewModel, onBack: () -> Unit) {
                     Text("BACKUP CỤC BỘ", color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                     Text("Chỉ lưu khách hàng thêm / sửa / xóa kể từ phiên trước. Dữ liệu nằm trên điện thoại, chưa gửi lên Internet.", color = TextGray, fontSize = 12.sp)
                     val last = sessions.firstOrNull()
-                    Text(if (last == null) "Chưa có phiên đồng bộ" else "Phiên gần nhất: " + dateFmt.format(java.util.Date(last.createdAt)) + " • " + last.customerCount + " khách", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (last == null) "Chưa có phiên đồng bộ" else "Phiên nội bộ gần nhất: " + dateFmt.format(java.util.Date(last.createdAt)) + " • " + last.customerCount + " khách", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             Button(enabled = !busy, onClick = { doSync() }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
