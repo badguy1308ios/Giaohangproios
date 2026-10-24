@@ -44,6 +44,8 @@ fun CustomerDetailScreen(
     val photoScope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPhotoMenu by remember { mutableStateOf(false) }
+    var photoAudit by remember { mutableStateOf<String?>(null) }
+    var auditingPhotos by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -123,6 +125,23 @@ fun CustomerDetailScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
+                    enabled = !auditingPhotos,
+                    onClick = {
+                        auditingPhotos = true
+                        photoScope.launch {
+                            try {
+                                photoAudit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    "Khách đang xem: ID ${customer.id}\n" + gatePhotoDiagnosis(context, customer.photoUri) +
+                                        "\n\n" + gatePhotoAudit(context)
+                                }
+                                showPhotoMenu = false
+                            } catch (e: Exception) {
+                                photoAudit = "Kiểm tra chưa hoàn tất: ${e.javaClass.simpleName}"
+                            } finally { auditingPhotos = false }
+                        }
+                    }, modifier = Modifier.fillMaxWidth()
+                ) { Text(if (auditingPhotos) "Đang kiểm tra ảnh…" else "Kiểm tra ảnh đã lưu") }
+                FilledTonalButton(
                     onClick = { showPhotoMenu = false; galleryLauncher.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -147,6 +166,20 @@ fun CustomerDetailScreen(
         confirmButton = {},
         dismissButton = { TextButton(onClick = { showPhotoMenu = false }) { Text("Hủy") } }
     )
+
+    photoAudit?.let { report ->
+        AlertDialog(
+            onDismissRequest = { photoAudit = null },
+            title = { Text("Kết quả kiểm tra ảnh") },
+            text = { Text(report, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Kiểm tra ảnh", report))
+                Toast.makeText(context, "Đã sao chép kết quả kiểm tra", Toast.LENGTH_SHORT).show()
+            }) { Text("Sao chép kết quả") } },
+            dismissButton = { TextButton(onClick = { photoAudit = null }) { Text("Đóng") } }
+        )
+    }
 
     if (showDeleteDialog) AlertDialog(
         onDismissRequest = { showDeleteDialog = false },

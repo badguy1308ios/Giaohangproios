@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -1449,6 +1450,8 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 ))
             }
         }
+        val photoSources = customerState.flatMap { c -> listOf(c.photoUri) + c.extraAddresses.map { it.photoUri } }
+        viewModelScope.launch(Dispatchers.IO) { preserveLegacyGatePhotos(getApplication(), photoSources) }
         true
     }.getOrElse { false }
 

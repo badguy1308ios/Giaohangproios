@@ -243,7 +243,12 @@ object CustomerLocalSync {
         val previous = reconstruct(context)
         val upserts = current.filter { (id, value) -> previous[id]?.toString() != value.toString() }.values
         val deletes = previous.keys.filter { it !in current.keys }
-        if (upserts.isEmpty() && deletes.isEmpty()) return null
+        if (upserts.isEmpty() && deletes.isEmpty()) {
+            // A prior portable write may have failed after the local snapshot committed.
+            // Retry even when customer JSON is unchanged (for example after photo access recovers).
+            if (portableUri(context) != null) writePortableBackup(context)
+            return null
+        }
 
         val now = System.currentTimeMillis()
         val root = JSONObject().put("schemaVersion", 1).put("createdAt", now)
