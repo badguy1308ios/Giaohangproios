@@ -67,7 +67,15 @@ fun CustomerFormScreen(
     val photoScope = rememberCoroutineScope()
     fun setPrimaryPhoto(uri: String) {
         val index = addresses.indexOfFirst { it.isPrimary }
-        if (index >= 0) addresses[index] = addresses[index].copy(photoUri = uri)
+        if (index >= 0) {
+            val previous = addresses[index].photoUri
+            addresses[index] = addresses[index].copy(photoUri = uri)
+            // An intermediate draft photo was never saved as the customer's photo.
+            val savedPhotos = listOf(original?.photoUri.orEmpty()) + original?.extraAddresses.orEmpty().map { it.photoUri }
+            if (previous.isNotBlank() && previous != uri && previous !in savedPhotos) {
+                photoScope.launch(kotlinx.coroutines.Dispatchers.IO) { deleteStoredGatePhoto(context, previous) }
+            }
+        }
     }
     val names = remember(customer?.id) { mutableStateListOf<String>().apply { add(customer?.name.orEmpty()); addAll(customer?.aliases.orEmpty()) } }
     var expandedPhone by remember { mutableStateOf<Int?>(null) }
@@ -95,7 +103,7 @@ fun CustomerFormScreen(
             importingPhoto = true
             photoScope.launch {
                 try {
-                    val stored = storeGatePhoto(context, android.net.Uri.parse(captured))
+                    val stored = storeCapturedGatePhoto(context, android.net.Uri.parse(captured))
                     if (stored != null) setPrimaryPhoto(stored)
                     else Toast.makeText(context, "Ảnh chụp chưa lưu được. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
                 } finally { importingPhoto = false }

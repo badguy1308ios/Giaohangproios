@@ -212,3 +212,29 @@ internal fun preserveLegacyGatePhotos(context: Context, sources: List<String>) {
         }.onFailure { Log.w("GatePhoto", "Legacy photo could not be preserved: ${it.javaClass.simpleName}") }
     }
 }
+
+internal fun deleteStoredGatePhoto(context: Context, source: String) {
+    if (source.isBlank()) return
+    try {
+        synchronized(GatePhotoArchive) {
+            GatePhotoArchive.discard(context.filesDir, source)
+            val uri = Uri.parse(source)
+            val path = when {
+                uri.scheme == null -> source
+                uri.scheme == "file" -> uri.path.orEmpty()
+                uri.scheme == "content" && uri.authority == context.packageName + ".fileprovider" -> uri.path.orEmpty()
+                else -> ""
+            }
+            val file = if (path.isNotBlank()) GatePhotoFiles.owned(context.filesDir, path) else null
+            check(file == null || !file.exists() || file.delete()) { "Cannot delete replaced photo" }
+        }
+    } catch (e: Exception) {
+        GatePhotoDebug.failure(context, source, "DELETE_REPLACED_PHOTO", e.javaClass.simpleName)
+    }
+}
+
+internal suspend fun storeCapturedGatePhoto(context: Context, source: Uri): String? {
+    val stored = storeGatePhoto(context, source) ?: return null
+    withContext(Dispatchers.IO) { deleteStoredGatePhoto(context, source.toString()) }
+    return stored
+}

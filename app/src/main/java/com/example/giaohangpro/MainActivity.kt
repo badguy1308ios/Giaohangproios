@@ -1455,7 +1455,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         true
     }.getOrElse { false }
 
-    private fun savePersistentData(editor: android.content.SharedPreferences.Editor = prefs.edit()) {
+    private fun savePersistentData(editor: android.content.SharedPreferences.Editor = prefs.edit(), commitNow: Boolean = false): Boolean {
         val ordersArr=org.json.JSONArray()
         orderState.forEach { o ->
             ordersArr.put(org.json.JSONObject().apply {
@@ -1475,7 +1475,8 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 put("extraAddresses",org.json.JSONArray().apply { c.extraAddresses.forEach { a -> put(org.json.JSONObject().apply { put("address",a.address); put("latitude",a.latitude); put("longitude",a.longitude); put("isPrimary",a.isPrimary); put("photoUri",a.photoUri) }) } })
             })
         }
-        editor.putString("orders",ordersArr.toString()).putString("customers",customersArr.toString()).apply()
+        editor.putString("orders",ordersArr.toString()).putString("customers",customersArr.toString())
+        return if (commitNow) editor.commit() else { editor.apply(); true }
     }
 
     fun findCustomer(id: Long): Customer? = customerState.firstOrNull { it.id == id }
@@ -1516,8 +1517,16 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     fun updateCustomerPhoto(id: Long, uri: String) {
         val index = customerState.indexOfFirst { it.id == id }
         if (index < 0) return
-        customerState[index] = CustomerCoordinateSafety.updatePhoto(customerState[index], uri)
-        savePersistentData()
+        val previous = customerState[index]
+        if (previous.photoUri == uri) return
+        customerState[index] = CustomerCoordinateSafety.updatePhoto(previous, uri)
+        if (savePersistentData(commitNow = true)) {
+            viewModelScope.launch(Dispatchers.IO) { deleteStoredGatePhoto(getApplication(), previous.photoUri) }
+        } else {
+            customerState[index] = previous
+            savePersistentData()
+            Toast.makeText(getApplication(), "Chưa lưu được ảnh mới. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
+        }
     }
 
     fun updateCustomer(updatedCustomer: Customer, original: Customer): Boolean {
@@ -1525,7 +1534,15 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         if (index < 0 || !CustomerCoordinateSafety.canSave(customerState[index], original)) return false
         addStreetName(updatedCustomer.streetName)
         customerState[index] = updatedCustomer
-        savePersistentData()
+        if (!savePersistentData(commitNow = true)) {
+            customerState[index] = original
+            savePersistentData()
+            return false
+        }
+        val retained = (listOf(updatedCustomer.photoUri) + updatedCustomer.extraAddresses.map { it.photoUri }).toSet()
+        val replaced = (listOf(original.photoUri) + original.extraAddresses.map { it.photoUri })
+            .filter { it.isNotBlank() && it !in retained }.distinct()
+        viewModelScope.launch(Dispatchers.IO) { replaced.forEach { deleteStoredGatePhoto(getApplication(), it) } }
         return true
     }
 

@@ -42,4 +42,14 @@ class GatePhotoArchiveTest {
         assertNull(GatePhotoArchive.find(temp.root, "content://other-gallery/document/old-photo"))
         assertNull(GatePhotoArchive.find(temp.root, "content://gallery/another/old-photo"))
     }
+    @Test fun deletedPhotoIsNotRecreatedByLegacyMigration() {
+        val file = GatePhotoArchive.preserve(temp.root, source, { bytes.inputStream() }) { true }
+        GatePhotoArchive.discard(temp.root, source)
+        assertFalse(file.exists())
+        assertNull(GatePhotoArchive.find(temp.root, source))
+        try {
+            GatePhotoArchive.preserve(temp.root, source, { bytes.inputStream() }) { true }
+            fail("Replaced photo must stay deleted")
+        } catch (_: IllegalStateException) { }
+    }
 }

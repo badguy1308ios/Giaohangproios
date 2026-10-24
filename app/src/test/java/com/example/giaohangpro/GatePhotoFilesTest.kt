@@ -38,4 +38,13 @@ class GatePhotoFilesTest {
         val file = photo("import_cache.jpg")
         assertEquals(file, GatePhotoFiles.local(temp.root, file.absolutePath))
     }
+    @Test fun deletionTargetsOnlyOwnedPhotoFiles() {
+        val file = photo("customer_gate_photos/selected_123.img")
+        assertEquals(file, GatePhotoFiles.owned(temp.root, "customer_gate_photos/selected_123.img"))
+        assertEquals(file, GatePhotoFiles.owned(temp.root, file.absolutePath))
+        assertNull(GatePhotoFiles.owned(temp.root, "/storage/emulated/0/DCIM/camera.jpg"))
+        assertNull(GatePhotoFiles.owned(temp.root, "customer_gate_photos/../../other.jpg"))
+        assertNull(GatePhotoFiles.owned(temp.root, "customer_gate_photos"))
+        assertNull(GatePhotoFiles.owned(temp.root, "customer_gate_photos/../customer_sync/base.json"))
+    }
 }

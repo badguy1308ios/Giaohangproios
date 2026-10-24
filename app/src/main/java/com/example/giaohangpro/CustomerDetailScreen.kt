@@ -67,7 +67,7 @@ fun CustomerDetailScreen(
         val captured = pendingCameraUri
         pendingCameraUri = null
         if (ok && captured != null) photoScope.launch {
-            val stored = storeGatePhoto(context, android.net.Uri.parse(captured))
+            val stored = storeCapturedGatePhoto(context, android.net.Uri.parse(captured))
             if (stored != null) onPhotoChanged(stored)
             else Toast.makeText(context, "Ảnh chụp chưa lưu được. Ảnh cũ được giữ nguyên.", Toast.LENGTH_LONG).show()
         }
