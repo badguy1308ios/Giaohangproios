@@ -6,8 +6,8 @@ android {
         applicationId 'vn.hai.zalointentlab'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0-test'
+        versionCode 5
+        versionName '5.0-lab'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

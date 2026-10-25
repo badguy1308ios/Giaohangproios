@@ -63,6 +63,10 @@ public final class MainActivity extends Activity {
         add(root, paste, 12);
         paste.setOnClickListener(v -> pasteClipboard());
 
+        Button linkCustomer = button("THỬ LIÊN KẾT ZALO VỚI KHÁCH HÀNG", true);
+        add(root, linkCustomer, 12);
+        linkCustomer.setOnClickListener(v -> startActivity(new Intent(this, CustomerLinkActivity.class)));
+
         Button contactsProbe = button("KIỂM TRA ZALO TỪ DANH BẠ ANDROID", false);
         add(root, contactsProbe, 12);
         contactsProbe.setOnClickListener(v -> startActivity(new Intent(this, ContactsProbeActivity.class)));

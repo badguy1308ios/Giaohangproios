@@ -13,6 +13,7 @@
         <activity android:name=".ShortcutProbeActivity" android:exported="false" />
         <activity android:name=".BatchImportActivity" android:exported="false" />
         <activity android:name=".ContactsProbeActivity" android:exported="false" />
+        <activity android:name=".CustomerLinkActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

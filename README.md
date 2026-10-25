@@ -1,25 +1,14 @@
-# Zalo Chat Lab
+# Zalo Chat Lab v5
 
-This is an **independent Android test application**, application ID `vn.hai.zalointentlab`.
-It is intentionally isolated from GiaoHangPro source. Do not merge this branch into `main`.
+Independent APK `vn.hai.zalointentlab`, built from `zalo-chat-lab` branch only. The main GiaoHangPro branch is unchanged.
 
-## Purpose
-Determine whether a normal third-party Android app can open the Zalo
-`com.zing.zalo.action.SHORTCUT_MINI_CHAT` Intent that was proven to work via ADB.
-ADB success does **not** guarantee that an ordinary app is authorized.
+## New manual linking test
+1. Open **THỬ LIÊN KẾT ZALO VỚI KHÁCH HÀNG** in Zalo Chat Lab.
+2. Enter a sample customer's name. Delivery phone number is optional.
+3. Paste the three fields extracted from an existing Zalo chat shortcut (`intent_sig`, `target`, `owner`). NEVER commit these private fields to GitHub.
+4. Tap **LƯU LIÊN KẾT CHO KHÁCH**. It stores only inside this APK (Android private preferences, backup disabled).
+5. Tap **MỞ CHAT ZALO** for the customer. Editing and deleting do not affect Zalo or GiaoHangPro.
 
-## Usage
-1. Build via the GitHub Actions `Zalo Chat Lab APK` workflow and download its APK artifact.
-2. Install APK separately from GiaoHangPro.
-3. Copy only the private `intents=[Intent .../PersistableBundle[...]]` line
-   from aShell You shortcut output, containing `intent_sig`, `target`, `owner`.
-4. In the app tap **DÁN TỪ BỘ NHỚ TẠM**, then **MỞ CHAT ZALO**.
-5. Record whether it opens the right chat, opens Zalo only, or reports a security error.
+This tests **manually attaching an already acquired Zalo Intent to a customer record**, and reopening the right conversation by tapping one button. It does **not** autonomously discover Zalo conversations: Zalo has not exposed an API permitting an ordinary app to read those identifiers. When obtaining the three fields is necessary, the previously confirmed aShell / ADB route or bulk importer remains available.
 
-**Privacy**: Never commit the extracted Zalo IDs to a public repository.
-This test app is fully offline, has no network permission, and stores the last
-successful test input only in its private on-device preferences; no Android backup.
-
-**Isolation**: This branch replaces its own tree with just this small project.
-The repository's `main` branch is untouched. Create a new private repository
-later if a physically separate repository is desired.
+The app uses no network permission, and the source contains no customer codes. No customer records or Zalo messages are read from GiaoHangPro. If it is eventually integrated, backups should store these fields and treat them as opaque sensitive credentials, subject to the Zalo account and version changing.
