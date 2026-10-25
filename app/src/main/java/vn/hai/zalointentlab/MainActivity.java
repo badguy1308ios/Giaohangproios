@@ -63,6 +63,12 @@ public final class MainActivity extends Activity {
         add(root, paste, 12);
         paste.setOnClickListener(v -> pasteClipboard());
 
+        Button probe = button("THỬ LIÊN KẾT ZALO KHÔNG ADB (MỚI)", false);
+        add(root, probe, 16);
+        probe.setOnClickListener(v -> startActivityForResult(
+            new Intent(this, ShortcutProbeActivity.class), 415
+        ));
+
         Button open = button("MỞ CHAT ZALO", true);
         add(root, open, 10);
         open.setOnClickListener(v -> openZalo());
@@ -72,6 +78,17 @@ public final class MainActivity extends Activity {
 
         TextView warning = text("Lưu ý: Nếu Android báo SecurityException, Zalo không cho phép app thông thường mở Activity này. APK không can thiệp hay sửa dữ liệu Zalo/GiaoHangPro.", 12, Color.DKGRAY, false);
         add(root, warning, 24);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 415 && resultCode == RESULT_OK && data != null) {
+            String config = data.getStringExtra("zalo_config");
+            if (config != null && !config.isEmpty()) {
+                input.setText(config);
+                status.setText("Đã nhận dữ liệu shortcut tự động! Bấm MỞ CHAT ZALO để kiểm chứng.");
+            }
+        }
     }
 
     private void pasteClipboard() {
