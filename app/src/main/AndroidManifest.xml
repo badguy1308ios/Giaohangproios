@@ -10,6 +10,7 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ShortcutProbeActivity" android:exported="false" />
+        <activity android:name=".BatchImportActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

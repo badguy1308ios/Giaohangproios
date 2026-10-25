@@ -63,6 +63,10 @@ public final class MainActivity extends Activity {
         add(root, paste, 12);
         paste.setOnClickListener(v -> pasteClipboard());
 
+        Button batch = button("NHẬP NHIỀU CHAT ZALO TỪ FILE", false);
+        add(root, batch, 12);
+        batch.setOnClickListener(v -> startActivity(new Intent(this, BatchImportActivity.class)));
+
         Button probe = button("THỬ LIÊN KẾT ZALO KHÔNG ADB (MỚI)", false);
         add(root, probe, 16);
         probe.setOnClickListener(v -> startActivityForResult(
