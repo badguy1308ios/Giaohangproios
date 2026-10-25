@@ -63,6 +63,10 @@ public final class MainActivity extends Activity {
         add(root, paste, 12);
         paste.setOnClickListener(v -> pasteClipboard());
 
+        Button contactsProbe = button("KIỂM TRA ZALO TỪ DANH BẠ ANDROID", false);
+        add(root, contactsProbe, 12);
+        contactsProbe.setOnClickListener(v -> startActivity(new Intent(this, ContactsProbeActivity.class)));
+
         Button batch = button("NHẬP NHIỀU CHAT ZALO TỪ FILE", false);
         add(root, batch, 12);
         batch.setOnClickListener(v -> startActivity(new Intent(this, BatchImportActivity.class)));

@@ -4,6 +4,7 @@
         <package android:name="com.zing.zalo" />
         <intent><action android:name="android.intent.action.CREATE_SHORTCUT" /></intent>
     </queries>
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <application
         android:allowBackup="false"
         android:label="Zalo Chat Lab"
@@ -11,6 +12,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ShortcutProbeActivity" android:exported="false" />
         <activity android:name=".BatchImportActivity" android:exported="false" />
+        <activity android:name=".ContactsProbeActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
