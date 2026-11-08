@@ -10,6 +10,14 @@ internal object VtmanPhonePicker {
     fun canReadSurface(pickerVisible: Boolean, outsideVtman: Boolean, signatureChanged: Boolean): Boolean =
         pickerVisible || (outsideVtman && signatureChanged)
 
+    // Midway through the visible backdrop above the heading, in screen coordinates.
+    fun backdropY(texts: List<VtmanScreenText>, top: Int, bottom: Int): Float? {
+        val heading = texts.filter { isTitle(it.value) && it.bottom > it.top && it.top in (top + 1) until bottom }
+            .minOfOrNull { it.top } ?: return null
+        if (heading - top < (bottom - top) / 8) return null
+        return top + (heading - top) / 2f
+    }
+
     fun firstPhone(texts: List<VtmanScreenText>): String? {
         val titleNodes = texts.filter { isTitle(it.value) }
         if (titleNodes.isEmpty()) return null

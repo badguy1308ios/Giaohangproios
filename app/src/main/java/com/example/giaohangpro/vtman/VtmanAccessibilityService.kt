@@ -29,6 +29,7 @@ class VtmanAccessibilityService : AccessibilityService() {
     private var resultStableTicks = 0
     private var rootMissingSince: Long? = null
     private var phoneReadNotBefore = 0L
+    private val orderWindowBounds = Rect()
     private var phoneScreenBaseline = ""
     private var phoneCandidate = ""
     private var phoneCandidateSince = 0L
@@ -425,6 +426,7 @@ class VtmanAccessibilityService : AccessibilityService() {
         }
         // Chụp trạng thái TRƯỚC cú bấm, rồi xóa toàn bộ ứng viên SĐT của đơn trước.
         // dispatchGesture là bất đồng bộ nên không ghi baseline sau tap.
+        root.getBoundsInScreen(orderWindowBounds)
         phoneScreenBaseline = root.phoneScreenSignature()
         phoneCandidate = ""
         phoneCandidateSince = 0L
@@ -547,9 +549,14 @@ class VtmanAccessibilityService : AccessibilityService() {
             nextBackAt = now + 500L
 
             if (phonePickerVisible) {
-                // Giữ đúng cơ chế VTMan Export thường: đóng bảng chọn số trước.
-                performGlobalAction(GLOBAL_ACTION_BACK)
                 mode=6
+                val y = VtmanPhonePicker.backdropY(pickerTexts, orderWindowBounds.top, orderWindowBounds.bottom)
+                if (y != null && tap(orderWindowBounds.exactCenterX(), y)) {
+                    nextBackAt = now + 1_200L
+                } else {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    nextBackAt = 0L
+                }
                 VtmanQueueController.report("Đã lấy SĐT đầu tiên $phone · đang đóng danh sách số")
             } else {
                 // Chưa Back ngay khi vừa đọc được số ở ứng dụng ngoài.
@@ -575,8 +582,11 @@ class VtmanAccessibilityService : AccessibilityService() {
                 mode = 0
                 return
             }
-            // Exactly one Back was already sent when accepting the first phone.
-            // Wait for dismissal; a second Back can leave Gạch phát offline.
+            // Only if the backdrop tap did not dismiss this still-visible picker.
+            if (nextBackAt > 0L && now >= nextBackAt) {
+                nextBackAt = 0L
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
             schedule(180)
             return
         }

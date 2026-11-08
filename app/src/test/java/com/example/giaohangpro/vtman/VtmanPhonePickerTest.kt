@@ -6,6 +6,13 @@ import org.junit.Test
 class VtmanPhonePickerTest {
     private fun node(value: String, top: Int, bottom: Int = top + 40) = VtmanScreenText(value, 30, top, 650, bottom)
 
+    @Test fun tapsBackdropAboveSheetWithinOffsetOrderWindow() {
+        val nodes = listOf(node("0868217663", 980), node("Chọn số điện thoại để gọi", 900))
+        assertEquals(550f, VtmanPhonePicker.backdropY(nodes, 200, 1400)!!, 0.01f)
+        assertNull(VtmanPhonePicker.backdropY(nodes, 900, 1400))
+        assertNull(VtmanPhonePicker.backdropY(nodes.dropLast(1), 200, 1400))
+    }
+
     @Test fun selectsTopRowRegardlessOfTraversalOrderAndIgnoresBackground() {
         val nodes = listOf(node("0969859601", 1340), node("0901111222", 500),
             node("Chọn số điện thoại để gọi", 1160), node("0868217663", 1240))
