@@ -49,6 +49,18 @@ class VtmanIconBlockParserTest {
         assertEquals("TT505", record.status)
         assertEquals("350,000đ", record.cod)
     }
+    @Test fun shopeeWaybillEndingInDIsNotTheCod() {
+        val waybill = "SHOPEEVTPVN262735342833D"
+        val nodes = snapshot().map { node ->
+            when (node.text) {
+                code -> node.copy(text = waybill)
+                "350,000 đ" -> node.copy(text = "79,900 đ")
+                else -> node
+            }
+        }
+        assertEquals("79,900đ", VtmanIconBlockParser.parse(nodes, waybill)!!.cod)
+    }
+
     @Test fun absentServiceIsAllowed() {
         val record = VtmanIconBlockParser.parse(snapshot(service = false), code)!!
         assertEquals("", record.service)

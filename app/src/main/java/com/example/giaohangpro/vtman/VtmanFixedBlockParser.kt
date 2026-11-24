@@ -11,7 +11,7 @@ data class VtmanScreenText(
 
 object VtmanFixedBlockParser {
     private val statusRegex = Regex("\\bTT\\s*(500|505|506|507|508|515)\\b", RegexOption.IGNORE_CASE)
-    private val moneyRegex = Regex("(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]", RegexOption.IGNORE_CASE)
+    private val moneyRegex = Regex("(?<![\\p{L}\\p{N}_.,-])(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd](?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE)
     private val standaloneMoneyRegex = Regex("^\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)\\s*[đd]\\s*$", RegexOption.IGNORE_CASE)
     private val serviceCodeRegex = Regex("^(COD|PXD|XMG|SMS|PHT|TM|HDV|GBH|GGC|GGDH|GG1P|PTTX|GBP)$", RegexOption.IGNORE_CASE)
     private val genericServiceCodeRegex = Regex("^[A-Z][A-Z0-9]{1,9}$")
@@ -228,10 +228,13 @@ object VtmanFixedBlockParser {
     }
 
     internal fun findCod(block: List<String>, expectedWaybill: String): String {
+        // A numeric waybill ending in D can itself look like an amount.
+        val waybillToken = Regex("(?<![A-Za-z0-9_-])" + Regex.escape(expectedWaybill) + "(?![A-Za-z0-9_-])", RegexOption.IGNORE_CASE)
+        fun amount(line: String): String? = moneyRegex.find(line.replace(waybillToken, " "))?.value?.let(::normalizeCod)
         // 1) Chính xác nhất: tiền nằm trên dòng chứa đúng MVĐ hiện tại.
         val onWaybillRow = block.asSequence()
             .filter { containsExpectedWaybill(it, expectedWaybill) }
-            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .mapNotNull(::amount)
             .firstOrNull()
         if (!onWaybillRow.isNullOrBlank()) return onWaybillRow
 
@@ -239,14 +242,14 @@ object VtmanFixedBlockParser {
         val onStatusRow = block.asSequence()
             .take(4)
             .filter { statusRegex.containsMatchIn(it) }
-            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .mapNotNull(::amount)
             .firstOrNull()
         if (!onStatusRow.isNullOrBlank()) return onStatusRow
 
         // 3) Dòng có nhãn COD và số tiền.
         val labeled = block.asSequence()
             .filter(::looksLikeCodLine)
-            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .mapNotNull(::amount)
             .firstOrNull()
         if (!labeled.isNullOrBlank()) return labeled
 
@@ -254,7 +257,7 @@ object VtmanFixedBlockParser {
         return block.asSequence()
             .map(String::trim)
             .filter(standaloneMoneyRegex::matches)
-            .mapNotNull { moneyRegex.find(it)?.value?.let(::normalizeCod) }
+            .mapNotNull(::amount)
             .firstOrNull()
             .orEmpty()
     }
