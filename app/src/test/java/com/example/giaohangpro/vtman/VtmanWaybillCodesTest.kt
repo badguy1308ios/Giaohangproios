@@ -7,6 +7,23 @@ class VtmanWaybillCodesTest {
     private val code = "SGSIND09102026-01"
     private fun node(text: String, left: Int, top: Int) = VtmanScreenText(text, left, top, left + 200, top + 40)
 
+    @Test fun sevenCharacterCodeSurvivesScanAndCsvRoundTrip() {
+        val scanned = VtmanWaybillCodes.visible(listOf(
+            node("YM86443", 20, 100), node("TT500", 250, 100),
+            node("YM86444 TT500 0 đ", 20, 400)
+        ))
+        assertEquals(listOf("YM86443", "YM86444"), scanned)
+        val csv = "MA_VAN_DON\n" + scanned.joinToString("\n") { "\"$it\"" }
+        assertEquals(scanned, VtmanWaybillCodes.fromCsv(csv))
+        assertEquals(listOf("YM86443"), VtmanWaybillCodes.fromCsv("ym86443;other\nYM86443"))
+        assertTrue(VtmanFixedBlockParser.containsExpectedWaybill("YM86443 TT500 0 đ", "YM86443"))
+        assertFalse(VtmanFixedBlockParser.containsExpectedWaybill("YM864430 TT500", "YM86443"))
+    }
+    @Test fun shortUiLabelsAreStillRejected() {
+        for (bad in listOf("TT500", "Y2010", "1", "YM8644", "ABCDEFG", "YM86 43"))
+            assertFalse(bad, VtmanWaybillCodes.isValid(bad))
+    }
+
     @Test fun reportedCsvLoadsBothCompleteCodes() {
         val csv = "\uFEFFMA_VAN_DON\r\n\"$code\"\r\n\"154069642893\"\r\n"
         assertEquals(listOf(code, "154069642893"), VtmanWaybillCodes.fromCsv(csv))

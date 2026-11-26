@@ -61,6 +61,26 @@ class VtmanIconBlockParserTest {
         assertEquals("79,900đ", VtmanIconBlockParser.parse(nodes, waybill)!!.cod)
     }
 
+    @Test fun sevenCharacterWaybillWithZeroCodParsesByIcons() {
+        val nodes = snapshot().map { node ->
+            when (node.text) {
+                code -> node.copy(text = "YM86443")
+                "TT505" -> node.copy(text = "TT500")
+                "350,000 đ" -> node.copy(text = "0 đ")
+                "COD,PXD" -> node.copy(text = ",GGC")
+                else -> node
+            }
+        }
+        val result = VtmanIconBlockParser.parse(nodes, "YM86443")!!
+        assertEquals("YM86443", result.waybill)
+        assertEquals("TT500", result.status)
+        assertEquals("0đ", result.cod)
+        assertEquals("GGC", result.service)
+        assertTrue(result.customer.isNotBlank())
+        assertTrue(result.address.isNotBlank())
+        assertNotNull(VtmanIconBlockParser.parseCard(nodes, "YM86443")!!.callPoint)
+    }
+
     @Test fun absentServiceIsAllowed() {
         val record = VtmanIconBlockParser.parse(snapshot(service = false), code)!!
         assertEquals("", record.service)

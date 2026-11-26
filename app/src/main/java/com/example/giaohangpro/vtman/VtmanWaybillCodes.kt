@@ -3,7 +3,8 @@ package com.example.giaohangpro.vtman
 /** One complete waybill, including hyphen-separated suffixes, across scan and CSV. */
 internal object VtmanWaybillCodes {
     private val format = Regex("[A-Z0-9]+(?:-[A-Z0-9]+)*", RegexOption.IGNORE_CASE)
-    fun isValid(value: String): Boolean = value.length in 8..24 &&
+    // VTMAN also uses seven-character codes, for example YM86443.
+    fun isValid(value: String): Boolean = value.length in 7..24 &&
         value.any { it in '0'..'9' } && format.matches(value)
 
     fun fromCsv(text: String): List<String> {
