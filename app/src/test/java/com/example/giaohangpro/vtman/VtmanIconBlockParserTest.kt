@@ -75,7 +75,7 @@ class VtmanIconBlockParserTest {
         assertEquals("YM86443", result.waybill)
         assertEquals("TT500", result.status)
         assertEquals("0đ", result.cod)
-        assertEquals("GGC", result.service)
+        assertEquals(",GGC", result.service)
         assertTrue(result.customer.isNotBlank())
         assertTrue(result.address.isNotBlank())
         assertNotNull(VtmanIconBlockParser.parseCard(nodes, "YM86443")!!.callPoint)
