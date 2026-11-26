@@ -215,8 +215,7 @@ fun CustomerCard( // Một thẻ khách hàng gồm thông tin và hàng nút th
             }
             CustomerQuickActions(
                 onZalo = {
-                    val raw = if (customer.primaryCanZalo && customer.phone.isNotBlank()) customer.phone
-                    else customer.extraPhones.firstOrNull { it.canZalo }?.number
+                    val raw = zaloPhone(customer)
                     raw?.let {
                         val number = it.filter(Char::isDigit)
                         runCatching {

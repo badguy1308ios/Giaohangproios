@@ -74,6 +74,7 @@ fun CustomerDetailScreen(
     }
 
     fun phoneFor(kind: String): String? {
+        if (kind == "zalo") return zaloPhone(customer)
         val primaryOk = when (kind) {
             "call" -> customer.primaryCanCall
             "zalo" -> customer.primaryCanZalo

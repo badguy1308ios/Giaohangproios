@@ -40,8 +40,9 @@ internal fun DeliveryGroupCard(
     val phone = (customer?.phone ?: primary.phone).filter(Char::isDigit)
 
     fun openZalo() {
-        if (phone.isNotBlank()) runCatching {
-            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://zalo.me/$phone")))
+        val number = zaloPhone(customer, primary.phone) ?: return
+        runCatching {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://zalo.me/$number")))
         }
     }
     fun openSms() {
