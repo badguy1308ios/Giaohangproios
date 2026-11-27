@@ -31,9 +31,11 @@ internal suspend fun storeGatePhoto(context: Context, source: Uri): String? = wi
             ?: error("Unsupported or damaged photo")
         decoded.recycle()
         check(temporary.renameTo(target))
+        GatePhotoDebug.record(context, "customer_gate_photos/${target.name}", "FILE_SAVED")
         "customer_gate_photos/${target.name}"
     } catch (e: Exception) {
         temporary.delete()
+        GatePhotoDebug.failure(context, source.toString(), "STORE_PHOTO", e.javaClass.simpleName)
         Log.w("GatePhoto", "Cannot store selected photo", e)
         null
     }
@@ -177,7 +179,7 @@ internal fun gatePhotoAudit(context: Context): String {
             val extras = c.optJSONArray("extraAddresses")
             if (extras != null) for (j in 0 until extras.length()) report("địa chỉ ${j + 2}", extras.getJSONObject(j).optString("photoUri"))
         }
-        appendLine("\nDEBUG TẠI BỘ ĐỌC ẢNH (40 lỗi gần nhất, gộp lỗi lặp):")
+        appendLine("\nDEBUG ẢNH (80 sự kiện gần nhất, gộp sự kiện lặp):")
         appendLine(GatePhotoDebug.report(context))
     }
 }
@@ -204,12 +206,17 @@ internal fun preserveLegacyGatePhotos(context: Context, sources: List<String>) {
             ((uri.scheme == "file" || (uri.scheme == null && File(source).isAbsolute)) &&
                 !localPath.startsWith(context.filesDir.absolutePath + "/"))
         if (external) runCatching {
+            val alreadyArchived = GatePhotoArchive.find(context.filesDir, source) != null
             GatePhotoArchive.preserve(context.filesDir, source, { openGatePhoto(context, source) }) { file ->
                 val bitmap = loadGatePhoto(context, file.absolutePath)
                 bitmap?.recycle()
                 bitmap != null
             }
-        }.onFailure { Log.w("GatePhoto", "Legacy photo could not be preserved: ${it.javaClass.simpleName}") }
+            if (!alreadyArchived) GatePhotoDebug.record(context, source, "LEGACY_COPIED")
+        }.onFailure {
+            GatePhotoDebug.failure(context, source, "LEGACY_COPY_FAILED", it.javaClass.simpleName)
+            Log.w("GatePhoto", "Legacy photo could not be preserved: ${it.javaClass.simpleName}")
+        }
     }
 }
 
@@ -217,6 +224,7 @@ internal fun deleteStoredGatePhoto(context: Context, source: String) {
     if (source.isBlank()) return
     try {
         synchronized(GatePhotoArchive) {
+            GatePhotoDebug.record(context, source, "DELETE_REQUESTED")
             GatePhotoArchive.discard(context.filesDir, source)
             val uri = Uri.parse(source)
             val path = when {
@@ -227,6 +235,7 @@ internal fun deleteStoredGatePhoto(context: Context, source: String) {
             }
             val file = if (path.isNotBlank()) GatePhotoFiles.owned(context.filesDir, path) else null
             check(file == null || !file.exists() || file.delete()) { "Cannot delete replaced photo" }
+            GatePhotoDebug.record(context, source, "DELETE_COMPLETED")
         }
     } catch (e: Exception) {
         GatePhotoDebug.failure(context, source, "DELETE_REPLACED_PHOTO", e.javaClass.simpleName)

@@ -1521,6 +1521,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         if (previous.photoUri == uri) return
         customerState[index] = CustomerCoordinateSafety.updatePhoto(previous, uri)
         if (savePersistentData(commitNow = true)) {
+            GatePhotoDebug.changed(getApplication(), previous, customerState[index])
             viewModelScope.launch(Dispatchers.IO) { deleteStoredGatePhoto(getApplication(), previous.photoUri) }
         } else {
             customerState[index] = previous
@@ -1539,6 +1540,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
             savePersistentData()
             return false
         }
+        GatePhotoDebug.changed(getApplication(), original, updatedCustomer)
         val retained = (listOf(updatedCustomer.photoUri) + updatedCustomer.extraAddresses.map { it.photoUri }).toSet()
         val replaced = (listOf(original.photoUri) + original.extraAddresses.map { it.photoUri })
             .filter { it.isNotBlank() && it !in retained }.distinct()

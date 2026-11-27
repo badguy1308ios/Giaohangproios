@@ -132,8 +132,7 @@ fun CustomerDetailScreen(
                         photoScope.launch {
                             try {
                                 photoAudit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    "Khách đang xem: ID ${customer.id}\n" + gatePhotoDiagnosis(context, customer.photoUri) +
-                                        "\n\n" + gatePhotoAudit(context)
+                                    GatePhotoDebug.quickReport(context, customer)
                                 }
                                 showPhotoMenu = false
                             } catch (e: Exception) {
@@ -141,7 +140,7 @@ fun CustomerDetailScreen(
                             } finally { auditingPhotos = false }
                         }
                     }, modifier = Modifier.fillMaxWidth()
-                ) { Text(if (auditingPhotos) "Đang kiểm tra ảnh…" else "Kiểm tra ảnh đã lưu") }
+                ) { Text(if (auditingPhotos) "Đang kiểm tra ảnh…" else "Kiểm tra nhanh ảnh khách này") }
                 FilledTonalButton(
                     onClick = { showPhotoMenu = false; galleryLauncher.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth()
